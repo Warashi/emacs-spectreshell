@@ -6,6 +6,7 @@
   texinfo,
   callPackage,
   runCommand,
+  xcbuild,
   emacs31-nox,
 }:
 stdenv.mkDerivation (finalAttrs: {
@@ -18,11 +19,19 @@ stdenv.mkDerivation (finalAttrs: {
   # ncurses は build.zig の terminfo install step が呼ぶ `tic` のために、
   # texinfo は Info マニュアル生成 step が呼ぶ `makeinfo` のために要る
   # (docs/design.org の「TERM=xterm-ghostty + terminfo 同梱」)。
+  # xcbuild は macOS の Nix サンドボックス用。Xcode がないため、ghostty の
+  # pkg/apple-sdk (zlib/simdutf/highway 等の pkg/* がビルドグラフ構築時に
+  # 呼ぶ) が使う zig の LibCInstallation.findNative が実行する
+  # `xcode-select --print-path` と `xcrun --sdk macosx --show-sdk-path` が
+  # 見つからず DarwinSdkNotFound で panic する。xcbuild は両コマンドを
+  # 同梱し、darwin stdenv の apple-sdk setup hook が設定する
+  # $DEVELOPER_DIR から Nix 提供の SDK を解決して返す。
   nativeBuildInputs = [
     zig
     ncurses
     texinfo
-  ];
+  ]
+  ++ lib.optionals stdenv.hostPlatform.isDarwin [ xcbuild ];
 
   deps = callPackage ../build.zig.zon.nix {
     name = "${finalAttrs.pname}-cache-${finalAttrs.version}";
