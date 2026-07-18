@@ -287,8 +287,87 @@ fn buildKeyEvent(
 }
 
 // ---------------------------------------------------------------------
+// BUTTON / ACTION / ROW / COL / MODIFIERS -> core.Term.encodeMouse 引数
+// ---------------------------------------------------------------------
+
+/// ROW/COL は 0-origin の端末座標 (docs/module-api.md)。extractDim と違い
+/// 0 も許すため上限のみ (u16 幅の端末に収まる座標だけを受け付ける) 別に
+/// 検査する。
+fn extractCoord(env: *emacs.Env, value: *emacs.Value) !usize {
+    const n = emacs.extractInteger(env, value);
+    if (emacs.pendingExit(env)) return error.PendingLispSignal;
+    if (n < 0 or n > std.math.maxInt(u16)) {
+        emacs.nonLocalExitSignal(env, emacs.intern(env, "args-out-of-range"), emacs.list(env, &.{value}));
+        return error.PendingLispSignal;
+    }
+    return @intCast(n);
+}
+
+/// BUTTON は nil (ボタンなしの motion) か、整数 1/2/3 (left/middle/right、
+/// X11 のボタン番号慣習) か、`wheel-up`/`wheel-down`/`wheel-left`/
+/// `wheel-right` シンボルのいずれか (design.md の中間表現)。
+fn buildMouseButton(env: *emacs.Env, arena: std.mem.Allocator, value: *emacs.Value) !?core.MouseButton {
+    const nil = emacs.nilv(env);
+    if (emacs.eq(env, value, nil)) return null;
+
+    const ty = emacs.typeOf(env, value);
+    if (emacs.eq(env, ty, emacs.intern(env, "integer"))) {
+        const n = emacs.extractInteger(env, value);
+        if (emacs.pendingExit(env)) return error.PendingLispSignal;
+        return switch (n) {
+            1 => .left,
+            2 => .middle,
+            3 => .right,
+            else => error.TypeMismatch,
+        };
+    }
+
+    const name_val = emacs.funcall(env, emacs.intern(env, "symbol-name"), &.{value});
+    if (emacs.pendingExit(env)) return error.PendingLispSignal;
+    const name = try emacs.copyStringContents(env, arena, name_val);
+    if (std.mem.eql(u8, name, "wheel-up")) return .wheel_up;
+    if (std.mem.eql(u8, name, "wheel-down")) return .wheel_down;
+    if (std.mem.eql(u8, name, "wheel-left")) return .wheel_left;
+    if (std.mem.eql(u8, name, "wheel-right")) return .wheel_right;
+    return error.TypeMismatch;
+}
+
+/// ACTION は `press`/`release`/`motion` シンボルのいずれか (design.md)。
+fn buildMouseAction(env: *emacs.Env, arena: std.mem.Allocator, value: *emacs.Value) !core.MouseAction {
+    const name_val = emacs.funcall(env, emacs.intern(env, "symbol-name"), &.{value});
+    if (emacs.pendingExit(env)) return error.PendingLispSignal;
+    const name = try emacs.copyStringContents(env, arena, name_val);
+    if (std.mem.eql(u8, name, "press")) return .press;
+    if (std.mem.eql(u8, name, "release")) return .release;
+    if (std.mem.eql(u8, name, "motion")) return .motion;
+    return error.TypeMismatch;
+}
+
+/// MODIFIERS は encode-key と同じ `ctrl`/`alt`/`shift`/`super` のリストだが、
+/// core.MouseMods (ghostty Surface.mouseReport 由来) は super を表現できない
+/// ので黙って無視する (未知のシンボル同様、呼び出し側の負担を増やさない
+/// ためエラーにはしない)。
+fn collectMouseMods(env: *emacs.Env, arena: std.mem.Allocator, mods_list: *emacs.Value) !core.MouseMods {
+    var mods: core.MouseMods = .{};
+    var cur = mods_list;
+    const nil = emacs.nilv(env);
+    while (!emacs.eq(env, cur, nil)) {
+        const head = emacs.funcall(env, emacs.intern(env, "car"), &.{cur});
+        const name_val = emacs.funcall(env, emacs.intern(env, "symbol-name"), &.{head});
+        if (emacs.pendingExit(env)) return error.PendingLispSignal;
+        const name = try emacs.copyStringContents(env, arena, name_val);
+        if (std.mem.eql(u8, name, "ctrl")) mods.ctrl = true;
+        if (std.mem.eql(u8, name, "alt")) mods.alt = true;
+        if (std.mem.eql(u8, name, "shift")) mods.shift = true;
+        cur = emacs.funcall(env, emacs.intern(env, "cdr"), &.{cur});
+        if (emacs.pendingExit(env)) return error.PendingLispSignal;
+    }
+    return mods;
+}
+
+// ---------------------------------------------------------------------
 // spectreshell--create / --feed / --resize / --encode-key / --encode-paste
-// / --release の実装本体
+// / --encode-mouse / --release の実装本体
 // ---------------------------------------------------------------------
 
 fn createImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
@@ -348,6 +427,24 @@ fn encodePasteImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
     return emacs.makeUnibyteString(env, bytes);
 }
 
+fn encodeMouseImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
+    const term = try getTerm(env, args[0]);
+
+    var arena = scratchArena();
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const button = try buildMouseButton(env, a, args[1]);
+    const action = try buildMouseAction(env, a, args[2]);
+    const row = try extractCoord(env, args[3]);
+    const col = try extractCoord(env, args[4]);
+    const mods = try collectMouseMods(env, a, args[5]);
+
+    const bytes = try term.encodeMouse(a, button, action, row, col, mods);
+    if (bytes) |b| return emacs.makeUnibyteString(env, b);
+    return emacs.nilv(env);
+}
+
 /// 二重解放safe: 既に解放済み (get_user_ptr が null) なら何もしない。
 /// finalizer と共存できるよう、解放後は set_user_ptr で null にしておき
 /// GC 時の finalizer 呼び出しが no-op になるようにする。
@@ -390,6 +487,11 @@ fn encodePasteFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*a
     return finish(env, encodePasteImpl(env, args[0..@intCast(nargs)]));
 }
 
+fn encodeMouseFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
+    _ = data;
+    return finish(env, encodeMouseImpl(env, args[0..@intCast(nargs)]));
+}
+
 fn releaseFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
     _ = data;
     return finish(env, releaseImpl(env, args[0..@intCast(nargs)]));
@@ -427,5 +529,6 @@ pub fn registerAll(env: *emacs.Env) void {
     defalias(env, "spectreshell--resize", 3, 3, resizeFn, "Resize TERM to ROWS x COLS and return the update plist.");
     defalias(env, "spectreshell--encode-key", 3, 3, encodeKeyFn, "Encode KEY with MODIFIERS for TERM into PTY bytes.");
     defalias(env, "spectreshell--encode-paste", 2, 2, encodePasteFn, "Encode TEXT as a paste for TERM into PTY bytes.");
+    defalias(env, "spectreshell--encode-mouse", 6, 6, encodeMouseFn, "Encode a mouse BUTTON/ACTION at ROW/COL with MODIFIERS for TERM.");
     defalias(env, "spectreshell--release", 1, 1, releaseFn, "Explicitly release TERM. Safe to call more than once.");
 }
