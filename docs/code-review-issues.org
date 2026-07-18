@@ -241,12 +241,17 @@ C-S-a を区別できない。ASCII 大文字は =toLower= した値を入れる
 全体が Lisp エラーで落ちる。xterm の 1005 実装上限 (2015) も踏まえ、
 エンコード不能座標は x10 の 222 超過と同様 null を返す。
 
-*** TODO L-6: buildUpdate 末尾の errdefer が不完全
+*** DONE L-6: buildUpdate 末尾の errdefer が不完全
 対象: =src/core.zig= (=buildUpdate=)
 
 =responses= の dupe 後や =toOwnedSlice= 成功後に後続の =try= が失敗
 すると、非 arena アロケータでは owned slice がリークする (モジュール
 経由は arena のため顕在化しない)。errdefer を末尾まで通す。
+
+対応時に =checkAllAllocationFailures= の回帰テストを追加したところ、
+指摘外のリークも 2 件見つかったため同時に修正した: extractRow の結果を
+=append= する際の失敗でリーク (core.zig の 2 箇所)、=closeSpan= の
+=dupe= 成功後の =append= 失敗で hyperlink がリーク (row.zig)。
 
 *** TODO L-7: createImpl で make_user_ptr が signal した場合の Term リーク
 対象: =src/module.zig= (=createImpl=)

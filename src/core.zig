@@ -312,7 +312,8 @@ pub const Term = struct {
                 null,
             );
             while (it.next()) |pin| {
-                const extracted = try row_mod.extractRow(alloc, pin);
+                var extracted = try row_mod.extractRow(alloc, pin);
+                errdefer extracted.deinit(alloc);
                 try scrolled_off.append(alloc, extracted);
             }
             // 取り出した分は消して、次回 feed で重複して返さないようにする。
@@ -333,7 +334,8 @@ pub const Term = struct {
         const rows: usize = self.render.rows;
         for (0..rows) |y| {
             if (!row_dirty[y]) continue;
-            const extracted = try row_mod.extractRow(alloc, row_pins[y]);
+            var extracted = try row_mod.extractRow(alloc, row_pins[y]);
+            errdefer extracted.deinit(alloc);
             try dirty.append(alloc, .{ .row = y, .text = extracted.text, .spans = extracted.spans });
             // RenderState の行 dirty フラグは「ハンドリングした側が false に
             // 戻す」契約 (ghostty render.zig の doc コメント)。戻さないと
@@ -348,19 +350,31 @@ pub const Term = struct {
         };
 
         const responses = try alloc.dupe(u8, self.responses.items);
+        errdefer alloc.free(responses);
         self.responses.clearRetainingCapacity();
 
         var title: ?[]u8 = null;
+        errdefer if (title) |t| alloc.free(t);
         if (self.pending_title) |t| {
             title = try alloc.dupe(u8, t);
             self.alloc.free(t);
             self.pending_title = null;
         }
 
+        // toOwnedSlice 後は ArrayList 側の errdefer が空リストしか守らない
+        // ので、owned slice 自身にも errdefer を張ってから次の失敗しうる
+        // 呼び出しへ進む (arena 以外のアロケータでのリーク防止)。
+        const dirty_slice = try dirty.toOwnedSlice(alloc);
+        errdefer {
+            for (dirty_slice) |*d| d.deinit(alloc);
+            alloc.free(dirty_slice);
+        }
+        const scrolled_off_slice = try scrolled_off.toOwnedSlice(alloc);
+
         return .{
             .alloc = alloc,
-            .dirty = try dirty.toOwnedSlice(alloc),
-            .scrolled_off = try scrolled_off.toOwnedSlice(alloc),
+            .dirty = dirty_slice,
+            .scrolled_off = scrolled_off_slice,
             .cursor = cursor,
             .responses = responses,
             .alt_screen = alt_screen,
@@ -439,6 +453,20 @@ test "CRによる行上書きは同じ行を再びダーティにする" {
         try testing.expectEqual(@as(usize, 0), update.dirty[0].row);
         try testing.expectEqualStrings("XYc       ", update.dirty[0].text);
     }
+}
+
+test "buildUpdate は途中の割り当て失敗でもリークしない" {
+    const S = struct {
+        fn run(alloc: std.mem.Allocator) !void {
+            // Term 自体は安定したアロケータに置き、Update 構築用の alloc
+            // だけに失敗を注入する (モジュール経由の arena に相当する側)。
+            const t = try Term.init(testing.allocator, 2, 5);
+            defer t.deinit();
+            var update = try t.feed(alloc, "\x1b]2;hi\x07\x1b[6n1\r\n2\r\n3\r\n");
+            update.deinit();
+        }
+    };
+    try std.testing.checkAllAllocationFailures(testing.allocator, S.run, .{});
 }
 
 test "変更のない feed は dirty を返さない" {

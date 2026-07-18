@@ -105,10 +105,12 @@ fn closeSpan(
     const s = cur_style orelse return;
     if (end <= start) return;
     if (s.isDefault()) return;
+    var duped = try s.dupe(alloc);
+    errdefer duped.deinit(alloc);
     try spans.append(alloc, .{
         .start = start,
         .end = end,
-        .style = try s.dupe(alloc),
+        .style = duped,
     });
 }
 
