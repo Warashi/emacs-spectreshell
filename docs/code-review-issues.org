@@ -253,7 +253,7 @@ C-S-a を区別できない。ASCII 大文字は =toLower= した値を入れる
 =append= する際の失敗でリーク (core.zig の 2 箇所)、=closeSpan= の
 =dupe= 成功後の =append= 失敗で hyperlink がリーク (row.zig)。
 
-*** TODO L-7: createImpl で make_user_ptr が signal した場合の Term リーク
+*** DONE L-7: createImpl で make_user_ptr が signal した場合の Term リーク
 対象: =src/module.zig= (=createImpl=)
 
 finalizer 未登録のまま =Term= がリークする (Emacs 側 memory-full 時

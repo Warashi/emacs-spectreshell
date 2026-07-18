@@ -385,7 +385,14 @@ fn createImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
     const rows = try extractDim(env, args[0]);
     const cols = try extractDim(env, args[1]);
     const term = try core.Term.init(term_alloc, rows, cols);
-    return emacs.makeUserPtr(env, &termFinalizer, term);
+    const value = emacs.makeUserPtr(env, &termFinalizer, term);
+    // make_user_ptr 自体が signal した場合 (memory-full 等) は finalizer が
+    // 登録されておらず GC 経由でも解放されないため、ここで畳む。
+    if (emacs.pendingExit(env)) {
+        term.deinit();
+        return error.PendingLispSignal;
+    }
+    return value;
 }
 
 fn feedImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
