@@ -9,6 +9,15 @@ pub const Underline = style.Underline;
 pub const Style = style.Style;
 pub const Span = style.Span;
 
+/// UTF-8 マウス報告 (mode 1005) の1座標分。32 (SP) + 1-origin 変換込みの
+/// コードポイントを直接 UTF-8 で書く (xterm の実装に合わせて西暦2000年
+/// 問題ならぬ「座標223超えでバイトが衝突する」x10 形式の限界を回避する)。
+fn writeUtf8Coord(w: *std.Io.Writer, coord: usize) !void {
+    var buf: [4]u8 = undefined;
+    const n = try std.unicode.utf8Encode(@intCast(32 + coord + 1), &buf);
+    try w.writeAll(buf[0..n]);
+}
+
 /// scrolled_off の各行。Row と DirtyRow で所有権の解放ロジックが重複するが、
 /// DirtyRow は行番号を持つため型を分けている。
 pub const Row = row_mod.Extracted;
@@ -36,6 +45,29 @@ pub const AltScreen = enum {
     unchanged,
     entered,
     left,
+};
+
+/// design.md の BUTTON 中間表現。ghostty-vt はマウスレポートのエンコーダを
+/// 公開していないため (design.md 前提の調査結果)、ghostty 本体
+/// src/Surface.zig の mouseReport のボタン番号割り当てをそのまま踏襲する。
+pub const MouseButton = enum {
+    left,
+    middle,
+    right,
+    wheel_up,
+    wheel_down,
+    wheel_left,
+    wheel_right,
+};
+
+pub const MouseAction = enum { press, release, motion };
+
+/// mouseReport は super を見ないので (ctrl/alt/shift のみビット割り当てが
+/// ある)、encode-key の MODIFIERS と違いここでは super を受け付けない。
+pub const MouseMods = struct {
+    ctrl: bool = false,
+    alt: bool = false,
+    shift: bool = false,
 };
 
 pub const Update = struct {
@@ -143,6 +175,106 @@ pub const Term = struct {
             off += p.len;
         }
         return out;
+    }
+
+    /// ghostty 本体 src/Surface.zig の mouseReport を、Emacs 側が既に
+    /// セル単位の (ROW, COL) しか持っていない前提に合わせて移植したもの。
+    /// pos_out_viewport 判定 (画面外座標の間引き) は呼び出し側 (Elisp) が
+    /// バッファ座標から計算する時点で常に端末領域内に収まるため省略し、
+    /// sgr_pixels フォーマットもピクセル座標がないため sgr と同一に扱う
+    /// (どちらもここでは cell 座標を使う)。マウストラッキングが無効なら
+    /// null を返す。
+    pub fn encodeMouse(
+        self: *Term,
+        alloc: std.mem.Allocator,
+        button: ?MouseButton,
+        action: MouseAction,
+        row: usize,
+        col: usize,
+        mods: MouseMods,
+    ) !?[]u8 {
+        const mouse_event = self.terminal.flags.mouse_event;
+        switch (mouse_event) {
+            .none => return null,
+            // X10 は press のみ、かつ left/right/middle のみ報告する。
+            .x10 => if (action != .press or
+                button == null or
+                !(button.? == .left or button.? == .right or button.? == .middle))
+                return null,
+            // normal (1000) は motion を報告しない。
+            .normal => if (action == .motion) return null,
+            // button-event (1002) はボタンを押している間の motion のみ。
+            .button => if (button == null) return null,
+            .any => {},
+        }
+
+        const button_code: u8 = code: {
+            var acc: u8 = 0;
+            if (button == null) {
+                // ボタンなしの motion (any モードのみここに来る)。
+                acc = 3;
+            } else if (action == .release and
+                self.terminal.flags.mouse_format != .sgr and
+                self.terminal.flags.mouse_format != .sgr_pixels)
+            {
+                // SGR 系以外は release を区別できないので button 3 固定。
+                acc = 3;
+            } else {
+                acc = switch (button.?) {
+                    .left => 0,
+                    .middle => 1,
+                    .right => 2,
+                    .wheel_up => 64,
+                    .wheel_down => 65,
+                    .wheel_left => 66,
+                    .wheel_right => 67,
+                };
+            }
+
+            // X10 は修飾キーを表現できない。
+            if (mouse_event != .x10) {
+                if (mods.shift) acc += 4;
+                if (mods.alt) acc += 8;
+                if (mods.ctrl) acc += 16;
+            }
+
+            if (action == .motion) acc += 32;
+            break :code acc;
+        };
+
+        var aw: std.Io.Writer.Allocating = .init(alloc);
+        errdefer aw.deinit();
+        const w = &aw.writer;
+
+        switch (self.terminal.flags.mouse_format) {
+            .x10 => {
+                // 32 を足した値を1バイトにそのまま詰める方式なので、
+                // 223 (255-32) を超える座標はエンコードできない。
+                if (col > 222 or row > 222) {
+                    aw.deinit();
+                    return null;
+                }
+                try w.writeAll("\x1b[M");
+                try w.writeByte(32 + button_code);
+                try w.writeByte(@intCast(32 + col + 1));
+                try w.writeByte(@intCast(32 + row + 1));
+            },
+            .utf8 => {
+                try w.writeAll("\x1b[M");
+                try w.writeByte(32 + button_code);
+                try writeUtf8Coord(w, col);
+                try writeUtf8Coord(w, row);
+            },
+            .sgr, .sgr_pixels => {
+                const final: u8 = if (action == .release) 'm' else 'M';
+                try w.print("\x1b[<{d};{d};{d}{c}", .{ button_code, col + 1, row + 1, final });
+            },
+            .urxvt => {
+                try w.print("\x1b[{d};{d};{d}M", .{ 32 + button_code, col + 1, row + 1 });
+            },
+        }
+
+        return try aw.toOwnedSlice();
     }
 
     fn buildUpdate(self: *Term, alloc: std.mem.Allocator) !Update {
@@ -427,4 +559,111 @@ test "encodePaste は bracketed paste モードに追従する" {
         defer alloc.free(bytes);
         try testing.expectEqualStrings("\x1b[200~hi\x1b[201~", bytes);
     }
+}
+
+test "encodeMouse はトラッキング無効なら null を返す" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    const bytes = try t.encodeMouse(alloc, .left, .press, 1, 2, .{});
+    try testing.expectEqual(@as(?[]u8, null), bytes);
+}
+
+test "encodeMouse はモード1000+1006でSGR形式のpress/releaseをエンコードする" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    {
+        var update = try t.feed(alloc, "\x1b[?1000h\x1b[?1006h");
+        defer update.deinit();
+    }
+
+    {
+        const bytes = try t.encodeMouse(alloc, .left, .press, 1, 2, .{});
+        defer if (bytes) |b| alloc.free(b);
+        // 0-origin (row=1, col=2) -> 1-origin (col+1=3, row+1=2)。
+        try testing.expectEqualStrings("\x1b[<0;3;2M", bytes.?);
+    }
+
+    {
+        const bytes = try t.encodeMouse(alloc, .left, .release, 1, 2, .{});
+        defer if (bytes) |b| alloc.free(b);
+        try testing.expectEqualStrings("\x1b[<0;3;2m", bytes.?);
+    }
+}
+
+test "encodeMouse はSGRモードで修飾キーをビット加算する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[?1000h\x1b[?1006h");
+    defer update.deinit();
+
+    const bytes = try t.encodeMouse(alloc, .left, .press, 0, 0, .{ .ctrl = true, .shift = true });
+    defer if (bytes) |b| alloc.free(b);
+    // button 0 + shift(4) + ctrl(16) = 20。
+    try testing.expectEqualStrings("\x1b[<20;1;1M", bytes.?);
+}
+
+test "encodeMouse はモード1002 (button)ではボタンなしのmotionをnullにする" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[?1002h\x1b[?1006h");
+    defer update.deinit();
+
+    {
+        const bytes = try t.encodeMouse(alloc, null, .motion, 1, 1, .{});
+        try testing.expectEqual(@as(?[]u8, null), bytes);
+    }
+
+    {
+        const bytes = try t.encodeMouse(alloc, .left, .motion, 1, 1, .{});
+        defer if (bytes) |b| alloc.free(b);
+        try testing.expect(bytes != null);
+    }
+}
+
+test "encodeMouse はホイールをボタン64/65としてエンコードする" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[?1000h\x1b[?1006h");
+    defer update.deinit();
+
+    const bytes = try t.encodeMouse(alloc, .wheel_up, .press, 0, 0, .{});
+    defer if (bytes) |b| alloc.free(b);
+    try testing.expectEqualStrings("\x1b[<64;1;1M", bytes.?);
+}
+
+test "encodeMouse はモード1000 (normal)ではmotionをnullにする" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[?1000h\x1b[?1006h");
+    defer update.deinit();
+
+    const bytes = try t.encodeMouse(alloc, .left, .motion, 1, 1, .{});
+    try testing.expectEqual(@as(?[]u8, null), bytes);
+}
+
+test "encodeMouse はx10形式でバイト直値エンコードする" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    // mode 9 (X10) はデフォルトの x10 フォーマットのままトラッキングだけ有効にする。
+    var update = try t.feed(alloc, "\x1b[?9h");
+    defer update.deinit();
+
+    const bytes = try t.encodeMouse(alloc, .left, .press, 1, 2, .{});
+    defer if (bytes) |b| alloc.free(b);
+    // ESC [ M (32+button) (32+col+1) (32+row+1)。
+    try testing.expectEqualStrings(&[_]u8{ 0x1b, '[', 'M', 32, 32 + 3, 32 + 2 }, bytes.?);
 }
