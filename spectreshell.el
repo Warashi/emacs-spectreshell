@@ -41,6 +41,57 @@
 (declare-function spectreshell--encode-paste "libspectreshell" (term text))
 (declare-function spectreshell--encode-mouse "libspectreshell" (term button action row col modifiers))
 
+;; ---------------------------------------------------------------------
+;; Module loading
+;; ---------------------------------------------------------------------
+
+(defconst spectreshell--module-candidate-subpaths
+  '(;; A local `zig build'/`just build' checkout: `spectreshell.el' loads
+    ;; from the repository root, and `build.zig' installs the module next
+    ;; to the terminfo database under `zig-out'.
+    "zig-out/lib/libspectreshell.so"
+    ;; The nix package layout: `spectreshell.el' loads from
+    ;; "$out/share/emacs/site-lisp", three levels up from which is
+    ;; "$out", the parent of "$out/lib".
+    "../../../lib/libspectreshell.so")
+  "Paths to probe for `libspectreshell.so'.
+Each is relative to the directory `spectreshell.el' (this library) was
+loaded from; see `spectreshell--detect-module-path'.")
+
+(defun spectreshell--detect-module-path ()
+  "Return a path to `libspectreshell.so' found near this library, or nil.
+Probes `spectreshell--module-candidate-subpaths' relative to wherever
+`locate-library' says `spectreshell.el' itself was loaded from, and
+returns the first one that exists as a file."
+  (when-let* ((lib (locate-library "spectreshell"))
+              (dir (file-name-directory lib)))
+    (seq-find #'file-exists-p
+              (mapcar (lambda (rel) (expand-file-name rel dir))
+                      spectreshell--module-candidate-subpaths))))
+
+(defun spectreshell-ensure-module-loaded ()
+  "Load `libspectreshell.so' via `module-load' unless already loaded.
+Called automatically when this library loads, so that a plain
+`(require (quote spectreshell))' is enough to make the
+`spectreshell--create'/`spectreshell--feed'/... functions
+(docs/module-api.md) available -- callers do not need to know where the
+module lives themselves.  Checks `fboundp' on `spectreshell--create'
+first both to make this idempotent (module-load'ing the same file twice
+is unnecessary work at best) and to let a caller -- e.g. a test harness
+that wants a fresh terminal-less module state -- `module-load' a
+specific copy ahead of time and have this become a no-op.  Signals an
+error naming the paths it tried when `spectreshell--detect-module-path'
+cannot find one, since \"module functions are simply undefined\" would
+otherwise surface as a much more confusing error far from its cause."
+  (unless (fboundp 'spectreshell--create)
+    (if-let* ((path (spectreshell--detect-module-path)))
+        (module-load path)
+      (error "spectreshell: libspectreshell.so not found near %s (tried: %s); run `zig build' or `nix build' first"
+             (or (locate-library "spectreshell") "spectreshell.el")
+             (mapconcat #'identity spectreshell--module-candidate-subpaths ", ")))))
+
+(spectreshell-ensure-module-loaded)
+
 (defgroup spectreshell nil
   "Terminal emulation rendering engine for eshell."
   :group 'terminals
