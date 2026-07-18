@@ -44,22 +44,67 @@
   :group 'spectreshell
   :prefix "spectreshell-")
 
-(defcustom spectreshell-term-name "xterm-256color"
+;; ---------------------------------------------------------------------
+;; Bundled terminfo detection
+;; ---------------------------------------------------------------------
+
+(defconst spectreshell--terminfo-candidate-subdirs
+  '(;; A local `zig build'/`just build' checkout: `spectreshell.el' loads
+    ;; from the repository root, and `build.zig' installs terminfo next
+    ;; to the module under `zig-out'.
+    "zig-out/share/terminfo"
+    ;; The nix package layout: `spectreshell.el' loads from
+    ;; "$out/share/emacs/site-lisp", two levels up from which is
+    ;; "$out/share", the sibling of "$out/share/terminfo".
+    "../../terminfo")
+  "Directories to probe for a bundled terminfo database.
+Each is relative to the directory `spectreshell.el' (this library) was
+loaded from; see `spectreshell--detect-terminfo-directory'.")
+
+(defun spectreshell--detect-terminfo-directory ()
+  "Return a directory holding spectreshell's bundled terminfo database, or nil.
+Probes `spectreshell--terminfo-candidate-subdirs' relative to wherever
+`locate-library' says `spectreshell.el' itself was loaded from, and
+returns the first one that exists as a directory.  Returns nil if
+`spectreshell.el' cannot be located (should not normally happen, since
+this file requires it) or none of the candidates exist -- e.g. a `zig
+build' that has not installed anything yet, or a manual/non-nix install
+that only copied the .el files and the module."
+  (when-let* ((lib (locate-library "spectreshell"))
+              (dir (file-name-directory lib)))
+    (seq-find #'file-directory-p
+              (mapcar (lambda (rel) (expand-file-name rel dir))
+                      spectreshell--terminfo-candidate-subdirs))))
+
+(defcustom spectreshell-term-name "xterm-ghostty"
   "TERM value spectreshell exports for eshell's external processes.
-A dedicated terminfo entry describing spectreshell's actual
-capabilities is planned for Phase 6 (docs/implementation-plan.md);
-until it is bundled, this defaults to a value practically every system
-already has terminfo for, at the cost of spectreshell under-reporting
-some of what it can actually render."
+Defaults to \"xterm-ghostty\", the name of spectreshell's own bundled
+terminfo entry (ghostty-vt's actual capabilities, since the entry is
+ghostty's own -- see `spectreshell-terminfo-directory'), so that child
+processes see an accurate capability set instead of settling for
+whatever a generic xterm entry happens to also cover.
+
+If, at load time, no bundled terminfo database could be found
+(`spectreshell-terminfo-directory' is nil) *and* this variable still has
+its default value, spectreshell exports \"xterm-256color\" instead --
+a value practically every system already has terminfo for -- so that
+child processes do not fail to look up an unknown TERM.  Customize this
+variable to any other value (including \"xterm-ghostty\" itself, set
+explicitly) to opt out of that fallback, e.g. because a matching
+terminfo entry is installed system-wide even though spectreshell could
+not find its own copy."
   :type 'string)
 
-(defcustom spectreshell-terminfo-directory nil
+(defcustom spectreshell-terminfo-directory (spectreshell--detect-terminfo-directory)
   "Directory added to TERMINFO for eshell's external processes, or nil.
-Nil (the default) leaves TERMINFO untouched, since spectreshell does
-not yet bundle a terminfo database of its own (Phase 6).  Set this if
-you separately install a terminfo entry matching
-`spectreshell-term-name' somewhere not already on the system's default
-terminfo search path."
+Auto-detected when this library loads by
+`spectreshell--detect-terminfo-directory', which recognizes both a
+local `zig build' checkout's `zig-out/share/terminfo' and the nix
+package's `$out/share/terminfo' layout.  Nil means no bundled terminfo
+database was found (see `spectreshell-term-name' for the TERM value
+fallback this implies); set this explicitly if you installed one
+somewhere spectreshell cannot guess, or to nil to force that fallback
+even when a database was in fact auto-detected."
   :type '(choice (const :tag "Do not set TERMINFO" nil) directory))
 
 ;; ---------------------------------------------------------------------
@@ -281,6 +326,16 @@ both fixed at OS-level creation time and cannot be changed afterwards."
                     (cdr spectreshell-eshell--pty-size))))
     (apply orig args)))
 
+(defun spectreshell-eshell--effective-term-name ()
+  "Return the TERM value to export, applying `spectreshell-term-name''s
+documented xterm-ghostty -> xterm-256color fallback: only when the user
+has not customized TERM away from the default *and* no bundled terminfo
+database was found for it to describe."
+  (if (and (equal spectreshell-term-name "xterm-ghostty")
+           (null spectreshell-terminfo-directory))
+      "xterm-256color"
+    spectreshell-term-name))
+
 (defun spectreshell-eshell--process-environment ()
   "Return `process-environment' plus spectreshell's TERM/TERMINFO exports.
 `eshell-gather-process-output' rebuilds `process-environment' for the
@@ -291,7 +346,7 @@ result around a call to it is enough to reach the child even though
 eshell never asks anyone else for extra variables directly.  Prepended
 (rather than appended) so these two values win over any same-named
 variable already inherited from Emacs's own environment."
-  (append (list (concat "TERM=" spectreshell-term-name))
+  (append (list (concat "TERM=" (spectreshell-eshell--effective-term-name)))
           (when spectreshell-terminfo-directory
             (list (concat "TERMINFO=" spectreshell-terminfo-directory)))
           process-environment))
