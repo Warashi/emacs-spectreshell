@@ -1,16 +1,15 @@
 const std = @import("std");
+const emacs = @import("emacs.zig");
+const module = @import("module.zig");
 
 /// Emacs はこのシンボルの存在をもって GPL 互換モジュールと判定する。
 /// 値は参照されないため 0 でよい。
 export var plugin_is_GPL_compatible: c_int = 0;
 
-/// emacs_module.h の struct emacs_runtime。Phase 0 では中身に触れないため
-/// opaque で宣言し、フィールド定義は emacs-module 境界の実装時に追加する。
-pub const EmacsRuntime = opaque {};
-
 /// モジュール初期化。0 を返すと Emacs 側で load 成功扱いになる。
-export fn emacs_module_init(runtime: ?*EmacsRuntime) callconv(.c) c_int {
-    _ = runtime;
+export fn emacs_module_init(runtime: *emacs.Runtime) callconv(.c) c_int {
+    const env = runtime.get_environment.?(runtime);
+    module.registerAll(env);
     return 0;
 }
 
@@ -23,4 +22,5 @@ test {
     _ = @import("core.zig");
     _ = @import("keymap.zig");
     _ = @import("emacs.zig");
+    _ = @import("module.zig");
 }
