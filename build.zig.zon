@@ -1,0 +1,13 @@
+.{
+    .name = .emacs_spectreshell,
+    .version = "0.0.1",
+    .dependencies = .{
+        .ghostty = .{
+            .url = "git+https://github.com/ghostty-org/ghostty.git#f3c9a2b7262a989ba7e9408d00471fda8f788d16",
+            .hash = "ghostty-1.3.2-dev-5UdBC2uMIQUcERHokdgWVnnQ2AW3P-_PkQbDlN9vAaWY",
+        },
+    },
+    .minimum_zig_version = "0.16.0",
+    .paths = .{""},
+    .fingerprint = 0xe5d2373ed25aadc,
+}
