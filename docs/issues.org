@@ -1,0 +1,141 @@
+#+title: 課題管理
+#+todo: TODO(t) | DONE(d)
+
+既知の未対応課題を管理するファイル。対応したら =DONE= に移し、対応
+コミットを本文に記録するか、末尾の対応済み一覧へ 1 行で移す。
+
+各項目の ID (M-3, L-2, P-1 など) は初出のリポジトリ全体レビュー
+(2026-07-18 実施) での採番で、過去のコミットメッセージからも参照されて
+いるため維持する。詳細な指摘本文と検証記録は当時のファイル
+(=docs/code-review-issues.org=) の git 履歴を参照。
+
+* 機能・堅牢性
+
+** TODO M-3: 同一バッファでの並行ジョブで端末領域が交錯する
+対象: =spectreshell-eshell.el= (=--attach= / gather advice)
+
+=spectreshell--current= / =spectreshell-eshell--process= が単一スロット
+のため、=command &= 実行中に次のコマンドを打つと後発 attach が先発を
+上書きし、双方が「marker〜point-max」を自領域とみなして削除・上書きし
+合う。先発の detach は後発ジョブ実行中でも無条件に semi-char モードを
+解除する。
+
+端末領域を複数持つ設計変更 (領域終端マーカーの導入、per-process の
+領域管理) が必要で、docs/design.org の「最後のパイプラインステージ
+のみ」簡略化の見直しを含む。別途設計してから対応する。
+
+** TODO L-2: キーマップの穴 (backtab / 修飾付き TAB・RET・DEL)
+対象: =spectreshell.el= (semi-char keymap, =spectreshell--event-to-key=)
+
+=backtab= (GUI の S-TAB)、=C-<tab>= / =M-RET= / =C-<backspace>= 等が
+未束縛で Emacs 側コマンドに流れる。=spectreshell--event-to-key= 自体も
+ascii 特殊キー判定が raw イベント完全一致のため、束縛を足すだけでは
+=M-RET= が =return= + alt にならない。
+
+イベント正規化 (=--event-to-key=) の基本ケース分解を修飾付き ascii
+特殊キーまで広げる設計変更が必要。単体で意味のある改修として対応する。
+
+* ビルド・パッケージング
+
+** TODO L-13: build.zig の terminfo install が install マニフェスト管理外
+対象: =build.zig=
+
+=mkdir -p= + =cp -R= の system command 直書きのため =zig build
+uninstall= 不可・ステップキャッシュ不可・Windows 非対応。tic の stderr
+も =captureStdErr= で捨てており失敗時の診断が出ない。
+
+シンボリックリンク保存という制約 (コメントに明記) があり、InstallDir
+ステップでは表現できない。stderr の扱いのみ改善余地。
+
+* 性能・UX (設計判断を要する改善)
+
+** TODO P-1: point の強制移動でスクロールバック閲覧が実質不能
+対象: =spectreshell.el= (=spectreshell--move-point=)
+
+毎 update で point と全ウィンドウの window-point をカーソル位置へ移す
+ため、emacs モードで履歴閲覧中も出力のたびに引き戻される。eat/term
+同様「point がカーソル位置にあったときだけ追従」方式を検討する。
+追従条件 (semi-char モード中は常に追従すべきか等) の仕様決めが必要。
+
+** TODO P-2: font-lock 有効時に dirty 行スキップ最適化が無効化される
+対象: =spectreshell.el= (=spectreshell--apply-dirty=)
+
+=fontified= プロパティにより =equal-including-properties= が常に不一致
+になり、全 dirty 行を毎回書き換える。比較前のプロパティ正規化か
+jit-lock 制御を検討する。H-2 (dirty フラグのクリア) 対応後は影響が
+大きく下がっている。
+
+** TODO P-3: Zig ホットパスの intern / funcall 回数
+対象: =src/module.zig=
+
+キーワードシンボルを feed ごとに =intern= し直している。
+=make_global_ref= での初期化時キャッシュ、=symbol-name= 文字列比較の
+=eq= 比較化で削減できる。実測で問題になってから対応する。
+
+** TODO P-4: ReadonlyHandler 委譲でクエリ系が無応答
+対象: =src/handler.zig=
+
+XTGETTCAP・kitty keyboard query (CSI ? u)・DECRQM が黙殺され、neovim
+等の起動時タイムアウト待ちの原因になり得る。DA と同様に横取りして応答
+する価値があるが、各クエリの正しい応答値の調査が必要。
+
+** TODO P-5: --pad-rows の O(n^2) と modification hooks
+対象: =spectreshell.el=
+
+ループ 1 周ごとに =count-lines= で全域を数え直している。必要行数を
+一度計算して一括 insert にする。更新パスでの
+=inhibit-modification-hooks= 束縛も検討 (他モードのフック互換性と
+トレードオフ)。
+
+* 対応済み (2026-07-18 レビュー分の記録)
+
+対応コミットは各 ID でコミットログを検索できる。
+
+- H-1: カーソル/マウスの COL 座標系不一致 (セル列 vs 文字オフセット)
+- H-2: RenderState の行 dirty フラグを消費後にクリアしていない
+- H-3: emacs_module_init がランタイム/env のサイズ検証をしていない
+- H-4: CI と nix の検証経路が存在しない
+- H-5: ロード時のトップレベル module-load 副作用
+- M-1: 更新パスがナローイングの影響を受ける
+- M-2: 更新パスが undo リストを無制限に蓄積する
+- M-4: alt screen 中のプロセス死で primary 画面が失われる
+- M-5: sentinel が無保護で eshell がハングし得る
+- M-6: filter の nil ガードと dead process への書き込みガードがない
+- M-7: 中クリック (mouse-2) が mouse-yank-primary にフォールスルー
+- M-8: リサイズ契機が window-size-change-functions のみ
+- M-9: setTitle の OOM 時 dangling ポインタ
+- M-10: DSR (CSI 6n) が DECOM (origin mode) を無視する
+- M-11: :title / :cursor-visible が Elisp 側で未消費なのに文書は機能を約束
+- M-12: feed 分割 (エスケープシーケンス/UTF-8 境界跨ぎ) のテストがない
+- M-13: 異常系・複数端末のテストギャップ
+- L-1: ドラッグ追跡ループが整数イベントを黙って捨てる
+- L-3: charEvent の unshifted_codepoint が shifted 値のまま
+- L-4: MODIFIERS の循環リストで Emacs がハングする
+- L-5: UTF-8 マウス座標 (mode 1005) のサロゲート域でエラーになる
+- L-6: buildUpdate 末尾の errdefer が不完全
+- L-7: createImpl で make_user_ptr が signal した場合の Term リーク
+- L-8: copyStringContents のサブスライス返却は free 不整合の罠
+- L-9: registerAll の失敗を無視して init が常に 0 を返す
+- L-10: Timespec の Linux 64bit 決め打ちを compile error で明示する
+- L-11: バージョン表記が三者三様
+- L-12: .envrc が gh 未認証環境で壊れた NIX_CONFIG を生成する
+  (リポジトリ管理外のためローカル適用のみ)
+- L-14: eshell テストの less 実行が CWD 依存
+- L-15: spectreshell-test--module-path が 4 ファイルで重複定義
+- L-16: encode-mouse の utf8/urxvt 形式・wheel-left/right・super 修飾が未テスト
+- L-17: スクロールバック確定行の末尾空白が恒久的に残る
+- L-18: checkdoc / package-lint 指摘
+
+* レビューで検証済みと確認した点 (記録)
+
+- モジュール境界の関数名・アリティ・plist 形式は Elisp 宣言と
+  =registerAll= で完全一致。
+- user-ptr の finalizer を型タグに使う検証、=--release= の二重解放
+  安全化 (set_user_ptr null で GC finalizer を no-op 化) は正しい。
+- ペーストのエスケープ注入は ghostty =paste.encode= が ESC・C-c 等の
+  危険バイトを bracketed paste の有無によらず空白置換しており安全。
+  =core.zig= が mutable コピーを渡すのはこの sanitize を働かせる正しい
+  呼び方。
+- 依存ピン留め (build.zig.zon hash + flake.lock + コミット済み
+  build.zig.zon.nix)、ライセンス同梱、README / マニュアルの記述精度
+  (TERM フォールバック・キーバインド・検出パス) はコードと一致。
