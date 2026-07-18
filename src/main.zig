@@ -22,6 +22,9 @@ fn initImpl(runtime: *emacs.Runtime) c_int {
     const env = runtime.get_environment.?(runtime);
     if (env.size < @sizeOf(emacs.Env)) return 2;
     module.registerAll(env);
+    // define-error / defalias の funcall が signal していた場合、関数群が
+    // 部分登録のままロード成功扱いになるのを避け、ロード失敗として返す。
+    if (emacs.pendingExit(env)) return 3;
     return 0;
 }
 
