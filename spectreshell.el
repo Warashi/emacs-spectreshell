@@ -732,6 +732,18 @@ disable mouse-wheel scrolling entirely between jobs that want it."
                        (control shift) (meta shift) (control meta shift)))
         (define-key map (vector (event-convert-list (append mods (list button))))
           #'spectreshell-mouse-down)))
+    ;; The click halves of mouse-1/2/3 only ever fire here when the
+    ;; terminal's mouse tracking was off (`spectreshell--track-mouse-drag'
+    ;; consumes the release otherwise), i.e. right after the down binding
+    ;; above already fell back to `mouse-set-point'.  Bind them to the same
+    ;; benign command so mouse-2/mouse-3 cannot fall through to the global
+    ;; `mouse-yank-primary'/`mouse-save-then-kill', both of which would
+    ;; mutate the terminal region as ordinary buffer text.
+    (dolist (button '(mouse-1 mouse-2 mouse-3))
+      (dolist (mods '(() (control) (meta) (control meta) (shift)
+                       (control shift) (meta shift) (control meta shift)))
+        (define-key map (vector (event-convert-list (append mods (list button))))
+          #'mouse-set-point)))
     (dolist (wheel '(wheel-up wheel-down wheel-left wheel-right
                       mouse-4 mouse-5 mouse-6 mouse-7))
       (dolist (mods '(() (control) (meta) (control meta) (shift)

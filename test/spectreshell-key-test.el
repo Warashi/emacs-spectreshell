@@ -201,6 +201,15 @@ directly instead of going through the mode-line machinery."
   (should (equal (spectreshell--mouse-button-number '(wheel-down nil)) 'wheel-down))
   (should (equal (spectreshell--mouse-button-number '(mouse-5 nil)) 'wheel-down)))
 
+(ert-deftest spectreshell-key-test-mouse-clicks-do-not-fall-through-to-globals ()
+  "mouse-1/2/3 のクリックはグローバルの mouse-yank-primary /
+mouse-save-then-kill に落ちず、無害な mouse-set-point に束縛される。
+トラッキング有効時は down コマンドのドラッグ追跡が release を消費する
+ため、これらの束縛が効くのはトラッキング無効のフォールバック時のみ。"
+  (dolist (button '([mouse-1] [mouse-2] [mouse-3]))
+    (should (eq (lookup-key spectreshell-semi-char-mode-map button)
+                #'mouse-set-point))))
+
 ;; ---------------------------------------------------------------------
 ;; マウス: posn -> 端末座標変換
 ;; ---------------------------------------------------------------------
