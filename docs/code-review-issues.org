@@ -110,7 +110,7 @@ eshell バッファは undo 有効のため、feed ごとの delete/insert が u
 per-process の領域管理) が必要で、docs/design.org の「最後のパイプライン
 ステージのみ」簡略化の見直しを含む。別途設計してから対応する。
 
-*** TODO M-4: alt screen 中のプロセス死で primary 画面が失われる
+*** DONE M-4: alt screen 中のプロセス死で primary 画面が失われる
 対象: =spectreshell.el= (=spectreshell-finalize=)
 
 alt screen 表示中にプロセスが異常死すると =alt-saved= (primary 画面の

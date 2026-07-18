@@ -164,6 +164,18 @@ recent last)."
     (spectreshell-feed term "\x1b[38;5;208mHi")
     (should (member '(:foreground "#ff8700") (get-text-property (point-min) 'face)))))
 
+(ert-deftest spectreshell-test-finalize-in-alt-screen-restores-primary ()
+  "alt screen 表示中のまま finalize (プロセス異常死相当) しても、
+保存済みの主画面が復元され、TUI 起動前の画面内容が失われない。"
+  (spectreshell-test--with-terminal (term 5 10)
+    (spectreshell-feed term "hello")
+    (let ((primary (buffer-substring (spectreshell-marker term) (point-max))))
+      (spectreshell-feed term "\x1b[?1049h")
+      (spectreshell-feed term "TUI content")
+      (let ((start (marker-position (spectreshell-marker term))))
+        (spectreshell-finalize term)
+        (should (equal primary (buffer-substring start (point-max))))))))
+
 (ert-deftest spectreshell-test-finalize-releases-terminal ()
   "finalize 後は端末が release され、追加の feed が signal される。"
   (spectreshell-test--with-terminal (term 1 10)

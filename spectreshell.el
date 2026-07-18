@@ -211,8 +211,19 @@ Call this once when the backing process has exited; OBJ (and the
 module terminal it wraps) must not be used again afterwards.  The
 terminal region is already rendered as real buffer text throughout, so
 there is nothing left to convert here beyond detaching the marker and
-releasing the module's terminal object."
+releasing the module's terminal object.
+
+If the process died while the alternate screen was still active (a
+clean exit would have sent ?1049l first), the saved primary screen is
+restored just as leaving the alt screen would have, so the user's
+pre-TUI screen content is not silently lost."
   (with-current-buffer (spectreshell-buffer obj)
+    (save-restriction
+      (widen)
+      (let ((inhibit-read-only t)
+            (buffer-undo-list t))
+        (when (spectreshell-alt-saved obj)
+          (spectreshell--leave-alt-screen obj))))
     (goto-char (point-max)))
   (set-marker (spectreshell-marker obj) nil)
   (spectreshell--release (spectreshell-term obj))
