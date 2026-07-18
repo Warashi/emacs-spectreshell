@@ -13,9 +13,10 @@ lint:
 # コミット前に回す検査一式 (lint + Zig テスト + ERT + module-load 確認)
 check: lint test test-el load-check
 
-# ビルドした so が手元の Emacs で module-load できることを確認する
+# ビルドしたモジュール (Linux: .so / darwin: .dylib) が手元の Emacs で
+# module-load できることを確認する
 load-check: build
-  emacs -Q --batch --eval '(progn (module-load (expand-file-name "zig-out/lib/libspectreshell.so")) (message "module-load OK"))'
+  emacs -Q --batch --eval '(let ((path (seq-find (function file-exists-p) (mapcar (function expand-file-name) (list "zig-out/lib/libspectreshell.so" "zig-out/lib/libspectreshell.dylib"))))) (unless path (error "load-check: module not found under zig-out/lib")) (module-load path) (message "module-load OK"))'
 
 # emacs-module 境界と spectreshell.el 描画エンジン・キー入力・eshell 統合の ERT テスト一式
 test-el: build
