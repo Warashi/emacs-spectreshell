@@ -2,7 +2,7 @@ const std = @import("std");
 const ghostty_vt = @import("ghostty-vt");
 
 /// パレット index を直接持たせるのは、パレット→RGB 解決を Emacs 側の
-/// テーマ設定 (spectreshell-color-N face) に委ねる設計 (design.md) のため。
+/// テーマ設定 (spectreshell-color-N face) に委ねる設計 (design.org) のため。
 pub const Color = union(enum) {
     default,
     palette: u8,

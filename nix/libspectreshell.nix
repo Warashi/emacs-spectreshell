@@ -13,7 +13,7 @@ stdenv.mkDerivation (finalAttrs: {
   src = ../.;
 
   # ncurses は build.zig の terminfo install step が呼ぶ `tic` のために要る
-  # (docs/design.md の「TERM=xterm-ghostty + terminfo 同梱」)。
+  # (docs/design.org の「TERM=xterm-ghostty + terminfo 同梱」)。
   nativeBuildInputs = [
     zig
     ncurses

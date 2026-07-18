@@ -26,7 +26,7 @@ pub fn build(b: *std.Build) void {
     // terminfo database (share/emacs/site-lisp is the conventional nix/
     // distro location Emacs's own `site-lisp' loading already knows to
     // look at), so that `nix build`'s output alone is a complete,
-    // self-contained package (docs/implementation-plan.md Phase 6).
+    // self-contained package (docs/implementation-plan.org Phase 6).
     b.installFile("spectreshell.el", "share/emacs/site-lisp/spectreshell.el");
     b.installFile("spectreshell-eshell.el", "share/emacs/site-lisp/spectreshell-eshell.el");
 

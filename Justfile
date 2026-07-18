@@ -17,7 +17,7 @@ zon2nix:
   nixfmt build.zig.zon.nix
 
 # nix build の成果物 (so + el + terminfo) だけで module-load + start +
-# feed の最小動作をスモークテストする (docs/implementation-plan.md Phase 6:
+# feed の最小動作をスモークテストする (docs/implementation-plan.org Phase 6:
 # 「nix build の成果物だけで新規環境にセットアップできる」ことの確認)。
 nix-check:
   nix build --out-link result

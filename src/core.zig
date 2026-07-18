@@ -47,8 +47,8 @@ pub const AltScreen = enum {
     left,
 };
 
-/// design.md の BUTTON 中間表現。ghostty-vt はマウスレポートのエンコーダを
-/// 公開していないため (design.md 前提の調査結果)、ghostty 本体
+/// design.org の BUTTON 中間表現。ghostty-vt はマウスレポートのエンコーダを
+/// 公開していないため (design.org 前提の調査結果)、ghostty 本体
 /// src/Surface.zig の mouseReport のボタン番号割り当てをそのまま踏襲する。
 pub const MouseButton = enum {
     left,

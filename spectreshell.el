@@ -12,8 +12,8 @@
 ;;; Commentary:
 
 ;; `spectreshell.el' is the eshell-independent rendering core described in
-;; docs/design.md.  It owns the mapping between a `libspectreshell.so'
-;; terminal object (see docs/module-api.md) and a region of an Emacs
+;; docs/design.org.  It owns the mapping between a `libspectreshell.so'
+;; terminal object (see docs/module-api.org) and a region of an Emacs
 ;; buffer: feeding bytes to the terminal, applying the returned dirty-row
 ;; diff to the buffer, converting SGR style spans to text properties, and
 ;; confirming scrolled-off lines as permanent scrollback text.
@@ -74,7 +74,7 @@ returns the first one that exists as a file."
 Called automatically when this library loads, so that a plain
 `(require (quote spectreshell))' is enough to make the
 `spectreshell--create'/`spectreshell--feed'/... functions
-(docs/module-api.md) available -- callers do not need to know where the
+(docs/module-api.org) available -- callers do not need to know where the
 module lives themselves.  Checks `fboundp' on `spectreshell--create'
 first both to make this idempotent (module-load'ing the same file twice
 is unnecessary work at best) and to let a caller -- e.g. a test harness
@@ -102,7 +102,7 @@ otherwise surface as a much more confusing error far from its cause."
 ;; ---------------------------------------------------------------------
 
 ;; SGR 30-37/90-97 map onto palette indices 0-15 in this fixed order
-;; (docs/module-api.md :fg/:bg); inheriting from the existing
+;; (docs/module-api.org :fg/:bg); inheriting from the existing
 ;; `ansi-color-*' faces (rather than hardcoding colors) lets the user's
 ;; color theme drive spectreshell's palette too.
 (defface spectreshell-color-0 '((t :inherit ansi-color-black))
@@ -195,7 +195,7 @@ Return a new `spectreshell' object to pass to the other
 
 (defun spectreshell-feed (obj bytes)
   "Feed BYTES (a unibyte string) to OBJ's terminal and update its buffer.
-Return the raw update plist from `spectreshell--feed' (docs/module-api.md)."
+Return the raw update plist from `spectreshell--feed' (docs/module-api.org)."
   (spectreshell--apply-update obj (spectreshell--feed (spectreshell-term obj) bytes)))
 
 (defun spectreshell-resize (obj rows cols)
@@ -281,7 +281,7 @@ of the terminal region."
       (spectreshell--pad-rows obj row)
       (pcase-let* ((`(,beg . ,end) (spectreshell--row-bounds obj row))
                    (new (spectreshell--decorate-row text spans)))
-        ;; ghostty-vt's dirty tracking is page-granular (module-api.md), so
+        ;; ghostty-vt's dirty tracking is page-granular (module-api.org), so
         ;; a batch often marks rows dirty whose rendered content did not
         ;; actually change; skipping the replace avoids pointless
         ;; text-property churn (and keeps point/undo more stable) for them.
@@ -348,7 +348,7 @@ closer native approximation."
 (defun spectreshell--resolve-color (value attr)
   "Resolve module color VALUE to a concrete color string for ATTR.
 VALUE is a palette index (0-255) or a \"#rrggbb\" string, as documented
-in docs/module-api.md; ATTR is `:foreground' or `:background'.  Palette
+in docs/module-api.org; ATTR is `:foreground' or `:background'.  Palette
 indices 0-15 are resolved through the `spectreshell-color-N' faces,
 mirroring the approach `ansi-color.el' itself uses, so freshly drawn
 text picks up the user's current theme, though already-drawn spans do
@@ -452,7 +452,7 @@ column past the end of a short row."
   '(up down left right home end prior next insert delete backspace tab
     return escape
     f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12)
-  "Symbols `spectreshell--encode-key' accepts as KEY (docs/module-api.md).
+  "Symbols `spectreshell--encode-key' accepts as KEY (docs/module-api.org).
 `spectreshell--event-to-key' passes an `event-basic-type' symbol through
 unchanged exactly when it is a member of this list.")
 
@@ -461,7 +461,7 @@ unchanged exactly when it is a member of this list.")
   "ASCII control codes that name a special KEY of their own.
 TAB/RET/ESC/DEL are indistinguishable, at the character level, from
 Control-i/Control-m/Control-\\[/Control-? (`event-basic-type' cannot
-tell them apart either), but docs/module-api.md encodes them as their
+tell them apart either), but docs/module-api.org encodes them as their
 own symbols rather than as \"i\"/\"m\"/\"[\"/\"?\" plus `ctrl'.")
 
 (defun spectreshell--event-to-key (event)
@@ -469,7 +469,7 @@ own symbols rather than as \"i\"/\"m\"/\"[\"/\"?\" plus `ctrl'.")
 EVENT is anything `last-command-event' can hold: an integer (a plain or
 control/meta-modified character) or a symbol (a function key, possibly
 combined with modifiers, e.g. `C-up' or `M-S-f5').  KEY/MODIFIERS follow
-docs/module-api.md.  Return nil when EVENT has no PTY-sendable
+docs/module-api.org.  Return nil when EVENT has no PTY-sendable
 representation (mouse events, unrecognized function keys, a bare
 modifier press, ...)."
   ;; TAB/RET/ESC/DEL must be matched on the raw EVENT, not on
@@ -494,7 +494,7 @@ BASIC is the return value of `event-basic-type'."
 (defun spectreshell--event-modifiers-to-modifiers (mods)
   "Translate MODS (an `event-modifiers' list) to encode-key MODIFIERS.
 Only `control'/`meta'/`shift'/`super' have a counterpart there (`alt'
-stands in for Emacs's `meta', per docs/module-api.md); anything else
+stands in for Emacs's `meta', per docs/module-api.org); anything else
 (mouse click counts, drag, Emacs's own separate `alt' modifier for a
 literal Alt key, ...) has no PTY encoding and is dropped rather than
 mapped to something misleading."
@@ -633,7 +633,7 @@ Bound (with each ctrl/alt/shift combination) to `down-mouse-1/2/3' in
 `spectreshell-semi-char-mode-map'.  Falls back to `mouse-set-point'
 \(only) when EVENT's window has no current terminal, or the terminal's
 mouse tracking is off (`spectreshell--encode-mouse' returned nil for the
-press): docs/design.md accepts doing nothing beyond that, since fully
+press): docs/design.org accepts doing nothing beyond that, since fully
 reimplementing `mouse-drag-region' style selection is out of scope, but
 a plain click should still move point rather than being silently eaten."
   (interactive "e")
@@ -710,7 +710,7 @@ disable mouse-wheel scrolling entirely between jobs that want it."
           #'spectreshell-mouse-wheel)))
     ;; C-c (kept as a prefix for Emacs commands, `C-c C-e' below included),
     ;; M-x, C-u (`universal-argument'), and C-y (`spectreshell-yank' below,
-    ;; not a plain key send) are docs/design.md's named exceptions to
+    ;; not a plain key send) are docs/design.org's named exceptions to
     ;; "send nearly everything"; every other control letter goes straight
     ;; to the PTY.
     (dolist (letter (number-sequence ?a ?z))
@@ -724,7 +724,7 @@ disable mouse-wheel scrolling entirely between jobs that want it."
     (define-key map (kbd "C-c C-e") #'spectreshell-emacs-mode)
     map)
   "Keymap active while `spectreshell-semi-char-mode' is on.
-Sends nearly every key to the terminal; see docs/design.md's semi-char
+Sends nearly every key to the terminal; see docs/design.org's semi-char
 mode section for the (small) set of keys deliberately left to Emacs.")
 
 (defvar spectreshell-mode-map
@@ -756,7 +756,7 @@ Bound to `C-c C-j' in `spectreshell-mode-map'."
 (define-minor-mode spectreshell-semi-char-mode
   "Minor mode that sends nearly every key straight to `spectreshell--current'.
 This is eshell-under-spectreshell's default mode while a job is running
-(docs/design.md); `C-c C-e' leaves it (`spectreshell-emacs-mode') for
+(docs/design.org); `C-c C-e' leaves it (`spectreshell-emacs-mode') for
 ordinary Emacs buffer editing, and `C-c C-j' (from the always-present
 `spectreshell-mode-map') re-enters it."
   :lighter " SpectreShell[semi]"

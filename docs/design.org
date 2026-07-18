@@ -1,44 +1,44 @@
-# spectreshell 設計
+#+title: spectreshell 設計
 
 eat-eshell-mode と同等の eshell 統合を、ghostty の端末エミュレーションライブラリ
 (ghostty-vt) を使って実現する。本ドキュメントはアーキテクチャと決定事項、
 およびその理由を記録する。実装の順序と完了条件は
-[implementation-plan.md](./implementation-plan.md) を参照。
+[[file:implementation-plan.org][implementation-plan.org]] を参照。
 
-## 目的とスコープ
+* 目的とスコープ
 
-- **目的**: eshell で外部プロセスを実行したとき、色・カーソル移動・
+- *目的*: eshell で外部プロセスを実行したとき、色・カーソル移動・
   プログレスバー・alternate screen (less, vim 等) を含む出力が
   eshell バッファ内で正しく描画されるようにする。
-- **スコープ**: eshell 統合のみ。汎用のスタンドアロン端末エミュレータ
-  (`M-x eat` 相当) は作らない。ただしコア層 (描画エンジン) は eshell
+- *スコープ*: eshell 統合のみ。汎用のスタンドアロン端末エミュレータ
+  (~M-x eat~ 相当) は作らない。ただしコア層 (描画エンジン) は eshell
   非依存に保ち、将来の拡張余地を残す。
-- **対象**: Emacs 31 以降。後方互換コードは書かない。
-- **ライセンス**: MIT (ダイナミックモジュールに必須の GPL 互換を満たし、
+- *対象*: Emacs 31 以降。後方互換コードは書かない。
+- *ライセンス*: MIT (ダイナミックモジュールに必須の GPL 互換を満たし、
   依存する ghostty と同一でライセンス構成が単純になる)。
 
-## 前提: ghostty-vt の調査結果
+* 前提: ghostty-vt の調査結果
 
 依存は build.zig.zon でピン留めした ghostty (v1.3.1 系) を使う。
 
-- **libghostty-vt の C API** (`include/ghostty/vt.h`) は現時点で
+- *libghostty-vt の C API* (~include/ghostty/vt.h~) は現時点で
   OSC/SGR パーサ・key/paste エンコードのみを公開しており、
-  **スクリーン状態 (グリッド) にアクセスできない**。
-- **Zig モジュール `ghostty-vt`** (`src/lib_vt.zig`, build.zig の
-  `GhosttyZig` が export) は `Terminal` / `Stream` / `Screen` /
-  `PageList` / `Style` / `RenderState` / key encoder など完全な
+  *スクリーン状態 (グリッド) にアクセスできない。*
+- *Zig モジュール ~ghostty-vt~* (~src/lib_vt.zig~, build.zig の
+  ~GhosttyZig~ が export) は ~Terminal~ / ~Stream~ / ~Screen~ /
+  ~PageList~ / ~Style~ / ~RenderState~ / key encoder など完全な
   端末状態機械を公開している。ただし API 安定性は保証されていない
   (コミットをピン留めして追従する)。
 
-このため **Zig から `ghostty-vt` モジュールを直接使う**構成とし、
+このため「Zig から ~ghostty-vt~ モジュールを直接使う」構成とし、
 C API は採用しない。
 
-## アーキテクチャ概要
+* アーキテクチャ概要
 
-Zig 製の Emacs ダイナミックモジュール `libspectreshell.so` と、
+Zig 製の Emacs ダイナミックモジュール ~libspectreshell.so~ と、
 2 枚の Elisp ファイルからなる 4 層構成。
 
-```
+#+begin_example
 ┌─────────────────────────────────────────────┐
 │ spectreshell-eshell.el                      │ eshell 統合
 │   spectreshell-eshell-mode / フック / advice │
@@ -54,143 +54,143 @@ Zig 製の Emacs ダイナミックモジュール `libspectreshell.so` と、
 │   ghostty-vt Terminal/Stream のラップ        │
 │   ダーティ行 diff 抽出 / 応答バイト列収集    │
 └─────────────────────────────────────────────┘
-```
+#+end_example
 
-- **PTY と子プロセスは Emacs 側が所有する。** eshell が従来どおり
-  `make-process` (connection-type: pty) でプロセスを起動し、
+- *PTY と子プロセスは Emacs 側が所有する。* eshell が従来どおり
+  ~make-process~ (connection-type: pty) でプロセスを起動し、
   process-filter が受信バイト列をモジュールに渡す。
   モジュールは純粋な VT 状態機械 (バイト列 in → 画面状態と応答
   バイト列 out) であり、プロセス・スレッド・シグナルを一切持たない。
   これにより TRAMP や eshell 既存のプロセス管理とそのまま共存できる。
-- **Zig コアは emacs-module に依存させない。** emacs-module.h への
+- *Zig コアは emacs-module に依存させない。* emacs-module.h への
   依存を境界層に隔離することで、diff 抽出などのロジックを
-  `zig build test` で Emacs なしにテストできる。
+  ~zig build test~ で Emacs なしにテストできる。
 
-## データフロー
+* データフロー
 
-### 出力 (プロセス → 画面)
+** 出力 (プロセス → 画面)
 
-```
+#+begin_example
 child process → PTY → process-filter (Elisp)
   → (spectreshell--feed term bytes)     ; モジュールへ
   → 戻り値 (更新情報 plist)
   → spectreshell.el が該当行だけバッファを書き換え
   → 応答バイト列があれば process-send-string で PTY へ返送
-```
+#+end_example
 
-同期方式は**ダーティ行 diff**。feed のたびに全画面を転送するのではなく、
+同期方式は「ダーティ行 diff」。feed のたびに全画面を転送するのではなく、
 変更のあった行だけを返す。ghostty-vt の dirty tracking を利用する。
 大量出力時の転送量・再描画量を抑えるための選択。
 
-### 入力 (キー → プロセス)
+** 入力 (キー → プロセス)
 
-```
+#+begin_example
 キーイベント → semi-char keymap (Elisp)
   → キーを正規化した中間表現 (key + modifiers) に変換
   → (spectreshell--encode-key term key modifiers)  ; モジュールへ
   → 戻り値のバイト列を process-send-string で PTY へ
-```
+#+end_example
 
-キー→バイト列変換は**モジュール側** (ghostty-vt の key encoder) で行う。
+キー→バイト列変換は「モジュール側」(ghostty-vt の key encoder) で行う。
 DECCKM (カーソルキーモード)・kitty keyboard protocol・bracketed paste
 など端末モードに依存するエンコードが、モードを保持しているモジュール側で
 自動的に正しくなり、Elisp にエスケープ列対応表を持たずに済むため。
 
-## モジュール API (案)
+* モジュール API (案)
 
-emacs-module で公開する関数。`term` は user-ptr (finalizer 付き)。
+emacs-module で公開する関数。~term~ は user-ptr (finalizer 付き)。
 
 | 関数 | 説明 |
-|---|---|
-| `(spectreshell--create ROWS COLS)` | 端末オブジェクトを生成 |
-| `(spectreshell--feed TERM BYTES)` | バイト列を食わせ、更新情報 plist を返す |
-| `(spectreshell--resize TERM ROWS COLS)` | リサイズ。全行ダーティ扱いで更新情報を返す |
-| `(spectreshell--encode-key TERM KEY MODIFIERS)` | キーを PTY 向けバイト列に変換 |
-| `(spectreshell--encode-paste TERM TEXT)` | ペースト用バイト列 (bracketed paste 追従) |
-| `(spectreshell--release TERM)` | 明示解放 (finalizer でも解放される) |
+|------+------|
+| ~(spectreshell--create ROWS COLS)~ | 端末オブジェクトを生成 |
+| ~(spectreshell--feed TERM BYTES)~ | バイト列を食わせ、更新情報 plist を返す |
+| ~(spectreshell--resize TERM ROWS COLS)~ | リサイズ。全行ダーティ扱いで更新情報を返す |
+| ~(spectreshell--encode-key TERM KEY MODIFIERS)~ | キーを PTY 向けバイト列に変換 |
+| ~(spectreshell--encode-paste TERM TEXT)~ | ペースト用バイト列 (bracketed paste 追従) |
+| ~(spectreshell--release TERM)~ | 明示解放 (finalizer でも解放される) |
 
-`spectreshell--feed` の戻り値 (plist) に含めるもの:
+~spectreshell--feed~ の戻り値 (plist) に含めるもの:
 
-- `:scrolled-off` — 可視領域上端から流れ出た行のリスト (確定化用)。
-  各行は `(TEXT . SPANS)`
-- `:dirty` — 変更行のリスト。各要素は `(ROW TEXT SPANS)`。
-  SPANS はスタイル区間 `((START END . STYLE-PLIST) ...)`
-- `:cursor` — `(ROW . COL)` とカーソル可視状態
-- `:responses` — DA/DSR 等、PTY に返送すべきバイト列
-- `:alt-screen` — alternate screen への出入りが起きたか
-- `:title` — OSC 0/2 によるタイトル変更 (あれば)
+- ~:scrolled-off~ — 可視領域上端から流れ出た行のリスト (確定化用)。
+  各行は ~(TEXT . SPANS)~
+- ~:dirty~ — 変更行のリスト。各要素は ~(ROW TEXT SPANS)~。
+  SPANS はスタイル区間 ~((START END . STYLE-PLIST) ...)~
+- ~:cursor~ — ~(ROW . COL)~ とカーソル可視状態
+- ~:responses~ — DA/DSR 等、PTY に返送すべきバイト列
+- ~:alt-screen~ — alternate screen への出入りが起きたか
+- ~:title~ — OSC 0/2 によるタイトル変更 (あれば)
 
 STYLE-PLIST は色 (パレット index または 24bit RGB)・bold・italic・
 underline (スタイル種別含む)・strikethrough・inverse・faint・
 ハイパーリンク (OSC 8 の URI) を表現する。
 
-## 描画設計 (spectreshell.el)
+* 描画設計 (spectreshell.el)
 
-- **端末領域**: プロセス開始時点の point からバッファ末尾までを
+- *端末領域*: プロセス開始時点の point からバッファ末尾までを
   端末の可視領域 (rows×cols) として管理する。
-- **スクロールバックは Emacs バッファに確定化する。**
-  可視領域の上端から流れ出た行 (`:scrolled-off`) は確定テキストとして
+- *スクロールバックは Emacs バッファに確定化する。*
+  可視領域の上端から流れ出た行 (~:scrolled-off~) は確定テキストとして
   端末領域の直前に挿入し、以後変更しない。エミュレータ側の scrollback は
-  最小化する。isearch・コピー・`eshell-previous-prompt` など Emacs の
+  最小化する。isearch・コピー・~eshell-previous-prompt~ など Emacs の
   機能が確定部分にそのまま効く。eat と同方式。
-- **alternate screen** (less, vim 等) の内容は確定化せず、
+- *alternate screen* (less, vim 等) の内容は確定化せず、
   終了時に領域ごと消去して元の画面を復元する。
-- **face**: `spectreshell-color-0` 〜 `spectreshell-color-15` 等の
-  独自 face を定義し、デフォルトを `:inherit ansi-color-*` にする。
+- *face*: ~spectreshell-color-0~ 〜 ~spectreshell-color-15~ 等の
+  独自 face を定義し、デフォルトを ~:inherit ansi-color-*~ にする。
   ユーザーのカラーテーマが自動で効きつつ、spectreshell 単位での
   上書きも可能。24bit 色はそのままの色値を text property に載せる。
-- **OSC 8 ハイパーリンク**: クリック可能なリンク (button 相当) として描画。
-- **カーソル**: 端末カーソル位置に point を追従させる。
+- *OSC 8 ハイパーリンク*: クリック可能なリンク (button 相当) として描画。
+- *カーソル*: 端末カーソル位置に point を追従させる。
 
-## 入力設計
+* 入力設計
 
 プロセス実行中は 2 モードを切り替える:
 
-- **semi-char モード** (実行中のデフォルト): 印字可能キー・矢印・
-  C-a 等ほとんどのキーを PTY に送信。`C-c` プレフィックス・`M-x` は
-  Emacs に残す。`C-y` は kill-ring の内容を
-  `spectreshell--encode-paste` 経由 (bracketed paste) で送信。
-  `C-c C-e` で emacs モードへ。
-- **emacs モード**: 全キーが通常の Emacs。バッファ閲覧・コピー用。
-  `C-c C-j` (仮) で semi-char に復帰。
+- *semi-char モード* (実行中のデフォルト): 印字可能キー・矢印・
+  C-a 等ほとんどのキーを PTY に送信。~C-c~ プレフィックス・~M-x~ は
+  Emacs に残す。~C-y~ は kill-ring の内容を
+  ~spectreshell--encode-paste~ 経由 (bracketed paste) で送信。
+  ~C-c C-e~ で emacs モードへ。
+- *emacs モード*: 全キーが通常の Emacs。バッファ閲覧・コピー用。
+  ~C-c C-j~ (仮) で semi-char に復帰。
 
-**char モード (C-c 含む全キー送信) は v1 では実装しない。**
+*char モード (C-c 含む全キー送信) は v1 では実装しない。*
 eshell 用途では上記 2 モードで実用十分。設計上は semi-char の拡張として
 追加可能な形にしておく。
 
-### 日本語入力 (ddskk)
+** 日本語入力 (ddskk)
 
-- **eshell コマンドライン編集 (プロセス非実行時) は素の Emacs バッファ
-  編集のままなので、ddskk は無条件でそのまま動く。** 端末エミュレーションが
+- *eshell コマンドライン編集 (プロセス非実行時) は素の Emacs バッファ
+  編集のままなので、ddskk は無条件でそのまま動く。* 端末エミュレーションが
   働くのは外部プロセスの実行中のみ、というのが本設計の前提であり、
   日常の大部分のユースケースはこれでカバーされる。
-- **実行中プロセスへの日本語直接入力は v1 スコープ外。**
+- *実行中プロセスへの日本語直接入力は v1 スコープ外。*
   ddskk は minor-mode keymap でバッファに直接挿入する方式のため、
   キー直送の semi-char モードとは素朴には両立しない。
-  回避経路として、日本語を kill-ring に用意して semi-char の `C-y`
+  回避経路として、日本語を kill-ring に用意して semi-char の ~C-y~
   (bracketed paste) で送る方法が v1 でも使える。
-- **将来拡張 (コミット捕捉ブリッジ)**: semi-char 中も skk の keymap を
+- *将来拡張 (コミット捕捉ブリッジ)*: semi-char 中も skk の keymap を
   優先させ、プリエディット (▽▼) は端末カーソル位置に一時表示、
   確定された挿入テキストを after-change-functions で捕捉して
   バッファから除去し UTF-8 で PTY に送信する方式を検討する。
 
-## eshell 統合 (spectreshell-eshell.el)
+* eshell 統合 (spectreshell-eshell.el)
 
-`spectreshell-eshell-mode` (グローバルマイナーモード) を提供する。
+~spectreshell-eshell-mode~ (グローバルマイナーモード) を提供する。
 eat-eshell-mode と同様の接続方式:
 
-- eshell のプロセス起動経路に advice し、**外部プロセスの全出力**を
+- eshell のプロセス起動経路に advice し、「外部プロセスの全出力」を
   端末エミュレーション経由にする (eshell ビルトインコマンドの出力は
   対象外)。visual command の別バッファ逃がしは不要になる。
 - 起動時に process-filter を spectreshell のフィルタに差し替え、
-  環境変数 `TERM=xterm-ghostty` と `TERMINFO` (同梱 terminfo への
+  環境変数 ~TERM=xterm-ghostty~ と ~TERMINFO~ (同梱 terminfo への
   パス) を注入する。
 - プロセス実行中は semi-char モードに入り、プロセス終了で
   画面を確定化して通常の eshell 編集に戻る。
-- ウィンドウサイズ変更時は `spectreshell--resize` と
-  `set-process-window-size` (SIGWINCH) を呼ぶ。
+- ウィンドウサイズ変更時は ~spectreshell--resize~ と
+  ~set-process-window-size~ (SIGWINCH) を呼ぶ。
 
-## 端末機能の範囲 (v1)
+* 端末機能の範囲 (v1)
 
 含む:
 
@@ -207,33 +207,33 @@ eat-eshell-mode と同様の接続方式:
 - char モード
 - 実行中プロセスへの IME 直接入力 (前述のブリッジ)
 
-### TERM / terminfo
+** TERM / terminfo
 
-`TERM=xterm-ghostty` とし、ghostty ソースが持つ terminfo 定義から
-ビルド時に生成した terminfo を同梱、`TERMINFO` 環境変数で注入する。
+~TERM=xterm-ghostty~ とし、ghostty ソースが持つ terminfo 定義から
+ビルド時に生成した terminfo を同梱、~TERMINFO~ 環境変数で注入する。
 エミュレータの実体 (ghostty-vt) と能力宣言が一致するのが利点。
 ssh 先など terminfo が届かない環境向けに、TERM 値を変更できる
-defcustom (fallback: `xterm-256color`) を用意する。
+defcustom (fallback: ~xterm-256color~) を用意する。
 
-## テスト戦略
+* テスト戦略
 
 ghostty-vt 自体 (VT パースの正しさ) は上流で十分テストされているため、
 こちらでテストするのは自分たちの層に限る。
 
-- **Zig unit テスト** (`zig build test`): emacs-module 非依存の
+- *Zig unit テスト* (~zig build test~): emacs-module 非依存の
   コアに対して、バイト列 feed → ダーティ行 diff・スタイル区間・
   応答バイト列の抽出を検証。
-- **ERT** (`emacs -batch`): 描画エンジン (バイト列 feed に対する
+- *ERT* (~emacs -batch~): 描画エンジン (バイト列 feed に対する
   バッファ内容・text property・確定化) と、実プロセスを使った
   eshell 統合の検証。
 
 CLAUDE.md の方針どおり、実装と同じ粒度でテストを書き、
 小さな単位ごとに lint / test を通す。
 
-## 決定事項一覧
+* 決定事項一覧
 
 | # | 決定 | 理由 | 却下した代替案 |
-|---|---|---|---|
+|---+------+------+----------------|
 | 1 | スコープは eshell 統合のみ | 設計が単純になり目的に集中できる | 汎用端末も作る |
 | 2 | Zig 製ダイナミックモジュール | ghostty-vt の完全 API は Zig モジュール経由のみ。プロセス間通信なしで低レイテンシ | 外部プロセス + IPC / C API FFI |
 | 3 | PTY は Emacs 側が所有 | TRAMP・eshell のプロセス管理と自然に共存。モジュールが純粋な状態機械になる | モジュール側で openpty |

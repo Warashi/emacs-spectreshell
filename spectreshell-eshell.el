@@ -14,7 +14,7 @@
 ;; `spectreshell-eshell-mode' wires eshell's own external-process machinery
 ;; (esh-proc.el's `eshell-gather-process-output') into the
 ;; eshell-independent rendering core in spectreshell.el, the same way
-;; `eat-eshell-mode' wires eat's terminal into eshell.  See docs/design.md's
+;; `eat-eshell-mode' wires eat's terminal into eshell.  See docs/design.org's
 ;; "eshell 統合 (spectreshell-eshell.el)" section for the rationale.
 ;;
 ;; Only the pipeline stage whose output eshell would otherwise write
@@ -186,7 +186,7 @@ matches the size the child's very first ioctl already saw."
                          (lambda (bytes) (process-send-string proc bytes)))))
         (process-put proc 'spectreshell-eshell-terminal obj)
         ;; PROC's output must reach `spectreshell-feed' as exact raw bytes
-        ;; (docs/module-api.md) and PROC's input (encode-key/encode-paste/
+        ;; (docs/module-api.org) and PROC's input (encode-key/encode-paste/
         ;; response bytes, all already-encoded unibyte strings) must reach
         ;; PROC unchanged; only `no-conversion' guarantees both directions
         ;; skip Emacs's usual coding-system decode/encode step entirely.
@@ -264,7 +264,7 @@ job."
 (defvar spectreshell-eshell--want-pty nil
   "Non-nil while the `make-process' advice should force a pty connection.
 Let-bound around the one `eshell-gather-process-output' call that will
-own the terminal (docs/design.md's \"only the pipeline stage with a
+own the terminal (docs/design.org's \"only the pipeline stage with a
 screen of its own\" simplification); left nil for every other
 concurrent pipeline stage, which keeps talking to the next stage over
 whatever plain pipe eshell itself set up.")
@@ -360,7 +360,7 @@ not only for the foreground job).
 Additionally attaches spectreshell when both of these hold: (1)
 `eshell-interactive-output-p' says this call's output is headed for
 interactive display -- COMMAND is the pipeline's last (or only) stage,
-docs/design.md's simplification -- and (2) `default-directory' is
+docs/design.org's simplification -- and (2) `default-directory' is
 local; TRAMP's own remote `make-process' replacement does not
 necessarily route through the `make-process' advice below, so a remote
 pty built on that assumption could well be wrong, and is not attempted
@@ -390,7 +390,7 @@ that same size (`spectreshell-eshell--attach')."
 A global minor mode: while on, `eshell-gather-process-output' (and
 therefore every eshell buffer's external commands, present and future)
 is advised to attach spectreshell to whichever pipeline stage would
-otherwise write straight to the buffer (docs/design.md).  That process
+otherwise write straight to the buffer (docs/design.org).  That process
 gets a pty, TERM/TERMINFO in its environment, and drives the buffer
 through spectreshell's VT emulation instead of eshell's own plain-text
 output filter for as long as it runs."
@@ -421,7 +421,7 @@ the optional `eshell-term' module is enabled, eshell normally routes
 commands like `less'/`vim'/`top' (`eshell-visual-commands') to a
 separate `term-mode' buffer instead of `eshell-gather-process-output',
 specifically because plain eshell cannot render their escape codes --
-exactly the problem spectreshell solves, and docs/design.md picks
+exactly the problem spectreshell solves, and docs/design.org picks
 \"run every external command's output through spectreshell\" over
 \"only visual commands, in a separate buffer\" for that reason.  Without
 this advice those commands would never reach the advice above at all."

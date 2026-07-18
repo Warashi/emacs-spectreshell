@@ -84,7 +84,7 @@ fn extractDim(env: *emacs.Env, value: *emacs.Value) !u16 {
 }
 
 // ---------------------------------------------------------------------
-// Update -> plist 変換 (docs/module-api.md の形式)
+// Update -> plist 変換 (docs/module-api.org の形式)
 // ---------------------------------------------------------------------
 
 fn colorValue(env: *emacs.Env, c: style.Color) ?*emacs.Value {
@@ -111,7 +111,7 @@ fn underlineValue(env: *emacs.Env, u: style.Underline) ?*emacs.Value {
 }
 
 /// STYLE-PLIST の中身をキーワード/値ペアとして items に積む。装飾なしの
-/// フィールドはキーごと省略する (docs/module-api.md の約束)。
+/// フィールドはキーごと省略する (docs/module-api.org の約束)。
 fn pushStyleItems(
     env: *emacs.Env,
     arena: std.mem.Allocator,
@@ -260,7 +260,7 @@ fn collectModifiers(env: *emacs.Env, arena: std.mem.Allocator, mods_list: *emacs
 }
 
 /// KEY は「印字可能文字1文字の文字列」か「特殊キーのシンボル」のどちらか
-/// (design.md)。type-of で分岐する。
+/// (design.org)。type-of で分岐する。
 fn buildKeyEvent(
     env: *emacs.Env,
     arena: std.mem.Allocator,
@@ -290,7 +290,7 @@ fn buildKeyEvent(
 // BUTTON / ACTION / ROW / COL / MODIFIERS -> core.Term.encodeMouse 引数
 // ---------------------------------------------------------------------
 
-/// ROW/COL は 0-origin の端末座標 (docs/module-api.md)。extractDim と違い
+/// ROW/COL は 0-origin の端末座標 (docs/module-api.org)。extractDim と違い
 /// 0 も許すため上限のみ (u16 幅の端末に収まる座標だけを受け付ける) 別に
 /// 検査する。
 fn extractCoord(env: *emacs.Env, value: *emacs.Value) !usize {
@@ -305,7 +305,7 @@ fn extractCoord(env: *emacs.Env, value: *emacs.Value) !usize {
 
 /// BUTTON は nil (ボタンなしの motion) か、整数 1/2/3 (left/middle/right、
 /// X11 のボタン番号慣習) か、`wheel-up`/`wheel-down`/`wheel-left`/
-/// `wheel-right` シンボルのいずれか (design.md の中間表現)。
+/// `wheel-right` シンボルのいずれか (design.org の中間表現)。
 fn buildMouseButton(env: *emacs.Env, arena: std.mem.Allocator, value: *emacs.Value) !?core.MouseButton {
     const nil = emacs.nilv(env);
     if (emacs.eq(env, value, nil)) return null;
@@ -332,7 +332,7 @@ fn buildMouseButton(env: *emacs.Env, arena: std.mem.Allocator, value: *emacs.Val
     return error.TypeMismatch;
 }
 
-/// ACTION は `press`/`release`/`motion` シンボルのいずれか (design.md)。
+/// ACTION は `press`/`release`/`motion` シンボルのいずれか (design.org)。
 fn buildMouseAction(env: *emacs.Env, arena: std.mem.Allocator, value: *emacs.Value) !core.MouseAction {
     const name_val = emacs.funcall(env, emacs.intern(env, "symbol-name"), &.{value});
     if (emacs.pendingExit(env)) return error.PendingLispSignal;
@@ -511,7 +511,7 @@ fn defalias(
 
 /// signal は未知のシンボルに対して "Invalid error symbol" になり
 /// 呼び出し側で condition-case を書けない (署名文字列が cryptic なだけで
-/// 実害はないが型として捕まえられないのは design.md の要件から外れる)。
+/// 実害はないが型として捕まえられないのは design.org の要件から外れる)。
 /// そのため独自シグナルは define-error で 'error の子として登録しておく。
 fn defineError(env: *emacs.Env, symbol: [:0]const u8, message: []const u8) void {
     _ = emacs.funcall(env, emacs.intern(env, "define-error"), &.{

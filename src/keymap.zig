@@ -5,9 +5,9 @@ const Key = ghostty_vt.input.Key;
 const Mods = ghostty_vt.input.KeyMods;
 const KeyEvent = ghostty_vt.input.KeyEvent;
 
-/// design.md の KEY 中間表現で使う特殊キーシンボル名 (Emacs 側 symbol-name)
+/// design.org の KEY 中間表現で使う特殊キーシンボル名 (Emacs 側 symbol-name)
 /// から ghostty-vt の Key enum への対応表。矢印・編集キー・ファンクション
-/// キーのみ (design.md の semi-char モードで送る範囲)。
+/// キーのみ (design.org の semi-char モードで送る範囲)。
 const named_keys = [_]struct { name: []const u8, key: Key }{
     .{ .name = "up", .key = .arrow_up },
     .{ .name = "down", .key = .arrow_down },
@@ -44,7 +44,7 @@ pub fn namedKey(name: []const u8) ?Key {
     return null;
 }
 
-/// design.md の MODIFIERS シンボル (ctrl alt shift super) を Mods に立てる。
+/// design.org の MODIFIERS シンボル (ctrl alt shift super) を Mods に立てる。
 /// 未知のシンボルは無視する (呼び出し側で無視してよいノイズ扱いにする方が、
 /// Phase 4 側のキーマップ実装の自由度を保てるため)。認識できたら true。
 pub fn applyModifierName(mods: *Mods, name: []const u8) bool {

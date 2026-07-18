@@ -2,7 +2,7 @@
 
 ;; Phase 2 (モジュール境界) の完了条件である「emacs -batch から create →
 ;; feed → 戻り値検証のスモークテストが通る」を満たすためのテスト。
-;; docs/module-api.md の plist 仕様と、emacs-module の unibyte/multibyte
+;; docs/module-api.org の plist 仕様と、emacs-module の unibyte/multibyte
 ;; 文字列の挙動 (copy_string_contents / make_unibyte_string) を実証する。
 
 (require 'ert)

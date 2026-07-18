@@ -1,29 +1,29 @@
-# Third-Party Notices
+#+title: Third-Party Notices
 
 このリポジトリのソースコード自体は第三者コードを含まず、すべて
-[MIT License](LICENSE) で提供される。一方、ビルドされた
-`libspectreshell.so` には以下の第三者ソフトウェアが静的リンクされる
-(いずれも `ghostty-vt` モジュールの依存として取り込まれる)。
+[[file:LICENSE][MIT License]] で提供される。一方、ビルドされた
+~libspectreshell.so~ には以下の第三者ソフトウェアが静的リンクされる
+(いずれも ~ghostty-vt~ モジュールの依存として取り込まれる)。
 ビルド済みバイナリを再配布する場合は、本ファイルを成果物に同梱すること。
 
 デュアルライセンスの依存 (simdutf: Apache-2.0 OR MIT、highway:
 Apache-2.0 OR BSD-3-Clause) については、本プロジェクトはそれぞれ
 MIT / BSD-3-Clause を選択する。
 
-- [ghostty (ghostty-vt)](#ghostty-ghostty-vt) — MIT
-- [uucode](#uucode) — MIT
-- [Unicode Character Database](#unicode-character-database) — Unicode License v3
-- [UTF-8 decoder (Bjoern Hoehrmann)](#utf-8-decoder-bjoern-hoehrmann) — MIT
-- [simdutf](#simdutf) — MIT (一部 BSD-3-Clause)
-- [highway](#highway) — BSD-3-Clause
+- [[*ghostty (ghostty-vt)][ghostty (ghostty-vt)]] — MIT
+- [[*uucode][uucode]] — MIT
+- [[*Unicode Character Database][Unicode Character Database]] — Unicode License v3
+- [[*UTF-8 decoder (Bjoern Hoehrmann)][UTF-8 decoder (Bjoern Hoehrmann)]] — MIT
+- [[*simdutf][simdutf]] — MIT (一部 BSD-3-Clause)
+- [[*highway][highway]] — BSD-3-Clause
 
----
+-----
 
-## ghostty (ghostty-vt)
+* ghostty (ghostty-vt)
 
 <https://github.com/ghostty-org/ghostty>
 
-```
+#+begin_example
 MIT License
 
 Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors
@@ -45,13 +45,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
+#+end_example
 
-## uucode
+* uucode
 
 <https://github.com/jacobsandlund/uucode>
 
-```
+#+begin_example
 MIT License
 
 Copyright (c) 2026 Jacob Sandlund
@@ -73,14 +73,14 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
+#+end_example
 
-## Unicode Character Database
+* Unicode Character Database
 
 uucode 経由で Unicode Character Database 由来のデータテーブルを含む。
 <https://www.unicode.org/terms_of_use.html>
 
-```
+#+begin_example
 UNICODE LICENSE V3
 
 COPYRIGHT AND PERMISSION NOTICE
@@ -118,14 +118,14 @@ Except as contained in this notice, the name of a copyright holder shall
 not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
-```
+#+end_example
 
-## UTF-8 decoder (Bjoern Hoehrmann)
+* UTF-8 decoder (Bjoern Hoehrmann)
 
 uucode の UTF-8 デコーダは Bjoern Hoehrmann の DFA ベースデコーダに
 由来する。<https://bjoern.hoehrmann.de/utf-8/decoder/dfa/>
 
-```
+#+begin_example
 Copyright (c) 2008-2009 Bjoern Hoehrmann <bjoern@hoehrmann.de>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -145,15 +145,15 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
-```
+#+end_example
 
-## simdutf
+* simdutf
 
 <https://github.com/simdutf/simdutf>
 
 Apache-2.0 OR MIT のデュアルライセンス。本プロジェクトは MIT を選択する。
 
-```
+#+begin_example
 Copyright 2021 The simdutf authors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -173,13 +173,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
+#+end_example
 
-simdutf は ISA 検出コード (`isadetection.h`) として
+simdutf は ISA 検出コード (~isadetection.h~) として
 <https://github.com/endorno/pytorch/blob/master/torch/lib/TH/generic/simd/simd.h>
 由来の BSD-3-Clause コードを含む:
 
-```
+#+begin_example
 Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
 Copyright (c) 2014-     Facebook, Inc            (Soumith Chintala)
 Copyright (c) 2011-2014 Idiap Research Institute (Ronan Collobert)
@@ -220,16 +220,16 @@ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
-```
+#+end_example
 
-## highway
+* highway
 
 <https://github.com/google/highway>
 
 Apache-2.0 OR BSD-3-Clause のデュアルライセンス。本プロジェクトは
 BSD-3-Clause を選択する。
 
-```
+#+begin_example
 Copyright (c) The Highway Project Authors. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -256,4 +256,4 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-```
+#+end_example

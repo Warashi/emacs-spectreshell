@@ -159,7 +159,7 @@ BODY がエラーで抜けても確実に kill する。"
 (ert-deftest spectreshell-eshell-test-typed-input-echoes-through-pty ()
   "*cat への process-send-string 入力が PTY エコー経由で描画される。
 `*' プレフィックスで `eshell/cat' (Lisp 実装) をバイパスし、実プロセス
-としての外部 cat を強制する (docs/design.md のキー送信経路は
+としての外部 cat を強制する (docs/design.org のキー送信経路は
 `spectreshell-send-key'/`spectreshell-yank' が担うが、それらが最終的に
 呼ぶ `process-send-string' 自体がここで検証したい統合経路)。"
   (spectreshell-eshell-test--with-eshell buf
@@ -183,12 +183,12 @@ BODY がエラーで抜けても確実に kill する。"
   "less (eshell-visual-commands) が別 term バッファへ逃げず eshell 内で動く。
 `em-term.el' はデフォルトで `less' を `eshell-exec-visual' へ回して
 専用の `term-mode' バッファに逃がすが、それでは spectreshell が全く
-関与できない (docs/design.md の \"visual command の別バッファ逃がしは
+関与できない (docs/design.org の \"visual command の別バッファ逃がしは
 不要になる\" という決定の裏付け)。"
   (skip-unless (executable-find "less"))
   (spectreshell-eshell-test--with-eshell buf
     (let ((buffer-count-before (length (buffer-list))))
-      (spectreshell-eshell-test--send buf "less docs/design.md")
+      (spectreshell-eshell-test--send buf "less docs/design.org")
       (should (spectreshell-eshell-test--wait-until
                (lambda () (with-current-buffer buf
                             (and spectreshell-eshell--process
