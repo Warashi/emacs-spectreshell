@@ -9,9 +9,15 @@
 (require 'ert)
 (require 'button)
 
+(defconst spectreshell-test--repo-root
+  (expand-file-name ".." (file-name-directory (or load-file-name buffer-file-name)))
+  "このリポジトリのルートディレクトリへの絶対パス。
+`load-file-name'/`buffer-file-name' はロード時 (トップレベルフォーム
+評価中) にしか正しく束縛されないため、ERT のテスト本体からではなく
+ここでロード時に一度だけ計算しておく。")
+
 (defconst spectreshell-test--module-path
-  (expand-file-name "../zig-out/lib/libspectreshell.so"
-                     (file-name-directory (or load-file-name buffer-file-name)))
+  (expand-file-name "zig-out/lib/libspectreshell.so" spectreshell-test--repo-root)
   "テスト対象の libspectreshell.so への絶対パス。
 `just test-el' が事前に `zig build' を実行して用意する。")
 
@@ -136,6 +142,66 @@ recent last)."
       (spectreshell-finalize term)
       (should-error (spectreshell--feed term-ptr "x")
                     :type 'spectreshell-terminal-released))))
+
+;; ---------------------------------------------------------------------
+;; libspectreshell.so の自動検出・自動ロード
+;; ---------------------------------------------------------------------
+
+(ert-deftest spectreshell-test-detect-module-path-finds-local-zig-out ()
+  "ライブラリと同じディレクトリの zig-out/lib/libspectreshell.so を検出できる
+(ローカルの `zig build'/`just build' チェックアウトの配置)。"
+  (let ((root (make-temp-file "spectreshell-module-test" t)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "zig-out/lib" root) t)
+          (with-temp-file (expand-file-name "spectreshell.el" root) (insert ";; stub"))
+          (with-temp-file (expand-file-name "zig-out/lib/libspectreshell.so" root) (insert ""))
+          (let ((load-path (cons root load-path)))
+            (should (equal (spectreshell--detect-module-path)
+                            (expand-file-name "zig-out/lib/libspectreshell.so" root)))))
+      (delete-directory root t))))
+
+(ert-deftest spectreshell-test-detect-module-path-finds-nix-layout ()
+  "nix パッケージの配置 ($out/share/emacs/site-lisp から見た
+../../../lib/libspectreshell.so == $out/lib/libspectreshell.so) を検出できる。"
+  (let ((root (make-temp-file "spectreshell-module-test" t)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "share/emacs/site-lisp" root) t)
+          (make-directory (expand-file-name "lib" root) t)
+          (with-temp-file (expand-file-name "share/emacs/site-lisp/spectreshell.el" root)
+            (insert ";; stub"))
+          (with-temp-file (expand-file-name "lib/libspectreshell.so" root) (insert ""))
+          (let ((load-path (cons (expand-file-name "share/emacs/site-lisp" root) load-path)))
+            (should (equal (spectreshell--detect-module-path)
+                            (expand-file-name "lib/libspectreshell.so" root)))))
+      (delete-directory root t))))
+
+(ert-deftest spectreshell-test-detect-module-path-nil-when-absent ()
+  "候補パスがどちらも存在しなければ nil を返す。"
+  (let ((root (make-temp-file "spectreshell-module-test" t)))
+    (unwind-protect
+        (progn
+          (with-temp-file (expand-file-name "spectreshell.el" root) (insert ";; stub"))
+          (let ((load-path (cons root load-path)))
+            (should (null (spectreshell--detect-module-path)))))
+      (delete-directory root t))))
+
+(ert-deftest spectreshell-test-require-alone-autoloads-module ()
+  "`(require (quote spectreshell))' だけでモジュールが自動ロードされる
+(実運用向けの経路)。このテストファイル自身は他のテストのために
+`spectreshell' を先に `module-load' 済みで require しているため、
+同一プロセス内では `spectreshell-ensure-module-loaded' の no-op 分岐
+しか検証できない。実際に module-load を発火させる経路は、まだ
+何もロードしていないサブプロセスで別途検証する。"
+  (let ((emacs (expand-file-name invocation-name invocation-directory)))
+    (with-temp-buffer
+      (let ((status (call-process
+                     emacs nil t nil
+                     "-Q" "--batch" "-L" spectreshell-test--repo-root
+                     "--eval" "(require 'spectreshell)"
+                     "--eval" "(unless (fboundp 'spectreshell--create) (error \"spectreshell--create not defined\"))")))
+        (should (equal status 0))))))
 
 (provide 'spectreshell-test)
 ;;; spectreshell-test.el ends here
