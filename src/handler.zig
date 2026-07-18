@@ -69,9 +69,33 @@ pub const Handler = struct {
     }
 
     fn setTitle(self: *Handler, title: []const u8) !void {
-        if (self.title.*) |old| self.alloc.free(old);
+        // 先に null を入れてから free する: dupe が失敗したとき title.* が
+        // 解放済み領域を指したままだと、後続の buildUpdate / Term.deinit が
+        // 二重 free してしまう。
+        if (self.title.*) |old| {
+            self.title.* = null;
+            self.alloc.free(old);
+        }
         self.title.* = try self.alloc.dupe(u8, title);
     }
 };
 
 pub const Stream = ghostty_vt.Stream(Handler);
+
+test "setTitle は dupe 失敗時に旧タイトルを dangling にしない" {
+    var title: ?[]u8 = null;
+    // fail_index=1: 1回目の setTitle の dupe (allocation 0) は成功し、
+    // 2回目の dupe (allocation 1) で OOM を注入する。
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
+    var h: Handler = .{
+        .inner = undefined,
+        .alloc = failing.allocator(),
+        .responses = undefined,
+        .title = &title,
+    };
+
+    try h.setTitle("first");
+    try std.testing.expectError(error.OutOfMemory, h.setTitle("second"));
+    // 旧タイトルは解放済みなので、解放済み領域を指すくらいなら null であるべき。
+    try std.testing.expectEqual(@as(?[]u8, null), title);
+}
