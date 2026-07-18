@@ -36,6 +36,8 @@
 (declare-function spectreshell--feed "libspectreshell" (term bytes))
 (declare-function spectreshell--resize "libspectreshell" (term rows cols))
 (declare-function spectreshell--release "libspectreshell" (term))
+(declare-function spectreshell--encode-key "libspectreshell" (term key modifiers))
+(declare-function spectreshell--encode-paste "libspectreshell" (term text))
 
 (defgroup spectreshell nil
   "Terminal emulation rendering engine for eshell."
@@ -388,6 +390,65 @@ column past the end of a short row."
     (goto-char (spectreshell-marker obj))
     (forward-line row)
     (min (line-end-position) (+ (point) col))))
+
+;; ---------------------------------------------------------------------
+;; Key event normalization
+;; ---------------------------------------------------------------------
+
+(defconst spectreshell--special-key-symbols
+  '(up down left right home end prior next insert delete backspace tab
+    return escape
+    f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12)
+  "Symbols `spectreshell--encode-key' accepts as KEY (docs/module-api.md).
+`spectreshell--event-to-key' passes an `event-basic-type' symbol through
+unchanged exactly when it is a member of this list.")
+
+(defconst spectreshell--ascii-special-keys
+  '((?\t . tab) (?\r . return) (?\e . escape) (?\C-? . backspace))
+  "ASCII control codes that name a special KEY of their own.
+TAB/RET/ESC/DEL are indistinguishable, at the character level, from
+Control-i/Control-m/Control-\\[/Control-? (`event-basic-type' cannot
+tell them apart either), but docs/module-api.md encodes them as their
+own symbols rather than as \"i\"/\"m\"/\"[\"/\"?\" plus `ctrl'.")
+
+(defun spectreshell--event-to-key (event)
+  "Normalize EVENT to a (KEY . MODIFIERS) pair for `spectreshell--encode-key'.
+EVENT is anything `last-command-event' can hold: an integer (a plain or
+control/meta-modified character) or a symbol (a function key, possibly
+combined with modifiers, e.g. `C-up' or `M-S-f5').  KEY/MODIFIERS follow
+docs/module-api.md.  Return nil when EVENT has no PTY-sendable
+representation (mouse events, unrecognized function keys, a bare
+modifier press, ...)."
+  ;; TAB/RET/ESC/DEL must be matched on the raw EVENT, not on
+  ;; `event-basic-type', because that function's stripping of the
+  ;; "control" that is baked into those ASCII codes is exactly what turns
+  ;; them into indistinguishable-from-C-i/C-m/C-[/C-? in the first place.
+  (let ((ascii (and (integerp event) (assq event spectreshell--ascii-special-keys))))
+    (if ascii
+        (cons (cdr ascii)
+              (spectreshell--event-modifiers-to-modifiers
+               (remove 'control (event-modifiers event))))
+      (when-let* ((key (spectreshell--basic-type-to-key (event-basic-type event))))
+        (cons key (spectreshell--event-modifiers-to-modifiers (event-modifiers event)))))))
+
+(defun spectreshell--basic-type-to-key (basic)
+  "Return the `spectreshell--encode-key' KEY for modifier-stripped BASIC.
+BASIC is the return value of `event-basic-type'."
+  (cond
+   ((integerp basic) (and (characterp basic) (string basic)))
+   ((memq basic spectreshell--special-key-symbols) basic)))
+
+(defun spectreshell--event-modifiers-to-modifiers (mods)
+  "Translate MODS (an `event-modifiers' list) to encode-key MODIFIERS.
+Only `control'/`meta'/`shift'/`super' have a counterpart there (`alt'
+stands in for Emacs's `meta', per docs/module-api.md); anything else
+(mouse click counts, drag, Emacs's own separate `alt' modifier for a
+literal Alt key, ...) has no PTY encoding and is dropped rather than
+mapped to something misleading."
+  (delq nil (list (and (memq 'control mods) 'ctrl)
+                   (and (memq 'meta mods) 'alt)
+                   (and (memq 'shift mods) 'shift)
+                   (and (memq 'super mods) 'super))))
 
 (provide 'spectreshell)
 ;;; spectreshell.el ends here
