@@ -13,7 +13,7 @@
 - emacs-module.h 相当の宣言を Zig で用意し (~plugin_is_GPL_compatible~
   と ~emacs_module_init~)、初期化のみ行うスケルトンを実装
 - ~zig build~ / nix ビルド (~nix build~) が通るよう
-  nix/libspectreshell.nix の postInstall スタブを削除して成果物を install
+  nix/emacs-spectreshell.nix の postInstall スタブを削除して成果物を install
 - 手元の Emacs で ~(module-load ".../libspectreshell.so")~ が成功する
   ことを確認する再現手順を Justfile に追加
 

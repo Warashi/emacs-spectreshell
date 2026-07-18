@@ -8,7 +8,7 @@
   runCommand,
 }:
 stdenv.mkDerivation (finalAttrs: {
-  pname = "libspectreshell";
+  pname = "emacs-spectreshell";
   version = "dev";
 
   src = ../.;
