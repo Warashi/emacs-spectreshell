@@ -28,7 +28,7 @@ COL をバッファ文字オフセットとして =(+ (point) col)= / =(- pt bol
 の ROW/COL の単位 (セル列) を明記する。CJK を含む行のカーソル・マウス
 座標の ERT を追加する。
 
-** TODO H-2: RenderState の行 dirty フラグを消費後にクリアしていない
+** DONE H-2: RenderState の行 dirty フラグを消費後にクリアしていない
 対象: =src/core.zig= (=buildUpdate=)
 
 ghostty の =RenderState.row_data= の dirty フラグは「ハンドリングした側

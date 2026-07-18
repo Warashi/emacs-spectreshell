@@ -322,6 +322,10 @@ pub const Term = struct {
             if (!row_dirty[y]) continue;
             const extracted = try row_mod.extractRow(alloc, row_pins[y]);
             try dirty.append(alloc, .{ .row = y, .text = extracted.text, .spans = extracted.spans });
+            // RenderState の行 dirty フラグは「ハンドリングした側が false に
+            // 戻す」契約 (ghostty render.zig の doc コメント)。戻さないと
+            // 一度 dirty になった行が以後の全 feed で再送され続ける。
+            row_dirty[y] = false;
         }
 
         const cursor: Cursor = .{
@@ -421,6 +425,24 @@ test "CRによる行上書きは同じ行を再びダーティにする" {
         try testing.expectEqual(@as(usize, 1), update.dirty.len);
         try testing.expectEqual(@as(usize, 0), update.dirty[0].row);
         try testing.expectEqualStrings("XYc       ", update.dirty[0].text);
+    }
+}
+
+test "変更のない feed は dirty を返さない" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 3, 5);
+    defer t.deinit();
+
+    {
+        var update = try t.feed(alloc, "ab");
+        defer update.deinit();
+        try testing.expect(update.dirty.len > 0);
+    }
+
+    {
+        var update = try t.feed(alloc, "");
+        defer update.deinit();
+        try testing.expectEqual(@as(usize, 0), update.dirty.len);
     }
 }
 
