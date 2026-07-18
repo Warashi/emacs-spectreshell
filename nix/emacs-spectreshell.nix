@@ -54,14 +54,18 @@ stdenv.mkDerivation (finalAttrs: {
   # Zig のユニットテストと ERT (module 境界 / 描画 / キー入力 / eshell
   # 統合) をパッケージビルドの一部として走らせる。ERT のテストヘルパーは
   # リポジトリルートの zig-out/lib からモジュールを探すため、install 用の
-  # ビルドとは別に既定 prefix (zig-out) へのビルドも行う (キャッシュ済み
-  # なのでコンパイルは再実行されない)。eshell 統合テストは PTY 上で
-  # 子プロセスを spawn するので HOME を用意しておく。
+  # ビルドとは別に既定 prefix (zig-out) へのビルドも行う。zig.hook の
+  # 既定フラグ ($zigDefaultCpuFlag / $zigDefaultOptimizeFlag) を明示的に
+  # 渡すのは、素の `zig build` だと buildPhase (--release=safe
+  # -Dcpu=baseline) とは別構成の Debug ビルドを丸ごと再コンパイルした
+  # 上に、出荷物と違う成果物を ERT がロードしてしまうため (フラグが
+  # 一致していればキャッシュ済みでコンパイルは再実行されない)。eshell
+  # 統合テストは PTY 上で子プロセスを spawn するので HOME を用意しておく。
   doCheck = true;
   checkPhase = ''
     runHook preCheck
-    zig build test
-    zig build
+    zig build test $zigDefaultCpuFlag $zigDefaultOptimizeFlag
+    zig build $zigDefaultCpuFlag $zigDefaultOptimizeFlag
     HOME="$TMPDIR" emacs -Q --batch -L . -L test \
       -l test/spectreshell-module-test.el \
       -l test/spectreshell-test.el \
