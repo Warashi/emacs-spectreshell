@@ -3,3 +3,4 @@ result
 zig-out
 zig-pkg
 *.o
+*.elc
