@@ -22,4 +22,5 @@ test "ghostty-vt モジュールを import できる" {
 test {
     _ = @import("core.zig");
     _ = @import("keymap.zig");
+    _ = @import("emacs.zig");
 }
