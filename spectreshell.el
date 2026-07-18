@@ -450,5 +450,139 @@ mapped to something misleading."
                    (and (memq 'shift mods) 'shift)
                    (and (memq 'super mods) 'super))))
 
+;; ---------------------------------------------------------------------
+;; Terminal attachment for input commands
+;; ---------------------------------------------------------------------
+
+(defvar-local spectreshell--current nil
+  "The `spectreshell' object this buffer's key commands send input to.
+`spectreshell-eshell.el' (Phase 5) sets this when a process starts;
+nil means there is currently nothing to send input to, in which case
+the semi-char mode commands below are silent no-ops rather than errors
+(matching a plain terminal buffer that just hasn't started a job yet).")
+
+;; ---------------------------------------------------------------------
+;; Input commands
+;; ---------------------------------------------------------------------
+
+(defun spectreshell-send-key ()
+  "Encode `last-command-event' and send it to `spectreshell--current'.
+Bound throughout `spectreshell-semi-char-mode-map' (directly, and via
+the `self-insert-command' remap) to turn nearly every key into a
+`spectreshell--encode-key' call.  Does nothing if there is no current
+terminal, or if the event or the encoder has no bytes to send for it."
+  (interactive)
+  (when-let* ((obj spectreshell--current)
+              (key+mods (spectreshell--event-to-key last-command-event))
+              (bytes (spectreshell--encode-key (spectreshell-term obj)
+                                                (car key+mods) (cdr key+mods))))
+    (funcall (spectreshell-send-fn obj) bytes)))
+
+(defun spectreshell-yank ()
+  "Send the front of the kill ring to `spectreshell--current' as a paste.
+Bound to `C-y' in `spectreshell-semi-char-mode-map' instead of ordinary
+`yank': pasted text is one `spectreshell--encode-paste' call (bracketed
+paste, if the terminal has that mode on) rather than a `spectreshell-send-key'
+call per character."
+  (interactive)
+  (when-let* ((obj spectreshell--current))
+    (funcall (spectreshell-send-fn obj)
+             (spectreshell--encode-paste (spectreshell-term obj) (current-kill 0)))))
+
+;; ---------------------------------------------------------------------
+;; semi-char / emacs mode
+;; ---------------------------------------------------------------------
+
+(defvar spectreshell-semi-char-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map [remap self-insert-command] #'spectreshell-send-key)
+    ;; Bind both the raw char and the symbol form of TAB/RET/DEL: a
+    ;; terminal frame delivers the former, a GUI frame can deliver either
+    ;; depending on how it translates the physical key.  ESC is the odd one
+    ;; out: keymaps store a Meta-modified char's binding as an ESC-prefixed
+    ;; sub-keymap internally (terminals send Meta as literal ESC + char),
+    ;; so a *non-prefix* binding at raw char 27 here would make every
+    ;; `M-<letter>' binding below fail with "starts with non-prefix key
+    ;; ESC"; only the `escape' symbol form is bound for that reason.
+    (dolist (pair spectreshell--ascii-special-keys)
+      (unless (eq (cdr pair) 'escape)
+        (define-key map (vector (car pair)) #'spectreshell-send-key))
+      (define-key map (vector (cdr pair)) #'spectreshell-send-key))
+    ;; Unlike TAB/RET/ESC/DEL, a modified function key (`C-up', `M-S-f5', ...)
+    ;; is its own distinct symbol rather than a modifier bit layered on a
+    ;; shared base event, so each combination needs its own binding.
+    (dolist (key '(up down left right home end prior next insert delete
+                   f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12))
+      (dolist (mods '(() (control) (meta) (control meta) (shift)
+                       (control shift) (meta shift) (control meta shift)))
+        (define-key map (vector (event-convert-list (append mods (list key))))
+          #'spectreshell-send-key)))
+    ;; C-c (kept as a prefix for Emacs commands, `C-c C-e' below included),
+    ;; M-x, C-u (`universal-argument'), and C-y (`spectreshell-yank' below,
+    ;; not a plain key send) are docs/design.md's named exceptions to
+    ;; "send nearly everything"; every other control letter goes straight
+    ;; to the PTY.
+    (dolist (letter (number-sequence ?a ?z))
+      (unless (memq letter '(?c ?u ?y))
+        (define-key map (kbd (format "C-%c" letter)) #'spectreshell-send-key)))
+    ;; M-x is the only named meta exception.
+    (dolist (letter (number-sequence ?a ?z))
+      (unless (eq letter ?x)
+        (define-key map (kbd (format "M-%c" letter)) #'spectreshell-send-key)))
+    (define-key map (kbd "C-y") #'spectreshell-yank)
+    (define-key map (kbd "C-c C-e") #'spectreshell-emacs-mode)
+    map)
+  "Keymap active while `spectreshell-semi-char-mode' is on.
+Sends nearly every key to the terminal; see docs/design.md's semi-char
+mode section for the (small) set of keys deliberately left to Emacs.")
+
+(defvar spectreshell-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-j") #'spectreshell-semi-char-mode-on)
+    map)
+  "Keymap for `spectreshell-mode', active regardless of semi-char/emacs sub-mode.
+Only holds the entry point back into `spectreshell-semi-char-mode', so
+that it stays reachable while `spectreshell-semi-char-mode-map's C-c C-e
+has left it turned off.")
+
+;;;###autoload
+(define-minor-mode spectreshell-mode
+  "Base minor mode for a buffer with a `spectreshell--current' terminal.
+Provides `C-c C-j' to (re-)enter `spectreshell-semi-char-mode' and the
+mode-line indication for \"emacs mode\" (semi-char off); the semi-char
+lighter is contributed by `spectreshell-semi-char-mode' itself while it
+is on, which also turns this mode on as a side effect of enabling it."
+  :lighter (:eval (unless spectreshell-semi-char-mode " SpectreShell[emacs]"))
+  :keymap spectreshell-mode-map)
+
+(defun spectreshell-semi-char-mode-on ()
+  "Enter `spectreshell-semi-char-mode'.
+Bound to `C-c C-j' in `spectreshell-mode-map'."
+  (interactive)
+  (spectreshell-semi-char-mode 1))
+
+;;;###autoload
+(define-minor-mode spectreshell-semi-char-mode
+  "Minor mode that sends nearly every key straight to `spectreshell--current'.
+This is eshell-under-spectreshell's default mode while a job is running
+(docs/design.md); `C-c C-e' leaves it (`spectreshell-emacs-mode') for
+ordinary Emacs buffer editing, and `C-c C-j' (from the always-present
+`spectreshell-mode-map') re-enters it."
+  :lighter " SpectreShell[semi]"
+  :keymap spectreshell-semi-char-mode-map
+  ;; `spectreshell-mode' owns `C-c C-j' and the "emacs mode" lighter, both
+  ;; needed to get back here after `spectreshell-emacs-mode'; turning this
+  ;; mode on implies wanting those too, even before either mode has been
+  ;; explicitly enabled in this buffer.
+  (when spectreshell-semi-char-mode
+    (spectreshell-mode 1)))
+
+(defun spectreshell-emacs-mode ()
+  "Leave semi-char mode; bound to `C-c C-e' in `spectreshell-semi-char-mode-map'.
+All keys behave like ordinary Emacs again until `spectreshell-semi-char-mode-on'
+(`C-c C-j') re-enters semi-char mode."
+  (interactive)
+  (spectreshell-semi-char-mode -1))
+
 (provide 'spectreshell)
 ;;; spectreshell.el ends here
