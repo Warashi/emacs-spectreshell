@@ -199,7 +199,7 @@ UTF-8 多バイト分割の回帰テストを追加する。
 
 ** Elisp
 
-*** TODO L-1: ドラッグ追跡ループが整数イベントを黙って捨てる
+*** DONE L-1: ドラッグ追跡ループが整数イベントを黙って捨てる
 対象: =spectreshell.el= (=spectreshell--track-mouse-drag=)
 
 ループ脱出時に =unread-command-events= へ戻すのがシンボル/リストのみで、

@@ -649,12 +649,21 @@ onto `unread-command-events' so the normal command loop still sees it."
           (cond
            ((and (consp event) (eq (car event) 'mouse-movement))
             (spectreshell--send-mouse obj button 'motion (event-start event) mods))
-           ((and (consp event) (memq (event-basic-type event) '(mouse-1 mouse-2 mouse-3)))
+           ;; Only *this* BUTTON's release ends the drag as a release
+           ;; report; a different button's up/down mid-drag must not be
+           ;; reported as BUTTON's release, so it falls through to the
+           ;; push-back arm below like any other unrelated event.
+           ((and (consp event)
+                 (memq (event-basic-type event) '(mouse-1 mouse-2 mouse-3))
+                 (eq (spectreshell--mouse-button-number event) button))
             (spectreshell--send-mouse obj button 'release (event-end event) mods)
             (throw 'spectreshell--mouse-drag-done nil))
            (t
-            (when (or (symbolp event) (consp event))
-              (push event unread-command-events))
+            ;; Push back unconditionally: integer events (ordinary key
+            ;; presses) are just as valid in `unread-command-events' as
+            ;; symbols/lists, and dropping them would silently eat a
+            ;; keystroke typed while the mouse button was held down.
+            (push event unread-command-events)
             (throw 'spectreshell--mouse-drag-done nil))))))))
 
 (defun spectreshell-mouse-down (event)

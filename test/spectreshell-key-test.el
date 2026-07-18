@@ -328,6 +328,45 @@ position (a marker is resolved to its integer position, since
               (should fell-back)))
         (kill-buffer buf)))))
 
+(defun spectreshell-key-test--drag-with-events (term events)
+  "TERM のドラッグ追跡 (button 1) を、read-event が EVENTS を順に返す
+状態で実行する。"
+  (let ((remaining events))
+    (cl-letf (((symbol-function 'read-event)
+               (lambda () (pop remaining))))
+      (spectreshell--track-mouse-drag term 1 nil))))
+
+(ert-deftest spectreshell-key-test-mouse-drag-sends-motion-and-release ()
+  "ドラッグ追跡は motion を送り、同じボタンの release で終了する。"
+  (spectreshell-test--with-terminal (term 5 10 responses)
+    (spectreshell-feed term "\x1b[?1002h\x1b[?1006h")
+    (let ((posn (spectreshell-key-test--posn nil (+ (spectreshell-marker term) 2))))
+      (spectreshell-key-test--drag-with-events
+       term (list (list 'mouse-movement posn) (list 'mouse-1 posn)))
+      ;; motion (button0+motion32) → release の順で送信されている。
+      (should (equal (reverse responses) '("\x1b[<32;3;1M" "\x1b[<0;3;1m"))))))
+
+(ert-deftest spectreshell-key-test-mouse-drag-pushes-back-key-press ()
+  "ドラッグ中のキー入力 (整数イベント) は捨てられず unread-command-events
+に戻り、ループを終了させる。"
+  (spectreshell-test--with-terminal (term 5 10)
+    (spectreshell-feed term "\x1b[?1002h\x1b[?1006h")
+    (let ((unread-command-events nil))
+      (spectreshell-key-test--drag-with-events term (list ?x))
+      (should (equal unread-command-events '(?x))))))
+
+(ert-deftest spectreshell-key-test-mouse-drag-ignores-other-buttons-release ()
+  "ドラッグ中の別ボタンのイベントは元ボタンの release として報告されない。"
+  (spectreshell-test--with-terminal (term 5 10 responses)
+    (spectreshell-feed term "\x1b[?1002h\x1b[?1006h")
+    (let ((posn (spectreshell-key-test--posn nil (spectreshell-marker term)))
+          (unread-command-events nil))
+      (spectreshell-key-test--drag-with-events
+       term (list (list 'down-mouse-2 posn)))
+      ;; release は送られず、イベントは押し戻されてループが終わる。
+      (should (null responses))
+      (should (= 1 (length unread-command-events))))))
+
 (ert-deftest spectreshell-key-test-mouse-wheel-sends-single-press ()
   "wheel-up はボタン64 (wheel_up) の press 1回として送信される。"
   (spectreshell-test--with-terminal (term 5 10 responses)
