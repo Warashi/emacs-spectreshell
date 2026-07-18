@@ -37,7 +37,7 @@
       formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);
       devShells = forAllSystems (pkgs: {
         default = pkgs.callPackage ./nix/devShell.nix {
-          zig = pkgs.zig_0_16;
+          zig = pkgs.zig_0_15;
           zon2nix = zon2nix.packages.${pkgs.stdenv.hostPlatform.system}.zon2nix;
         };
       });

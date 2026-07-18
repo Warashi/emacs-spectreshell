@@ -6,7 +6,7 @@
   fetchurl,
   fetchgit,
   runCommandLocal,
-  zig_0_16,
+  zig_0_15,
   zstd,
   name ? "zig-packages",
 }:
@@ -18,16 +18,12 @@ let
     }:
     runCommandLocal name
       {
-        nativeBuildInputs = [ zig_0_16 ];
+        nativeBuildInputs = [ zig_0_15 ];
       }
       ''
-        # workaround https://codeberg.org/ziglang/zig/issues/31866
-        # https://github.com/Cloudef/zig2nix/issues/54
-        mkdir "$TMPDIR/src" "$TMPDIR/cache"
-        touch "$TMPDIR/src/build.zig"
-        hash="$(cd "$TMPDIR/src" && zig fetch --global-cache-dir "$TMPDIR/cache" ${artifact})"
-        mkdir "$out"
-        tar zxvf "$TMPDIR/cache/p/$hash.tar.gz" --directory "$out/" --strip-components=1
+        hash="$(cd "$TMPDIR" && zig fetch --global-cache-dir "$TMPDIR" ${artifact})"
+        mv "$TMPDIR/p/$hash" "$out"
+        chmod 755 "$out"
       '';
 
   fetchZig =
@@ -149,11 +145,11 @@ linkFarm name [
     };
   }
   {
-    name = "ghostty-1.3.2-dev-5UdBC2uMIQUcERHokdgWVnnQ2AW3P-_PkQbDlN9vAaWY";
+    name = "ghostty-1.3.1-5UdBCwYm-gQeBa4bu1-sMooCQS4KVriv5wWSIJ_sI-Cb";
     path = fetchZigArtifact {
       name = "ghostty";
-      url = "git+https://github.com/ghostty-org/ghostty.git#f3c9a2b7262a989ba7e9408d00471fda8f788d16";
-      hash = "sha256-MyxeUiVizZRs0+PBHrtCva9cFxbDQaiaYkxDVqEjrgE=";
+      url = "https://github.com/ghostty-org/ghostty/archive/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28.tar.gz";
+      hash = "sha256-+ddMmUe9Jjkun4qqW8XFXVgwVZdVHsGWcQzndgIlBjQ=";
       unpack = true;
     };
   }
@@ -212,11 +208,11 @@ linkFarm name [
     };
   }
   {
-    name = "N-V-__8AAAYpBACKY0n8sQbPfzY47xFRRtjXiF766UVF5ZyD";
+    name = "N-V-__8AABVbAwBwDRyZONfx553tvMW8_A2OKUoLzPUSRiLF";
     path = fetchZigArtifact {
       name = "iterm2_themes";
-      url = "https://deps.files.ghostty.org/ghostty-themes-release-20260629-161812-8c97c3c.tgz";
-      hash = "sha256-quMCPsbVIeLqzIV2okjRDZTKxA6YdkUSYuxmBHf3xMg=";
+      url = "https://deps.files.ghostty.org/ghostty-themes-release-20260216-151611-fc73ce3.tgz";
+      hash = "sha256-FCALuGoMgUq2lgnVALKAs5a20uuDXt8Gdt5KeJwKqP0=";
       unpack = false;
     };
   }
@@ -311,6 +307,15 @@ linkFarm name [
     };
   }
   {
+    name = "N-V-__8AAHffAgDU0YQmynL8K35WzkcnMUmBVQHQ0jlcKpjH";
+    path = fetchZigArtifact {
+      name = "utfcpp";
+      url = "https://deps.files.ghostty.org/utfcpp-1220d4d18426ca72fc2b7e56ce47273149815501d0d2395c2a98c726b31ba931e641.tar.gz";
+      hash = "sha256-/8ZooxDndgfTk/PBizJxXyI9oerExNbgV5oR345rWc8=";
+      unpack = false;
+    };
+  }
+  {
     name = "uucode-0.1.0-ZZjBPj96QADXyt5sqwBJUnhaDYs_qBeeKijZvlRa0eqM";
     path = fetchZigArtifact {
       name = "uucode";
@@ -352,15 +357,6 @@ linkFarm name [
       name = "wayland_protocols";
       url = "https://deps.files.ghostty.org/wayland-protocols-258d8f88f2c8c25a830c6316f87d23ce1a0f12d9.tar.gz";
       hash = "sha256-XO3K3egbdeYPI+XoO13SuOtO+5+Peb16NH0UiusFMPg=";
-      unpack = false;
-    };
-  }
-  {
-    name = "N-V-__8AAFdWDwA0ktbNUi9pFBHCRN4weXIgIfCrVjfGxqgA";
-    path = fetchZigArtifact {
-      name = "wayland_protocols";
-      url = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/archive/1.47/wayland-protocols-1.47.tar.gz";
-      hash = "sha256-3S3xSrX0EDgleq7cxLX7msDuAY8/D5SvkJcCjmDTMiM=";
       unpack = false;
     };
   }
