@@ -18,3 +18,7 @@ test "ghostty-vt モジュールを import できる" {
     const vt = @import("ghostty-vt");
     _ = vt.Terminal;
 }
+
+test {
+    _ = @import("style.zig");
+}
