@@ -9,12 +9,20 @@
       url = "github:NixOS/flake-compat";
       flake = false;
     };
+
+    zon2nix = {
+      url = "github:jcollie/zon2nix";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+      };
+    };
   };
 
   outputs =
     {
       self,
       nixpkgs,
+      zon2nix,
       ...
     }@inputs:
     let
@@ -30,6 +38,7 @@
       devShells = forAllSystems (pkgs: {
         default = pkgs.callPackage ./nix/devShell.nix {
           zig = pkgs.zig_0_16;
+          zon2nix = zon2nix.packages.${pkgs.stdenv.hostPlatform.system}.zon2nix;
         };
       });
     };
