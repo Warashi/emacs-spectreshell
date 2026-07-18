@@ -183,7 +183,13 @@ matches the size the child's very first ioctl already saw."
       (pcase-let* ((`(,rows . ,cols) size)
                    (obj (spectreshell-start
                          buffer rows cols
-                         (lambda (bytes) (process-send-string proc bytes)))))
+                         ;; The final feed can still carry :responses
+                         ;; (e.g. a DSR reply) after PROC already died;
+                         ;; writing to a dead process would signal from
+                         ;; inside the process filter.
+                         (lambda (bytes)
+                           (when (process-live-p proc)
+                             (process-send-string proc bytes))))))
         (process-put proc 'spectreshell-eshell-terminal obj)
         ;; PROC's output must reach `spectreshell-feed' as exact raw bytes
         ;; (docs/module-api.org) and PROC's input (encode-key/encode-paste/
@@ -240,8 +246,12 @@ stream (`spectreshell-eshell--attach' forced `no-conversion'), and
 `spectreshell-feed' writes the decoded, decorated result straight into
 PROC's buffer itself, so there is nothing left for eshell's own output
 machinery to do with it."
-  (when (buffer-live-p (process-buffer proc))
-    (spectreshell-feed (process-get proc 'spectreshell-eshell-terminal) bytes)))
+  ;; The terminal property check also covers the (rare) case of output
+  ;; delivered after `spectreshell-eshell--detach' already cleared it;
+  ;; feeding a nil terminal would signal from inside the filter.
+  (when-let* (((buffer-live-p (process-buffer proc)))
+              (obj (process-get proc 'spectreshell-eshell-terminal)))
+    (spectreshell-feed obj bytes)))
 
 (defun spectreshell-eshell--sentinel (proc string)
   "Finalize PROC's spectreshell terminal, then run `eshell-sentinel'.
