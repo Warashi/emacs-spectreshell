@@ -31,13 +31,12 @@ stdenv.mkDerivation (finalAttrs: {
   # --system は使わない: zig 0.15/0.16 には、--system で渡したパッケージが
   # パス依存 (ghostty の pkg/*) を含むと zig build が無限ループするバグがあるため、
   # グローバルキャッシュの p/ に依存を事前配置する方式で回避する
+  # symlink ではなく実体コピーにする: ビルド時実行 exe は依存パッケージの
+  # ディレクトリを cwd として相対パスで spawn されるため、p/ が store への
+  # symlink だと物理 cwd が /nix/store 側になり相対パス解決が壊れる
   postConfigure = ''
-    ln -s ${finalAttrs.deps} "$ZIG_GLOBAL_CACHE_DIR/p"
-  '';
-
-  # スタブの build.zig はまだ何も install しないため、$out が作られず
-  # ビルドが失敗する。成果物を install するようになったら削除してよい
-  postInstall = ''
-    mkdir -p $out
+    mkdir -p "$ZIG_GLOBAL_CACHE_DIR/p"
+    cp -rL ${finalAttrs.deps}/. "$ZIG_GLOBAL_CACHE_DIR/p/"
+    chmod -R u+w "$ZIG_GLOBAL_CACHE_DIR/p"
   '';
 })
