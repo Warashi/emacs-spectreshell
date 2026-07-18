@@ -140,9 +140,13 @@ frame dimensions do not correspond to anything a user could see."
 
 (defun spectreshell-eshell--window-size-change (window)
   "Resize this buffer's running spectreshell terminal to fit WINDOW.
-Buffer-local member of `window-size-change-functions', added by
-`spectreshell-eshell--attach'.  Left in place after the terminal it was
-added for finalizes (`spectreshell-eshell--detach' does not remove it):
+Buffer-local member of `window-size-change-functions' and
+`window-buffer-change-functions' (the latter covers a buffer being
+\(re)displayed in an existing window without any size change -- e.g. a
+job attached while the buffer was buried, then brought back with
+`switch-to-buffer'), both added by `spectreshell-eshell--attach'.  Left
+in place after the terminal it was added for finalizes
+\(`spectreshell-eshell--detach' does not remove it):
 `spectreshell--current' being nil then makes every subsequent call of
 this a no-op, which is cheaper than tracking add/remove state across
 however many jobs run in this buffer over its lifetime."
@@ -203,6 +207,8 @@ matches the size the child's very first ioctl already saw."
         (setq spectreshell--current obj
               spectreshell-eshell--process proc)
         (add-hook 'window-size-change-functions
+                   #'spectreshell-eshell--window-size-change nil t)
+        (add-hook 'window-buffer-change-functions
                    #'spectreshell-eshell--window-size-change nil t)
         (spectreshell-semi-char-mode 1)))))
 
