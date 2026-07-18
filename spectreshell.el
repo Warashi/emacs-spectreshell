@@ -223,11 +223,34 @@ pre-TUI screen content is not silently lost."
       (let ((inhibit-read-only t)
             (buffer-undo-list t))
         (when (spectreshell-alt-saved obj)
-          (spectreshell--leave-alt-screen obj))))
+          (spectreshell--leave-alt-screen obj))
+        (spectreshell--trim-frozen-region obj)))
     (goto-char (point-max)))
   (set-marker (spectreshell-marker obj) nil)
   (spectreshell--release (spectreshell-term obj))
   nil)
+
+(defun spectreshell--trim-frozen-region (obj)
+  "Strip OBJ's terminal-region padding before it freezes into plain text.
+Removes each line's trailing run of property-less spaces (the module
+pads rows to the full terminal width; see
+`spectreshell--trim-trailing-blanks' for why styled spaces survive),
+then the all-blank tail rows below the last real output, so eshell's
+next prompt lands right under the output instead of a screenful of
+blank lines further down."
+  (let ((marker (spectreshell-marker obj)))
+    (goto-char marker)
+    (while (< (point) (point-max))
+      (end-of-line)
+      (while (and (> (point) (line-beginning-position))
+                  (eq (char-before) ?\s)
+                  (null (text-properties-at (1- (point)))))
+        (delete-char -1))
+      (forward-line 1))
+    (goto-char (point-max))
+    (skip-chars-backward "\n" marker)
+    (delete-region (point) (point-max))
+    (insert "\n")))
 
 ;; ---------------------------------------------------------------------
 ;; Update plist application
@@ -400,13 +423,28 @@ not retroactively update if the theme changes later."
 ;; Scrollback confirmation
 ;; ---------------------------------------------------------------------
 
+(defun spectreshell--trim-trailing-blanks (text)
+  "Return TEXT without its trailing run of property-less spaces.
+The module pads every row to the full terminal width; keeping that
+padding on text confirmed as permanent scrollback would leave trailing
+whitespace on every copied line and inflate the buffer by rows x cols.
+Spaces that carry text properties (e.g. a colored-background span) are
+real terminal content and are kept."
+  (let ((end (length text)))
+    (while (and (> end 0)
+                (eq (aref text (1- end)) ?\s)
+                (null (text-properties-at (1- end) text)))
+      (setq end (1- end)))
+    (substring text 0 end)))
+
 (defun spectreshell--apply-scrolled-off (obj scrolled-off)
   "Confirm SCROLLED-OFF (the :scrolled-off list) as scrollback text in OBJ."
   (when scrolled-off
     (let ((marker (spectreshell-marker obj)))
       (goto-char marker)
       (insert (mapconcat (lambda (entry)
-                            (spectreshell--decorate-row (car entry) (cdr entry)))
+                            (spectreshell--trim-trailing-blanks
+                             (spectreshell--decorate-row (car entry) (cdr entry))))
                           scrolled-off "\n")
               "\n")
       ;; The marker's default (nil) insertion-type leaves it *behind* text
