@@ -98,7 +98,7 @@ DECCKM (カーソルキーモード)・kitty keyboard protocol・bracketed paste
 
 * モジュール API (案)
 
-emacs-module で公開する関数。~term~ は user-ptr (finalizer 付き)。
+emacs-module で公開する関数。 ~term~ は user-ptr (finalizer 付き)。
 
 | 関数 | 説明 |
 |------+------|
@@ -113,7 +113,7 @@ emacs-module で公開する関数。~term~ は user-ptr (finalizer 付き)。
 
 - ~:scrolled-off~ — 可視領域上端から流れ出た行のリスト (確定化用)。
   各行は ~(TEXT . SPANS)~
-- ~:dirty~ — 変更行のリスト。各要素は ~(ROW TEXT SPANS)~。
+- ~:dirty~ — 変更行のリスト。各要素は ~(ROW TEXT SPANS)~ の形。
   SPANS はスタイル区間 ~((START END . STYLE-PLIST) ...)~
 - ~:cursor~ — ~(ROW . COL)~ とカーソル可視状態
 - ~:responses~ — DA/DSR 等、PTY に返送すべきバイト列
@@ -131,7 +131,7 @@ underline (スタイル種別含む)・strikethrough・inverse・faint・
 - *スクロールバックは Emacs バッファに確定化する。*
   可視領域の上端から流れ出た行 (~:scrolled-off~) は確定テキストとして
   端末領域の直前に挿入し、以後変更しない。エミュレータ側の scrollback は
-  最小化する。isearch・コピー・~eshell-previous-prompt~ など Emacs の
+  最小化する。isearch・コピー・ ~eshell-previous-prompt~ など Emacs の
   機能が確定部分にそのまま効く。eat と同方式。
 - *alternate screen* (less, vim 等) の内容は確定化せず、
   終了時に領域ごと消去して元の画面を復元する。
@@ -147,8 +147,8 @@ underline (スタイル種別含む)・strikethrough・inverse・faint・
 プロセス実行中は 2 モードを切り替える:
 
 - *semi-char モード* (実行中のデフォルト): 印字可能キー・矢印・
-  C-a 等ほとんどのキーを PTY に送信。~C-c~ プレフィックス・~M-x~ は
-  Emacs に残す。~C-y~ は kill-ring の内容を
+  C-a 等ほとんどのキーを PTY に送信。 ~C-c~ プレフィックス・ ~M-x~ は
+  Emacs に残す。 ~C-y~ は kill-ring の内容を
   ~spectreshell--encode-paste~ 経由 (bracketed paste) で送信。
   ~C-c C-e~ で emacs モードへ。
 - *emacs モード*: 全キーが通常の Emacs。バッファ閲覧・コピー用。
@@ -210,7 +210,7 @@ eat-eshell-mode と同様の接続方式:
 ** TERM / terminfo
 
 ~TERM=xterm-ghostty~ とし、ghostty ソースが持つ terminfo 定義から
-ビルド時に生成した terminfo を同梱、~TERMINFO~ 環境変数で注入する。
+ビルド時に生成した terminfo を同梱、 ~TERMINFO~ 環境変数で注入する。
 エミュレータの実体 (ghostty-vt) と能力宣言が一致するのが利点。
 ssh 先など terminfo が届かない環境向けに、TERM 値を変更できる
 defcustom (fallback: ~xterm-256color~) を用意する。

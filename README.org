@@ -2,7 +2,7 @@
 
 eshell 向けの端末エミュレーション統合。[[https://ghostty.org/][ghostty]] の
 端末エミュレーションライブラリ ~ghostty-vt~ を Zig 製の Emacs
-ダイナミックモジュールから使い、~ls --color~ の色付き出力・進捗表示・
+ダイナミックモジュールから使い、 ~ls --color~ の色付き出力・進捗表示・
 less/vim のような alternate screen アプリの出力を eshell バッファ内で
 正しく描画する。
 
@@ -12,7 +12,7 @@ less/vim のような alternate screen アプリの出力を eshell バッファ
   プログレスバー・alternate screen を含む出力を eshell バッファ内に
   正しく描画する。マウス操作 (SGR mouse mode) や OSC 8 ハイパーリンクも
   対応する。
-- *やらないこと*: eshell 統合専用であり、~M-x eat~ のような汎用の
+- *やらないこと*: eshell 統合専用であり、 ~M-x eat~ のような汎用の
   スタンドアロン端末エミュレータは提供しない (描画エンジン自体は
   eshell 非依存に作られているため、将来の拡張余地はある)。
 - *[[https://codeberg.org/akib/emacs-eat][eat-eshell-mode]] との関係*:
@@ -54,10 +54,10 @@ result/share/emacs/site-lisp/*.el       ; spectreshell.el / spectreshell-eshell.
 result/share/terminfo/                  ; xterm-ghostty の terminfo データベース
 #+end_example
 
-が生成される。~spectreshell.el~ は ~require~ された時点で
-~libspectreshell.so~ を、~spectreshell-eshell.el~ は同梱の terminfo
+が生成される。 ~spectreshell.el~ は ~require~ された時点で
+~libspectreshell.so~ を、 ~spectreshell-eshell.el~ は同梱の terminfo
 データベースを、いずれも自分がロードされた場所からの相対パスで自動検出
-するので、~load-path~ に ~result/share/emacs/site-lisp~ を通すだけで
+するので、 ~load-path~ に ~result/share/emacs/site-lisp~ を通すだけで
 このレイアウトのまま動く (手動での ~module-load~ や ~TERMINFO~ の設定
 は不要)。
 
@@ -84,7 +84,7 @@ nix ビルドと同様に自動検出される:
   :config (spectreshell-eshell-mode 1))
 #+end_src
 
-~zig build~ には ~tic~ (ncurses) が必要。~just build~ / ~just test~ /
+~zig build~ には ~tic~ (ncurses) が必要。 ~just build~ / ~just test~ /
 ~just test-el~ / ~just load-check~ / ~just nix-check~ に開発時によく使う
 コマンドをまとめてある ([[file:Justfile][Justfile]] 参照)。
 
@@ -118,10 +118,10 @@ nix ビルドと同様に自動検出される:
   (OSC 0/2)
 - マウス (SGR mouse mode): クリック・ドラッグ・ホイールスクロールを
   端末座標に変換して送信。マウストラッキングを使わないコマンドの実行中は
-  通常の Emacs マウス操作 (~mouse-set-point~/ホイールスクロール) に
+  通常の Emacs マウス操作 (~mouse-set-point~ / ホイールスクロール) に
   フォールバックする
 - OSC 8 ハイパーリンク (クリック可能な button として描画)
-- ~xterm-ghostty~ の terminfo をビルド時生成・同梱し、~TERM~ / ~TERMINFO~
+- ~xterm-ghostty~ の terminfo をビルド時生成・同梱し、 ~TERM~ / ~TERMINFO~
   として子プロセスに自動注入 (未検出時は ~xterm-256color~ に自動
   フォールバック)
 - スクロールバックは Emacs バッファへ確定化するので、isearch・コピー・
@@ -135,7 +135,7 @@ nix ビルドと同様に自動検出される:
   (~C-c~ は Emacs のプレフィックスキーとして残る)
 - *実行中プロセスへの IME 直接入力は対象外*: ddskk 等での日本語入力は
   eshell のコマンドライン編集中 (プロセス非実行時) は無条件で動くが、
-  実行中のプロセスへ直接入力する経路はない。~C-y~ (kill-ring からの
+  実行中のプロセスへ直接入力する経路はない。 ~C-y~ (kill-ring からの
   bracketed paste) 経由での日本語送信は可能
 - *OSC 52 クリップボード・画像 (kitty graphics/sixel) は未実装*
 - *TRAMP / リモート ~default-directory~ は対象外*: リモートでは常に
@@ -144,7 +144,7 @@ nix ビルドと同様に自動検出される:
   ~cmd1~ の出力は spectreshell を経由しない
 - Emacs が新規に開く pty は既定で ~-echo -onlcr~ になっており、素の LF
   だけの出力が階段状にずれてしまうため ~stty ... sane~ 経由で回避して
-  いる。~/bin/sh~ と ~stty~ が存在しない環境 (通常の Unix 系ではまず
+  いる。 ~/bin/sh~ と ~stty~ が存在しない環境 (通常の Unix 系ではまず
   問題にならない) では機能しない
 
 詳細な手動確認手順は [[file:docs/manual-testing.org][docs/manual-testing.org]]

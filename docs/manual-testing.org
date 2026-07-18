@@ -36,7 +36,7 @@ printf 'progress: %d%%\r' 10; sleep 0.3; printf 'progress: %d%%\r' 50; sleep 0.3
 
 ~less~ で複数ページのファイル (このリポジトリの ~docs/design.org~ 等)
 を開き、alternate screen に切り替わること (元のプロンプト行が一時的に
-隠れる)、~j~ / ~k~ / 矢印キーでのスクロールが効くこと、~q~ で終了すると
+隠れる)、 ~j~ / ~k~ / 矢印キーでのスクロールが効くこと、 ~q~ で終了すると
 alternate screen が消えて元のプロンプト位置に戻ることを確認する。
 
 ~less~ は eshell 標準の ~eshell-visual-commands~ に含まれており、
@@ -52,7 +52,7 @@ alternate screen が消えて元のプロンプト位置に戻ることを確認
 
 ~vim~ である程度編集操作 (文字入力・カーソル移動・保存) を行い、
 alternate screen 内でのカーソル移動・色・ステータスラインが正しく
-描画されること、~:q~ で抜けると元の eshell バッファに戻ることを確認する。
+描画されること、 ~:q~ で抜けると元の eshell バッファに戻ることを確認する。
 
 ** マウス操作
 

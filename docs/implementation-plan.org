@@ -6,7 +6,7 @@
 
 * Phase 0: ビルド基盤
 
-*ゴール*: Emacs から ~module-load~ できる空の ~libspectreshell.so~。
+*ゴール*: Emacs から ~module-load~ できる空の ~libspectreshell.so~ を作る。
 
 - build.zig で ghostty 依存から ~ghostty-vt~ モジュールを取り込み、
   shared library をビルドする
@@ -75,7 +75,7 @@
 
 - キーイベント → 中間表現 (key + modifiers) の正規化
 - ~spectreshell-semi-char-mode-map~: 印字可能キー・矢印・制御キーを
-  ~--encode-key~ 経由で送信。~C-c~ プレフィックス・~M-x~ は Emacs に残す
+  ~--encode-key~ 経由で送信。 ~C-c~ プレフィックス・ ~M-x~ は Emacs に残す
 - ~C-y~: kill-ring 先頭を ~--encode-paste~ (bracketed paste) で送信
 - ~C-c C-e~ / ~C-c C-j~ によるモード切替と mode-line 表示
 - ERT: キーイベント→送信バイト列 (DECCKM on/off での矢印キー等) を検証
@@ -87,7 +87,7 @@
 *ゴール*: ~spectreshell-eshell-mode~ で eshell が eat-eshell-mode 同等に動く。
 
 - eshell のプロセス起動経路への advice:
-  process-filter 差し替え、~TERM~ / ~TERMINFO~ 注入
+  process-filter 差し替え、 ~TERM~ / ~TERMINFO~ 注入
 - プロセス開始で端末領域を開始し semi-char モードへ、
   プロセス終了で確定化して通常 eshell に復帰
 - ウィンドウサイズ変更 → ~--resize~ + ~set-process-window-size~
@@ -106,7 +106,7 @@
 - マウス対応: Emacs マウスイベント → 端末座標変換 → エンコード送信
   (alternate screen アプリでのクリック・スクロール)
 - terminfo: ghostty ソースの定義から xterm-ghostty の terminfo を
-  ビルド時生成・同梱し、~TERMINFO~ で注入。
+  ビルド時生成・同梱し、 ~TERMINFO~ で注入。
   TERM 値の defcustom (fallback: ~xterm-256color~)
 - nix パッケージの完成 (so + el + terminfo を成果物に含める)
 - README: インストール手順・設定例
