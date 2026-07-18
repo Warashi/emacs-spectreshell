@@ -73,6 +73,13 @@
   "マウスイベント等、対応する KEY がないイベントは nil になる。"
   (should (null (spectreshell--event-to-key 'mouse-1))))
 
+(ert-deftest spectreshell-key-test-circular-modifier-list-signals ()
+  "循環した MODIFIERS リストはハングせずエラーで返る。"
+  (spectreshell-test--with-terminal (term 5 10)
+    (let ((mods (list 'ctrl)))
+      (setcdr mods mods)
+      (should-error (spectreshell--encode-key (spectreshell-term term) "a" mods)))))
+
 ;; ---------------------------------------------------------------------
 ;; 矢印キー: DECCKM 追従
 ;; ---------------------------------------------------------------------

@@ -243,11 +243,19 @@ fn buildUpdatePlist(env: *emacs.Env, arena: std.mem.Allocator, update: *const co
 // KEY / MODIFIERS -> ghostty_vt.input.KeyEvent
 // ---------------------------------------------------------------------
 
+/// 修飾子リストの走査上限。正当なリストは高々 4 要素 (ctrl/alt/shift/super)
+/// なので、これを超えるのは循環リスト。上限なしで cdr を辿り続けると
+/// should_quit を見ないループのため C-g も効かず Emacs がハングする。
+const max_modifier_list_len = 64;
+
 fn collectModifiers(env: *emacs.Env, arena: std.mem.Allocator, mods_list: *emacs.Value) !ghostty_vt.input.KeyMods {
     var mods: ghostty_vt.input.KeyMods = .{};
     var cur = mods_list;
     const nil = emacs.nilv(env);
+    var remaining: usize = max_modifier_list_len;
     while (!emacs.eq(env, cur, nil)) {
+        if (remaining == 0) return error.CircularList;
+        remaining -= 1;
         const head = emacs.funcall(env, emacs.intern(env, "car"), &.{cur});
         const name_val = emacs.funcall(env, emacs.intern(env, "symbol-name"), &.{head});
         if (emacs.pendingExit(env)) return error.PendingLispSignal;
@@ -351,7 +359,10 @@ fn collectMouseMods(env: *emacs.Env, arena: std.mem.Allocator, mods_list: *emacs
     var mods: core.MouseMods = .{};
     var cur = mods_list;
     const nil = emacs.nilv(env);
+    var remaining: usize = max_modifier_list_len;
     while (!emacs.eq(env, cur, nil)) {
+        if (remaining == 0) return error.CircularList;
+        remaining -= 1;
         const head = emacs.funcall(env, emacs.intern(env, "car"), &.{cur});
         const name_val = emacs.funcall(env, emacs.intern(env, "symbol-name"), &.{head});
         if (emacs.pendingExit(env)) return error.PendingLispSignal;
