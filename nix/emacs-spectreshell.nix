@@ -9,7 +9,8 @@
 }:
 stdenv.mkDerivation (finalAttrs: {
   pname = "emacs-spectreshell";
-  version = "dev";
+  # build.zig.zon の .version と spectreshell.el の Version ヘッダに合わせる。
+  version = "0.0.1";
 
   src = ../.;
 

@@ -4,6 +4,8 @@
 
 ;; Author: Shinnosuke Sawada-Dazai <shin@warashi.dev>
 ;; Keywords: terminals, processes
+;; Version: 0.0.1
+;; URL: https://github.com/Warashi/emacs-spectreshell
 ;; Package-Requires: ((emacs "31.1"))
 
 ;; This file is part of emacs-spectreshell, and is distributed under
