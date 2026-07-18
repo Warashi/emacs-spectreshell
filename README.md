@@ -153,3 +153,8 @@ nix ビルドと同様に自動検出される:
 ## ライセンス
 
 MIT License。詳細は [LICENSE](LICENSE) を参照。
+
+ビルドされた `libspectreshell.so` には ghostty-vt をはじめとする
+第三者ソフトウェア (いずれもパーミッシブライセンス) が静的リンクされる。
+ビルド済みバイナリを再配布する場合は
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) を同梱すること。
