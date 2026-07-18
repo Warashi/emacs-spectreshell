@@ -113,6 +113,38 @@ pub const Term = struct {
         return self.buildUpdate(alloc);
     }
 
+    pub fn encodeKey(self: *Term, alloc: std.mem.Allocator, event: ghostty_vt.input.KeyEvent) !?[]u8 {
+        var opts = ghostty_vt.input.KeyEncodeOptions.fromTerminal(&self.terminal);
+        opts.macos_option_as_alt = .false;
+
+        var aw: std.Io.Writer.Allocating = .init(alloc);
+        defer aw.deinit();
+        try ghostty_vt.input.encodeKey(&aw.writer, event, opts);
+
+        if (aw.written().len == 0) return null;
+        return try aw.toOwnedSlice();
+    }
+
+    pub fn encodePaste(self: *Term, alloc: std.mem.Allocator, text: []const u8) ![]u8 {
+        const opts = ghostty_vt.input.PasteOptions.fromTerminal(&self.terminal);
+
+        const mutable = try alloc.dupe(u8, text);
+        defer alloc.free(mutable);
+        const parts = ghostty_vt.input.encodePaste(mutable, opts);
+
+        var total: usize = 0;
+        for (parts) |p| total += p.len;
+
+        const out = try alloc.alloc(u8, total);
+        errdefer alloc.free(out);
+        var off: usize = 0;
+        for (parts) |p| {
+            @memcpy(out[off..][0..p.len], p);
+            off += p.len;
+        }
+        return out;
+    }
+
     fn buildUpdate(self: *Term, alloc: std.mem.Allocator) !Update {
         const alt_screen: AltScreen = alt: {
             const now_alt = self.terminal.screens.active_key == .alternate;
@@ -349,4 +381,50 @@ test "OSC 2 はタイトル変更を通知する" {
     defer update.deinit();
     try testing.expect(update.title != null);
     try testing.expectEqualStrings("hello", update.title.?);
+}
+
+test "encodeKey は DECCKM の on/off で矢印キーのエンコードが変わる" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    {
+        const bytes = try t.encodeKey(alloc, .{ .key = .arrow_up });
+        defer if (bytes) |b| alloc.free(b);
+        try testing.expectEqualStrings("\x1b[A", bytes.?);
+    }
+
+    {
+        var update = try t.feed(alloc, "\x1b[?1h");
+        defer update.deinit();
+    }
+
+    {
+        const bytes = try t.encodeKey(alloc, .{ .key = .arrow_up });
+        defer if (bytes) |b| alloc.free(b);
+        try testing.expectEqualStrings("\x1bOA", bytes.?);
+    }
+}
+
+test "encodePaste は bracketed paste モードに追従する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    {
+        const bytes = try t.encodePaste(alloc, "hi");
+        defer alloc.free(bytes);
+        try testing.expectEqualStrings("hi", bytes);
+    }
+
+    {
+        var update = try t.feed(alloc, "\x1b[?2004h");
+        defer update.deinit();
+    }
+
+    {
+        const bytes = try t.encodePaste(alloc, "hi");
+        defer alloc.free(bytes);
+        try testing.expectEqualStrings("\x1b[200~hi\x1b[201~", bytes);
+    }
 }
