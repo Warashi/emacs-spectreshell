@@ -46,6 +46,7 @@
       forAllPlatforms = f: nixpkgs.lib.genAttrs platforms (s: f nixpkgs.legacyPackages.${s});
     in
     {
+      formatter = forAllPlatforms (pkgs: pkgs.nixfmt-tree);
       devShells = forAllPlatforms (pkgs: {
         default = pkgs.mkShell {
           packages = [
