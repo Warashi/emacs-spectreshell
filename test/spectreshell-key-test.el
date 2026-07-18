@@ -234,6 +234,16 @@ position (a marker is resolved to its integer position, since
                      term (spectreshell-key-test--posn nil (+ (spectreshell-marker term) 11)))
                     '(1 . 0)))))
 
+(ert-deftest spectreshell-key-test-mouse-posn-coords-with-wide-chars ()
+  "全角文字を含む行の POSN はバッファ文字オフセットではなくセル列になる。"
+  (spectreshell-test--with-terminal (term 3 10)
+    (spectreshell-feed term "あいうx")
+    ;; 「x」は marker から 3 文字目 (0-origin) だが、全角 3 文字の後ろ
+    ;; なのでセル列は 6。
+    (should (equal (spectreshell--posn-terminal-coords
+                     term (spectreshell-key-test--posn nil (+ (spectreshell-marker term) 3)))
+                    '(0 . 6)))))
+
 (ert-deftest spectreshell-key-test-mouse-posn-coords-before-terminal-region-is-nil ()
   "端末領域より前 (確定済みスクロールバック) の POSN は nil になる。"
   (spectreshell-test--with-terminal (term 1 5)

@@ -437,12 +437,17 @@ CURSOR is the :cursor (ROW . COL) cons from an update plist."
 
 (defun spectreshell--row-col-pos (obj row col)
   "Return the buffer position of (ROW . COL) in OBJ's terminal region.
-COL is clamped to the row's length in case the module ever reports a
-column past the end of a short row."
+COL is a terminal *cell* column (docs/module-api.org), not a character
+offset: a double-width character occupies two cells but only one buffer
+position, so the mapping goes through display columns
+\(`move-to-column', which counts each character's `char-width') rather
+than character counting.  A COL past the end of a short row clamps to
+the end of that line."
   (save-excursion
     (goto-char (spectreshell-marker obj))
     (forward-line row)
-    (min (line-end-position) (+ (point) col))))
+    (move-to-column col)
+    (point)))
 
 ;; ---------------------------------------------------------------------
 ;; Key event normalization
@@ -568,13 +573,16 @@ scrollback text, which is not part of the live terminal grid)."
     (with-current-buffer (spectreshell-buffer obj)
       (save-excursion
         (goto-char pt)
-        (let ((bol (line-beginning-position)))
-          ;; Clamp COL in case POSN lands past a short row's last
-          ;; character (rows are padded to `spectreshell-cols' by
-          ;; `spectreshell--pad-rows'/dirty-row replacement, so this is
-          ;; mostly a defensive bound rather than a normal occurrence).
-          (cons (count-lines marker-pos bol)
-                (max 0 (min (1- (spectreshell-cols obj)) (- pt bol)))))))))
+        ;; COL must be a terminal *cell* column (`spectreshell--encode-mouse'
+        ;; encodes it as-is into the mouse report), so use `current-column'
+        ;; -- display columns, counting a double-width character as two --
+        ;; rather than the character offset from the line start.  Clamp in
+        ;; case POSN lands past a short row's last character (rows are
+        ;; padded to `spectreshell-cols' by `spectreshell--pad-rows'/
+        ;; dirty-row replacement, so this is mostly a defensive bound
+        ;; rather than a normal occurrence).
+        (cons (count-lines marker-pos (line-beginning-position))
+              (max 0 (min (1- (spectreshell-cols obj)) (current-column))))))))
 
 (defun spectreshell--send-mouse (obj button action posn mods)
   "Encode a BUTTON/ACTION mouse report at POSN through OBJ and send it.

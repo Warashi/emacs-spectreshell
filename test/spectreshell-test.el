@@ -99,6 +99,14 @@ recent last)."
     ;; 2行目 ("cd") の2文字目まで書いた直後なのでカーソルは row 1 col 2。
     (should (= (point) (spectreshell--row-col-pos term 1 2)))))
 
+(ert-deftest spectreshell-test-cursor-position-with-wide-chars ()
+  ":cursor の COL はセル列なので、全角文字の行では文字数と一致しない。
+「あいう」はセル列 6 だが文字数は 3 であり、point は「う」の直後
+(marker + 3 文字) に来るべき。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-feed term "あいう")
+    (should (= (point) (+ (spectreshell-marker term) 3)))))
+
 (ert-deftest spectreshell-test-resize-changes-visible-row-count ()
   "resize で端末領域の行数が新しい rows に追従する (伸縮どちらも)。"
   (spectreshell-test--with-terminal (term 3 5)

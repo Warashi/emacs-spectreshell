@@ -47,7 +47,11 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
   ~(TEXT . SPANS)~ の cons で、SPANS は TEXT の後ろに続く proper list
   ではなく「SPANS というリスト値そのもの」を cdr に持つ点に注意
   (~(cdr entry)~ で SPANS 全体が取れる)。
-- *~:cursor~* / *~:cursor-visible~*: 常に含まれる。
+- *~:cursor~* / *~:cursor-visible~*: 常に含まれる。ROW/COL はどちらも
+  0-origin で、COL は *端末セル列* である点に注意 (SPANS の START/END
+  と違いコードポイントオフセットではない)。全角文字は 1 文字で 2 セル
+  を占めるため、TEXT 内の文字位置へ変換するには文字数ではなく表示桁
+  (Emacs では ~move-to-column~ / ~current-column~) を使うこと。
 - *~:responses~*: PTY に送り返すべき応答バイト列 (DA/DSR 等)。
   何もなければキーごと省略される。
 - *~:alt-screen~*: このバッチで alternate screen への出入りが
@@ -114,8 +118,10 @@ ghostty-vt はマウスレポートのエンコーダを公開していないた
   それ以外の整数・シンボルは ~error~ を signal する。
 - *ACTION*: シンボル ~press~ / ~release~ / ~motion~ のいずれか。
   それ以外は ~error~ を signal する。
-- *ROW / COL*: 0-origin の整数の端末セル座標
+- *ROW / COL*: 0-origin の整数の端末 *セル* 座標
   (~--encode-key~ の KEY と違い、印字可能文字ではなくクリック位置)。
+  ~:cursor~ の ROW/COL と同じ単位で、バッファの文字オフセットではない:
+  全角文字を含む行では表示桁 (~current-column~) から求めること。
   範囲外 (0 未満または 65536 以上) は ~args-out-of-range~ を signal する。
 - *MODIFIERS*: ~--encode-key~ と同じシンボルのリストを受け取るが、
   ghostty のマウスレポートは ~ctrl~ / ~alt~ / ~shift~ しか表現できないため
