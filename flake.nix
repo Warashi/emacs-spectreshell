@@ -41,5 +41,9 @@
           zon2nix = zon2nix.packages.${pkgs.stdenv.hostPlatform.system}.zon2nix;
         };
       });
+      packages = forAllSystems (pkgs: rec {
+        default = libspectreshell;
+        libspectreshell = pkgs.callPackage ./nix/libspectreshell.nix { };
+      });
     };
 }
