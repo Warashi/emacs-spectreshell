@@ -1,0 +1,166 @@
+#+title: spectreshell マニュアル
+#+author: Shinnosuke Sawada-Dazai
+#+language: ja
+#+texinfo_filename: spectreshell.info
+#+texinfo_dir_category: Emacs misc features
+#+texinfo_dir_title: Spectreshell: (spectreshell)
+#+texinfo_dir_desc: Terminal emulation for eshell via ghostty-vt
+#+options: toc:t num:nil
+
+spectreshell は eshell 向けの端末エミュレーション統合である。ghostty
+の端末エミュレーションライブラリ ~ghostty-vt~ を Zig 製の Emacs
+ダイナミックモジュールから使い、 ~ls --color~ の色付き出力・進捗表示・
+less/vim のような alternate screen アプリの出力を eshell バッファ内で
+正しく描画する。
+
+本マニュアルは利用者向けの説明である。内部設計は同梱の
+~docs/design.org~ を、モジュール境界の API 仕様は
+~docs/module-api.org~ を参照。
+
+* 概要
+
+spectreshell が提供するのは次の 1 点に絞られている: eshell で外部
+プロセスを実行したとき、色・カーソル移動・プログレスバー・alternate
+screen を含む出力を eshell バッファ内に正しく描画する。マウス操作
+(SGR mouse mode) や OSC 8 ハイパーリンクにも対応する。
+
+eshell 統合専用であり、 ~M-x eat~ のような汎用のスタンドアロン端末
+エミュレータは提供しない。「eshell の外部プロセス出力をすべて端末
+エミュレーション経由にする」というアプローチは eat-eshell-mode と
+同じだが、バックエンドが独自実装ではなく ghostty 本体の VT パーサ・
+状態機械 (~ghostty-vt~) である点が異なる。PTY と子プロセスは Emacs
+側が所有し、モジュールはバイト列を受け取って更新差分を返すだけの
+純粋な状態機械になっている。
+
+* 必要環境
+
+- Emacs 31 以降 (それより前のバージョンへの互換コードはない)
+- ビルドには Zig 0.15.2 系と、terminfo データベース生成用の ~tic~
+  (ncurses)、本マニュアルの Info 生成用の ~makeinfo~ (texinfo) が必要
+- nix (flake) でのビルド・利用を推奨。手動での ~zig build~ にも対応
+
+* インストール
+
+** nix flake から (推奨)
+
+~nix build github:Warashi/emacs-spectreshell~ (リポジトリを checkout
+済みなら単に ~nix build~) で ~result/~ 以下にダイナミックモジュール
+(~lib/libspectreshell.so~)・Elisp ファイル
+(~share/emacs/site-lisp/*.el~)・terminfo データベース
+(~share/terminfo/~) が生成される。
+
+#+begin_src elisp
+;; ~/.config/emacs/init.el 等
+(use-package spectreshell-eshell
+  :load-path "/path/to/nix/build/result/share/emacs/site-lisp"
+  :demand t
+  :config (spectreshell-eshell-mode 1))
+#+end_src
+
+~spectreshell.el~ は ~require~ された時点で ~libspectreshell.so~ を、
+~spectreshell-eshell.el~ は同梱の terminfo データベースを、いずれも
+自分がロードされた場所からの相対パスで自動検出する。 ~load-path~ に
+~result/share/emacs/site-lisp~ を通すだけでこのレイアウトのまま動き、
+手動での ~module-load~ や ~TERMINFO~ の設定は不要。
+
+** 手動で zig build
+
+#+begin_src sh
+git clone https://github.com/Warashi/emacs-spectreshell
+cd emacs-spectreshell
+zig build            # zig-out/lib/libspectreshell.so ほかを生成
+#+end_src
+
+~zig-out/lib/libspectreshell.so~ と ~zig-out/share/terminfo~ が
+リポジトリルートの ~spectreshell.el~ から見て決め打ちの相対位置に
+できるため、 ~load-path~ にリポジトリのルートディレクトリを追加する
+だけで nix ビルドと同様に自動検出される。
+
+* 設定
+
+~spectreshell-eshell-mode~ はグローバルマイナーモード。一度有効に
+すれば以後すべての eshell バッファの外部プロセス実行に適用される
+(バッファごとに有効化する必要はない)。 ~(spectreshell-eshell-mode -1)~
+で無効化すれば eshell は通常の (端末エミュレーションなしの) 動作に
+戻る。
+
+- ~spectreshell-term-name~ :: 子プロセスの ~TERM~ に設定する端末名。
+  既定は ~xterm-ghostty~ で、同梱 terminfo が見つからない環境では
+  自動的に ~xterm-256color~ にフォールバックする。
+- ~spectreshell-terminfo-directory~ :: 同梱 terminfo データベースの
+  ディレクトリ。既定の ~nil~ ならロード位置からの相対パスで自動検出
+  する。
+
+どちらも既定値のままで自動検出・自動フォールバックが効くため、通常は
+明示設定は不要 (詳細は各変数の docstring を参照)。
+
+* 使い方
+
+外部プロセスの実行中、eshell バッファは端末として振る舞う。プロセスが
+終了すると出力は通常のバッファテキストとして確定化され、いつもの
+eshell 編集に戻る。
+
+** semi-char モードと emacs モード
+
+プロセス実行中は 2 つの入力モードを切り替えて使う。
+
+- semi-char モード (実行中のデフォルト) :: 印字可能キー・矢印・C-a 等
+  ほとんどのキーをそのまま実行中プロセスへ送信する。 ~C-c~ プレフィックス
+  と ~M-x~ は Emacs 側に残る。 ~C-y~ は kill-ring の内容を bracketed
+  paste としてプロセスへ送る (日本語もこの経路で送信できる)。
+- emacs モード :: 全キーが通常の Emacs 操作になる。実行中の出力を
+  さかのぼって閲覧・コピーする用途。
+
+キーバインド:
+
+- ~C-c C-e~ :: semi-char モードから emacs モードへ切り替える
+- ~C-c C-j~ :: emacs モードから semi-char モードへ復帰する
+
+** マウス
+
+クリック・ドラッグ・ホイールスクロールは端末座標に変換して実行中
+プロセスへ送信される (SGR mouse mode)。マウストラッキングを使わない
+コマンドの実行中は、通常の Emacs マウス操作 (~mouse-set-point~ /
+ホイールスクロール) にフォールバックする。
+
+** スクロールバック
+
+可視領域から流れ出た行は Emacs バッファへ確定化されるので、isearch・
+コピー・ ~eshell-previous-prompt~ などの Emacs の機能がそのまま効く。
+less や vim などの alternate screen アプリの画面は確定化されず、
+終了時に消えて元のプロンプト位置に戻る。
+
+* 機能一覧
+
+- SGR 全般 (16色 / 256色 / 24bit)、カーソル制御、スクロール領域、
+  alternate screen (less・vim 等)、bracketed paste、タイトル変更
+  (OSC 0/2)
+- マウス (SGR mouse mode)
+- OSC 8 ハイパーリンク (クリック可能な button として描画)
+- ~xterm-ghostty~ の terminfo をビルド時生成・同梱し、 ~TERM~ /
+  ~TERMINFO~ として子プロセスに自動注入
+
+* 既知の制限
+
+- char モード非対応: ~C-c~ を含む全キー送信は v1 のスコープ外
+  (~C-c~ は Emacs のプレフィックスキーとして残る)
+- 実行中プロセスへの IME 直接入力は対象外: ddskk 等での日本語入力は
+  eshell のコマンドライン編集中 (プロセス非実行時) は無条件で動くが、
+  実行中のプロセスへ直接入力する経路はない。 ~C-y~ (kill-ring からの
+  bracketed paste) 経由での日本語送信は可能
+- OSC 52 クリップボード・画像 (kitty graphics/sixel) は未実装
+- TRAMP / リモート ~default-directory~ は対象外: リモートでは常に
+  eshell 本来の (非端末) 経路にフォールバックする
+- パイプラインは末尾のプロセスのみ端末に接続: ~cmd1 | cmd2~ の
+  ~cmd1~ の出力は spectreshell を経由しない
+- Emacs が新規に開く pty は既定で ~-echo -onlcr~ になっており、素の
+  LF だけの出力が階段状にずれてしまうため ~stty ... sane~ 経由で回避
+  している。 ~/bin/sh~ と ~stty~ が存在しない環境 (通常の Unix 系では
+  まず問題にならない) では機能しない
+
+* ライセンス
+
+MIT License。ビルドされた ~libspectreshell.so~ には ghostty-vt を
+はじめとする第三者ソフトウェア (いずれもパーミッシブライセンス) が
+静的リンクされる。詳細は成果物に同梱される ~LICENSE~ と
+~THIRD-PARTY-NOTICES.org~ を参照。

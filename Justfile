@@ -12,6 +12,13 @@ load-check: build
 test-el: build
   emacs -Q --batch -L . -L test -l test/spectreshell-module-test.el -l test/spectreshell-test.el -l test/spectreshell-key-test.el -l test/spectreshell-eshell-test.el -f ert-run-tests-batch-and-exit
 
+# Info マニュアルの texi を docs/spectreshell.org から再生成する。
+# 生成物の .texi をコミットしておくのは、ビルド (zig build / nix build) が
+# Emacs なしで makeinfo だけで .info を作れるようにするため。
+# マニュアルを編集したらこのレシピで .texi を更新して一緒にコミットする。
+info:
+  emacs -Q --batch docs/spectreshell.org --eval '(progn (require (quote ox-texinfo)) (org-texinfo-export-to-texinfo))'
+
 zon2nix:
   zon2nix --15 --nix=build.zig.zon.nix build.zig.zon
   nixfmt build.zig.zon.nix

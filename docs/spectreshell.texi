@@ -1,0 +1,268 @@
+\input texinfo    @c -*- texinfo -*-
+@c %**start of header
+@setfilename spectreshell.info
+@settitle spectreshell マニュアル
+@documentencoding UTF-8
+@documentlanguage ja
+@c %**end of header
+
+@dircategory Emacs misc features
+@direntry
+* Spectreshell: (spectreshell). Terminal emulation for eshell via ghostty-vt.
+@end direntry
+
+@finalout
+@titlepage
+@title spectreshell マニュアル
+@author Shinnosuke Sawada-Dazai
+@end titlepage
+
+@contents
+
+@ifnottex
+@node Top
+@top spectreshell マニュアル
+
+spectreshell は eshell 向けの端末エミュレーション統合である。ghostty
+の端末エミュレーションライブラリ @code{ghostty-vt} を Zig 製の Emacs
+ダイナミックモジュールから使い、 @code{ls --color} の色付き出力・進捗表示・
+less/vim のような alternate screen アプリの出力を eshell バッファ内で
+正しく描画する。
+
+本マニュアルは利用者向けの説明である。内部設計は同梱の
+@code{docs/design.org} を、モジュール境界の API 仕様は
+@code{docs/module-api.org} を参照。
+
+@end ifnottex
+
+@menu
+* 概要::
+* 必要環境::
+* インストール::
+* 設定::
+* 使い方::
+* 機能一覧::
+* 既知の制限::
+* ライセンス::
+
+@detailmenu
+--- The Detailed Node Listing ---
+
+インストール
+
+* nix flake から (推奨)::
+* 手動で zig build::
+
+使い方
+
+* semi-char モードと emacs モード::
+* マウス::
+* スクロールバック::
+
+@end detailmenu
+@end menu
+
+@node 概要
+@unnumbered 概要
+
+spectreshell が提供するのは次の 1 点に絞られている: eshell で外部
+プロセスを実行したとき、色・カーソル移動・プログレスバー・alternate
+screen を含む出力を eshell バッファ内に正しく描画する。マウス操作
+(SGR mouse mode) や OSC 8 ハイパーリンクにも対応する。
+
+eshell 統合専用であり、 @code{M-x eat} のような汎用のスタンドアロン端末
+エミュレータは提供しない。「eshell の外部プロセス出力をすべて端末
+エミュレーション経由にする」というアプローチは eat-eshell-mode と
+同じだが、バックエンドが独自実装ではなく ghostty 本体の VT パーサ・
+状態機械 (@code{ghostty-vt}) である点が異なる。PTY と子プロセスは Emacs
+側が所有し、モジュールはバイト列を受け取って更新差分を返すだけの
+純粋な状態機械になっている。
+
+@node 必要環境
+@unnumbered 必要環境
+
+@itemize
+@item
+Emacs 31 以降 (それより前のバージョンへの互換コードはない)
+@item
+ビルドには Zig 0.15.2 系と、terminfo データベース生成用の @code{tic}
+(ncurses)、本マニュアルの Info 生成用の @code{makeinfo} (texinfo) が必要
+@item
+nix (flake) でのビルド・利用を推奨。手動での @code{zig build} にも対応
+@end itemize
+
+@node インストール
+@unnumbered インストール
+
+@menu
+* nix flake から (推奨)::
+* 手動で zig build::
+@end menu
+
+@node nix flake から (推奨)
+@unnumberedsec nix flake から (推奨)
+
+@code{nix build github:Warashi/emacs-spectreshell} (リポジトリを checkout
+済みなら単に @code{nix build}) で @code{result/} 以下にダイナミックモジュール
+(@code{lib/libspectreshell.so})・Elisp ファイル
+(@code{share/emacs/site-lisp/*.el})・terminfo データベース
+(@code{share/terminfo/}) が生成される。
+
+@lisp
+;; ~/.config/emacs/init.el 等
+(use-package spectreshell-eshell
+  :load-path "/path/to/nix/build/result/share/emacs/site-lisp"
+  :demand t
+  :config (spectreshell-eshell-mode 1))
+@end lisp
+
+@code{spectreshell.el} は @code{require} された時点で @code{libspectreshell.so} を、
+@code{spectreshell-eshell.el} は同梱の terminfo データベースを、いずれも
+自分がロードされた場所からの相対パスで自動検出する。 @code{load-path} に
+@code{result/share/emacs/site-lisp} を通すだけでこのレイアウトのまま動き、
+手動での @code{module-load} や @code{TERMINFO} の設定は不要。
+
+@node 手動で zig build
+@unnumberedsec 手動で zig build
+
+@example
+git clone https://github.com/Warashi/emacs-spectreshell
+cd emacs-spectreshell
+zig build            # zig-out/lib/libspectreshell.so ほかを生成
+@end example
+
+@code{zig-out/lib/libspectreshell.so} と @code{zig-out/share/terminfo} が
+リポジトリルートの @code{spectreshell.el} から見て決め打ちの相対位置に
+できるため、 @code{load-path} にリポジトリのルートディレクトリを追加する
+だけで nix ビルドと同様に自動検出される。
+
+@node 設定
+@unnumbered 設定
+
+@code{spectreshell-eshell-mode} はグローバルマイナーモード。一度有効に
+すれば以後すべての eshell バッファの外部プロセス実行に適用される
+(バッファごとに有効化する必要はない)。 @code{(spectreshell-eshell-mode -1)}
+で無効化すれば eshell は通常の (端末エミュレーションなしの) 動作に
+戻る。
+
+@table @asis
+@item @code{spectreshell-term-name}
+子プロセスの @code{TERM} に設定する端末名。
+既定は @code{xterm-ghostty} で、同梱 terminfo が見つからない環境では
+自動的に @code{xterm-256color} にフォールバックする。
+@item @code{spectreshell-terminfo-directory}
+同梱 terminfo データベースの
+ディレクトリ。既定の @code{nil} ならロード位置からの相対パスで自動検出
+する。
+@end table
+
+どちらも既定値のままで自動検出・自動フォールバックが効くため、通常は
+明示設定は不要 (詳細は各変数の docstring を参照)。
+
+@node 使い方
+@unnumbered 使い方
+
+外部プロセスの実行中、eshell バッファは端末として振る舞う。プロセスが
+終了すると出力は通常のバッファテキストとして確定化され、いつもの
+eshell 編集に戻る。
+
+@menu
+* semi-char モードと emacs モード::
+* マウス::
+* スクロールバック::
+@end menu
+
+@node semi-char モードと emacs モード
+@unnumberedsec semi-char モードと emacs モード
+
+プロセス実行中は 2 つの入力モードを切り替えて使う。
+
+@table @asis
+@item semi-char モード (実行中のデフォルト)
+印字可能キー・矢印・C-a 等
+ほとんどのキーをそのまま実行中プロセスへ送信する。 @code{C-c} プレフィックス
+と @code{M-x} は Emacs 側に残る。 @code{C-y} は kill-ring の内容を bracketed
+paste としてプロセスへ送る (日本語もこの経路で送信できる)。
+@item emacs モード
+全キーが通常の Emacs 操作になる。実行中の出力を
+さかのぼって閲覧・コピーする用途。
+@end table
+
+キーバインド:
+
+@table @asis
+@item @code{C-c C-e}
+semi-char モードから emacs モードへ切り替える
+@item @code{C-c C-j}
+emacs モードから semi-char モードへ復帰する
+@end table
+
+@node マウス
+@unnumberedsec マウス
+
+クリック・ドラッグ・ホイールスクロールは端末座標に変換して実行中
+プロセスへ送信される (SGR mouse mode)。マウストラッキングを使わない
+コマンドの実行中は、通常の Emacs マウス操作 (@code{mouse-set-point} /
+ホイールスクロール) にフォールバックする。
+
+@node スクロールバック
+@unnumberedsec スクロールバック
+
+可視領域から流れ出た行は Emacs バッファへ確定化されるので、isearch・
+コピー・ @code{eshell-previous-prompt} などの Emacs の機能がそのまま効く。
+less や vim などの alternate screen アプリの画面は確定化されず、
+終了時に消えて元のプロンプト位置に戻る。
+
+@node 機能一覧
+@unnumbered 機能一覧
+
+@itemize
+@item
+SGR 全般 (16色 / 256色 / 24bit)、カーソル制御、スクロール領域、
+alternate screen (less・vim 等)、bracketed paste、タイトル変更
+(OSC 0/2)
+@item
+マウス (SGR mouse mode)
+@item
+OSC 8 ハイパーリンク (クリック可能な button として描画)
+@item
+@code{xterm-ghostty} の terminfo をビルド時生成・同梱し、 @code{TERM} /
+@code{TERMINFO} として子プロセスに自動注入
+@end itemize
+
+@node 既知の制限
+@unnumbered 既知の制限
+
+@itemize
+@item
+char モード非対応: @code{C-c} を含む全キー送信は v1 のスコープ外
+(@code{C-c} は Emacs のプレフィックスキーとして残る)
+@item
+実行中プロセスへの IME 直接入力は対象外: ddskk 等での日本語入力は
+eshell のコマンドライン編集中 (プロセス非実行時) は無条件で動くが、
+実行中のプロセスへ直接入力する経路はない。 @code{C-y} (kill-ring からの
+bracketed paste) 経由での日本語送信は可能
+@item
+OSC 52 クリップボード・画像 (kitty graphics/sixel) は未実装
+@item
+TRAMP / リモート @code{default-directory} は対象外: リモートでは常に
+eshell 本来の (非端末) 経路にフォールバックする
+@item
+パイプラインは末尾のプロセスのみ端末に接続: @code{cmd1 | cmd2} の
+@code{cmd1} の出力は spectreshell を経由しない
+@item
+Emacs が新規に開く pty は既定で @code{-echo -onlcr} になっており、素の
+LF だけの出力が階段状にずれてしまうため @code{stty ... sane} 経由で回避
+している。 @code{/bin/sh} と @code{stty} が存在しない環境 (通常の Unix 系では
+まず問題にならない) では機能しない
+@end itemize
+
+@node ライセンス
+@unnumbered ライセンス
+
+MIT License。ビルドされた @code{libspectreshell.so} には ghostty-vt を
+はじめとする第三者ソフトウェア (いずれもパーミッシブライセンス) が
+静的リンクされる。詳細は成果物に同梱される @code{LICENSE} と
+@code{THIRD-PARTY-NOTICES.org} を参照。
+
+@bye
