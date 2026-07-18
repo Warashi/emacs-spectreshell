@@ -340,7 +340,7 @@ x10 の座標 222 超過で null を返す分岐も未テスト。
 時に行末空白が付き、バッファも rows x cols で膨らむ。スクロールオフ
 確定時・finalize 時に末尾空白 (プロパティなしのもの) をトリムする。
 
-*** TODO L-18: checkdoc / package-lint 指摘
+*** DONE L-18: checkdoc / package-lint 指摘
 対象: =spectreshell.el=, =spectreshell-eshell.el=
 
 - =spectreshell-eshell--effective-term-name= /

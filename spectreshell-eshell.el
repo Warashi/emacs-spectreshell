@@ -40,7 +40,7 @@
 (require 'spectreshell)
 
 (defgroup spectreshell-eshell nil
-  "eshell integration for spectreshell."
+  "Integration of spectreshell with eshell."
   :group 'spectreshell
   :prefix "spectreshell-")
 
@@ -85,7 +85,7 @@ processes see an accurate capability set instead of settling for
 whatever a generic xterm entry happens to also cover.
 
 If, at load time, no bundled terminfo database could be found
-(`spectreshell-terminfo-directory' is nil) *and* this variable still has
+\(`spectreshell-terminfo-directory' is nil) *and* this variable still has
 its default value, spectreshell exports \"xterm-256color\" instead --
 a value practically every system already has terminfo for -- so that
 child processes do not fail to look up an unknown TERM.  Customize this
@@ -170,7 +170,7 @@ output is headed for interactive display.  Replaces PROC's filter and
 sentinel (installed for the plain, non-terminal-emulating case by
 `eshell-gather-process-output' itself) and switches PROC's buffer into
 `spectreshell-semi-char-mode' for the job's duration.  SIZE is the
-(ROWS . COLS) `spectreshell-eshell--gather-process-output-advice' already
+\(ROWS . COLS) `spectreshell-eshell--gather-process-output-advice' already
 computed and had `spectreshell-eshell--wrap-command-for-pty' give PROC's
 pty via `stty' before exec'ing the real command, reused here (rather
 than measured again) so the terminal spectreshell creates always
@@ -290,8 +290,9 @@ concurrent pipeline stage, which keeps talking to the next stage over
 whatever plain pipe eshell itself set up.")
 
 (defvar spectreshell-eshell--pty-size nil
-  "(ROWS . COLS) to give the child's pty via `stty' while
-`spectreshell-eshell--want-pty' is non-nil.  Let-bound alongside it by
+  "The (ROWS . COLS) to give the child's pty via `stty'.
+Only consulted while `spectreshell-eshell--want-pty' is non-nil.
+Let-bound alongside it by
 `spectreshell-eshell--gather-process-output-advice', from the same
 measurement `spectreshell-eshell--attach' goes on to use for the
 terminal itself.")
@@ -347,10 +348,11 @@ both fixed at OS-level creation time and cannot be changed afterwards."
     (apply orig args)))
 
 (defun spectreshell-eshell--effective-term-name ()
-  "Return the TERM value to export, applying `spectreshell-term-name''s
-documented xterm-ghostty -> xterm-256color fallback: only when the user
-has not customized TERM away from the default *and* no bundled terminfo
-database was found for it to describe."
+  "Return the TERM value to export for eshell's external processes.
+Applies `spectreshell-term-name''s documented xterm-ghostty ->
+xterm-256color fallback: only when the user has not customized TERM
+away from the default *and* no bundled terminfo database was found for
+it to describe."
   (if (and (equal spectreshell-term-name "xterm-ghostty")
            (null spectreshell-terminfo-directory))
       "xterm-256color"
@@ -364,7 +366,7 @@ moment it calls `eshell-environment-variables' (which copies the
 special variable's then-current value), so let-binding this function's
 result around a call to it is enough to reach the child even though
 eshell never asks anyone else for extra variables directly.  Prepended
-(rather than appended) so these two values win over any same-named
+\(rather than appended) so these two values win over any same-named
 variable already inherited from Emacs's own environment."
   (append (list (concat "TERM=" (spectreshell-eshell--effective-term-name)))
           (when spectreshell-terminfo-directory

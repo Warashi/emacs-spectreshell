@@ -86,7 +86,7 @@ as a much more confusing error far from its cause."
   (unless (fboundp 'spectreshell--create)
     (if-let* ((path (spectreshell--detect-module-path)))
         (module-load path)
-      (error "spectreshell: libspectreshell.so not found near %s (tried: %s); run `zig build' or `nix build' first"
+      (error "Spectreshell: libspectreshell.so not found near %s (tried: %s); run `zig build' or `nix build' first"
              (or (locate-library "spectreshell") "spectreshell.el")
              (mapconcat #'identity spectreshell--module-candidate-subpaths ", ")))))
 
@@ -573,7 +573,7 @@ BASIC is the return value of `event-basic-type'."
   "Translate MODS (an `event-modifiers' list) to encode-key MODIFIERS.
 Only `control'/`meta'/`shift'/`super' have a counterpart there (`alt'
 stands in for Emacs's `meta', per docs/module-api.org); anything else
-(mouse click counts, drag, Emacs's own separate `alt' modifier for a
+\(mouse click counts, drag, Emacs's own separate `alt' modifier for a
 literal Alt key, ...) has no PTY encoding and is dropped rather than
 mapped to something misleading."
   (delq nil (list (and (memq 'control mods) 'ctrl)
@@ -590,7 +590,7 @@ mapped to something misleading."
 `spectreshell-eshell.el' (Phase 5) sets this when a process starts;
 nil means there is currently nothing to send input to, in which case
 the semi-char mode commands below are silent no-ops rather than errors
-(matching a plain terminal buffer that just hasn't started a job yet).")
+\(matching a plain terminal buffer that just hasn't started a job yet).")
 
 ;; ---------------------------------------------------------------------
 ;; Input commands
@@ -661,7 +661,7 @@ scrollback text, which is not part of the live terminal grid)."
   "Encode a BUTTON/ACTION mouse report at POSN through OBJ and send it.
 Return the encoded bytes on success, or nil if POSN falls outside OBJ's
 terminal region or `spectreshell--encode-mouse' had nothing to send
-(mouse tracking off in the terminal, or this ACTION/BUTTON combination
+\(mouse tracking off in the terminal, or this ACTION/BUTTON combination
 is not reported by its current tracking mode)."
   (when-let* ((coords (spectreshell--posn-terminal-coords obj posn))
               (bytes (spectreshell--encode-mouse (spectreshell-term obj) button action
@@ -684,11 +684,12 @@ which button (or wheel direction) EVENT names."
     ((or 'wheel-right 'mouse-7) 'wheel-right)))
 
 (defun spectreshell--track-mouse-drag (obj button mods)
-  "Track a mouse drag already reported to OBJ as a BUTTON press.
-Reads events in a `track-mouse'/`read-event' loop -- the same idiom
-`mouse-drag-region' uses -- so that a single Emacs down-mouse command
-invocation still reports the live motion and eventual release ghostty-vt
-(and whatever PTY-side app asked for SGR mouse motion, e.g. vim/less)
+  "Track a mouse drag already reported to OBJ as a BUTTON press with MODS.
+Reads events in a `read-event' loop with mouse-movement events enabled
+-- the same idiom `mouse-drag-region' uses -- so
+that a single Emacs down-mouse command invocation still reports the
+live motion and eventual release ghostty-vt
+\(and whatever PTY-side app asked for SGR mouse motion, e.g. vim/less)
 expects to see, even though Emacs only ever delivered spectreshell one
 discrete down event.  Any event that is not part of this drag (a key
 press, a different mouse button, ...) ends the loop and is pushed back
@@ -835,22 +836,24 @@ mode section for the (small) set of keys deliberately left to Emacs.")
     map)
   "Keymap for `spectreshell-mode', active regardless of semi-char/emacs sub-mode.
 Only holds the entry point back into `spectreshell-semi-char-mode', so
-that it stays reachable while `spectreshell-semi-char-mode-map's C-c C-e
-has left it turned off.")
+that it stays reachable while `spectreshell-emacs-mode' (in
+`spectreshell-semi-char-mode-map') has left it turned off.")
 
 ;;;###autoload
 (define-minor-mode spectreshell-mode
   "Base minor mode for a buffer with a `spectreshell--current' terminal.
-Provides `C-c C-j' to (re-)enter `spectreshell-semi-char-mode' and the
-mode-line indication for \"emacs mode\" (semi-char off); the semi-char
-lighter is contributed by `spectreshell-semi-char-mode' itself while it
-is on, which also turns this mode on as a side effect of enabling it."
+Provides \\<spectreshell-mode-map>\\[spectreshell-semi-char-mode-on] to
+\(re-)enter `spectreshell-semi-char-mode' and the mode-line indication
+for \"emacs mode\" (semi-char off); the semi-char lighter is
+contributed by `spectreshell-semi-char-mode' itself while it is on,
+which also turns this mode on as a side effect of enabling it."
   :lighter (:eval (unless spectreshell-semi-char-mode " SpectreShell[emacs]"))
   :keymap spectreshell-mode-map)
 
 (defun spectreshell-semi-char-mode-on ()
   "Enter `spectreshell-semi-char-mode'.
-Bound to `C-c C-j' in `spectreshell-mode-map'."
+Bound to \\<spectreshell-mode-map>\\[spectreshell-semi-char-mode-on] in
+`spectreshell-mode-map'."
   (interactive)
   (spectreshell-semi-char-mode 1))
 
@@ -858,9 +861,10 @@ Bound to `C-c C-j' in `spectreshell-mode-map'."
 (define-minor-mode spectreshell-semi-char-mode
   "Minor mode that sends nearly every key straight to `spectreshell--current'.
 This is eshell-under-spectreshell's default mode while a job is running
-(docs/design.org); `C-c C-e' leaves it (`spectreshell-emacs-mode') for
-ordinary Emacs buffer editing, and `C-c C-j' (from the always-present
-`spectreshell-mode-map') re-enters it."
+\(docs/design.org); \\<spectreshell-semi-char-mode-map>\\[spectreshell-emacs-mode] leaves it (`spectreshell-emacs-mode') for
+ordinary Emacs buffer editing, and
+\\<spectreshell-mode-map>\\[spectreshell-semi-char-mode-on] (from the
+always-present `spectreshell-mode-map') re-enters it."
   :lighter " SpectreShell[semi]"
   :keymap spectreshell-semi-char-mode-map
   ;; `spectreshell-mode' owns `C-c C-j' and the "emacs mode" lighter, both
@@ -871,9 +875,10 @@ ordinary Emacs buffer editing, and `C-c C-j' (from the always-present
     (spectreshell-mode 1)))
 
 (defun spectreshell-emacs-mode ()
-  "Leave semi-char mode; bound to `C-c C-e' in `spectreshell-semi-char-mode-map'.
-All keys behave like ordinary Emacs again until `spectreshell-semi-char-mode-on'
-(`C-c C-j') re-enters semi-char mode."
+  "Leave semi-char mode for ordinary Emacs buffer editing.
+Bound to \\<spectreshell-semi-char-mode-map>\\[spectreshell-emacs-mode] in
+`spectreshell-semi-char-mode-map'.  All keys behave like ordinary Emacs
+again until `spectreshell-semi-char-mode-on' re-enters semi-char mode."
   (interactive)
   (spectreshell-semi-char-mode -1))
 
