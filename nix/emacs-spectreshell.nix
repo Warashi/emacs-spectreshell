@@ -6,6 +6,7 @@
   texinfo,
   callPackage,
   runCommand,
+  emacs31-nox,
 }:
 stdenv.mkDerivation (finalAttrs: {
   pname = "emacs-spectreshell";
@@ -46,5 +47,27 @@ stdenv.mkDerivation (finalAttrs: {
     mkdir -p "$ZIG_GLOBAL_CACHE_DIR/p"
     cp -rL ${finalAttrs.deps}/. "$ZIG_GLOBAL_CACHE_DIR/p/"
     chmod -R u+w "$ZIG_GLOBAL_CACHE_DIR/p"
+  '';
+
+  nativeCheckInputs = [ emacs31-nox ];
+
+  # Zig のユニットテストと ERT (module 境界 / 描画 / キー入力 / eshell
+  # 統合) をパッケージビルドの一部として走らせる。ERT のテストヘルパーは
+  # リポジトリルートの zig-out/lib からモジュールを探すため、install 用の
+  # ビルドとは別に既定 prefix (zig-out) へのビルドも行う (キャッシュ済み
+  # なのでコンパイルは再実行されない)。eshell 統合テストは PTY 上で
+  # 子プロセスを spawn するので HOME を用意しておく。
+  doCheck = true;
+  checkPhase = ''
+    runHook preCheck
+    zig build test
+    zig build
+    HOME="$TMPDIR" emacs -Q --batch -L . -L test \
+      -l test/spectreshell-module-test.el \
+      -l test/spectreshell-test.el \
+      -l test/spectreshell-key-test.el \
+      -l test/spectreshell-eshell-test.el \
+      -f ert-run-tests-batch-and-exit
+    runHook postCheck
   '';
 })

@@ -4,6 +4,15 @@ build:
 test:
   zig build test
 
+# フォーマット・ドキュメント文字列の静的検査一式
+lint:
+  zig fmt --check build.zig src
+  nixfmt --check flake.nix default.nix shell.nix nix/*.nix build.zig.zon.nix
+  emacs -Q --batch --eval '(progn (require (quote checkdoc)) (setq checkdoc-diagnostic-buffer "*warn*") (dolist (f (list "spectreshell.el" "spectreshell-eshell.el")) (checkdoc-file f)) (with-current-buffer "*warn*" (when (re-search-backward "^[^*[:space:]].*:[0-9]+:" nil t) (princ (buffer-string)) (kill-emacs 1))))'
+
+# コミット前に回す検査一式 (lint + Zig テスト + ERT + module-load 確認)
+check: lint test test-el load-check
+
 # ビルドした so が手元の Emacs で module-load できることを確認する
 load-check: build
   emacs -Q --batch --eval '(progn (module-load (expand-file-name "zig-out/lib/libspectreshell.so")) (message "module-load OK"))'

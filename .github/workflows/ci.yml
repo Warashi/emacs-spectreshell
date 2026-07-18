@@ -1,0 +1,23 @@
+# nix flake check が唯一の入口: パッケージビルド (doCheck で Zig テスト
+# と ERT を含む) と成果物スモークテストをローカルの `nix flake check` と
+# 完全に同じ内容で走らせる。CI 専用の手順を持たないことで、ローカルで
+# 通れば CI でも通る (逆も然り) 状態を保つ。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  nix-flake-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: nix flake check --accept-flake-config -L

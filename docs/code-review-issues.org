@@ -52,7 +52,13 @@ env 構造体末尾を越えたゴミ関数ポインタを call して Emacs ご
 する。emacs-module.h ドキュメント推奨のサイズチェックで非 0 を返して
 ロード失敗にすべき。
 
-** TODO H-4: CI と nix の検証経路が存在しない
+** DONE H-4: CI と nix の検証経路が存在しない
+対応: パッケージに =doCheck= (zig build test + ERT 全件) を追加、flake
+の =checks= にパッケージと成果物スモークテスト (旧 just nix-check 相当)
+を追加、=just lint= / =just check= レシピを整備、GitHub Actions で
+=nix flake check= を実行する CI を追加。sandbox 内で ERT 86 件が走る
+ことを =nix log= で確認済み (less 不在の visual-command テストのみ
+skip-unless によりスキップ)。
 対象: =.github/workflows= (不存在), =flake.nix=, =Justfile=
 
 - GitHub Actions 等の CI がなく、テスト実行はすべて手動前提。
