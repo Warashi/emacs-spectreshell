@@ -10,6 +10,7 @@
 ;; 常に使われる。
 
 (require 'ert)
+(require 'cl-lib)
 (require 'eshell)
 
 (defconst spectreshell-test--module-path
@@ -151,6 +152,26 @@ BODY がエラーで抜けても確実に kill する。"
     (with-current-buffer buf
       (should-not spectreshell-semi-char-mode)
       (should (= eshell-last-command-status 1)))))
+
+;; ---------------------------------------------------------------------
+;; sentinel の堅牢性
+;; ---------------------------------------------------------------------
+
+(ert-deftest spectreshell-eshell-test-detach-error-does-not-block-eshell-sentinel ()
+  "detach が signal しても eshell-sentinel は必ず実行される。
+実行されないと eshell-process-list からプロセスが消えず、eshell は
+コマンド実行中のまま次のプロンプトを出せなくなる。batch モードでは
+sentinel 内で escape したエラーが Emacs ごと落とすため、実プロセスは
+使わず sentinel 関数を直接呼んで検証する。"
+  (let ((sentinel-ran nil))
+    (cl-letf (((symbol-function 'spectreshell-eshell--detach)
+               (lambda (_proc)
+                 (error "spectreshell-eshell-test: injected detach failure")))
+              ((symbol-function 'eshell-sentinel)
+               (lambda (_proc _string) (setq sentinel-ran t)))
+              ((symbol-function 'process-live-p) (lambda (_proc) nil)))
+      (should-error (spectreshell-eshell--sentinel 'fake-proc "finished\n"))
+      (should sentinel-ran))))
 
 ;; ---------------------------------------------------------------------
 ;; キー送信経路の統合確認 (process-send-string 経由のエコー)

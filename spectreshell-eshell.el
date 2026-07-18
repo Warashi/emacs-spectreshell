@@ -253,9 +253,13 @@ passed through unchanged; PROC's actual bookkeeping (removing it from
 `eshell-process-list', closing handles, recording the exit status
 `eshell-cmd.el' reads back, ...) is still entirely `eshell-sentinel''s
 job."
-  (unless (process-live-p proc)
-    (spectreshell-eshell--detach proc))
-  (eshell-sentinel proc string))
+  (unwind-protect
+      (unless (process-live-p proc)
+        (spectreshell-eshell--detach proc))
+    ;; `eshell-sentinel' must run even if detach signals: skipping it would
+    ;; leave PROC in `eshell-process-list' forever and eshell stuck
+    ;; believing the command is still running.
+    (eshell-sentinel proc string)))
 
 ;; ---------------------------------------------------------------------
 ;; `eshell-gather-process-output' / `make-process' advice
