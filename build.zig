@@ -22,6 +22,12 @@ pub fn build(b: *std.Build) void {
         .name = "spectreshell",
         .root_module = mod,
         .linkage = .dynamic,
+        // Debug の既定 (zig 0.15 自前 x86_64 バックエンド) に任せない:
+        // 自前バックエンドが生成した .so は Emacs から dlopen して呼ぶと
+        // SmpAllocator.getCpuCount 内の未初期化レジスタ参照で segfault
+        // する (x86_64 のみ、ReleaseSafe/LLVM では発生しない)。自前
+        // バックエンドが shared library でも安定したら外してよい。
+        .use_llvm = true,
     });
     b.installArtifact(lib);
 
