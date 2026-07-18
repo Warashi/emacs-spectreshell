@@ -58,19 +58,28 @@ lldb で特定し、LLVM バックエンド強制 (=.use_llvm = true=) で回避
 zig を更新した際は x86_64 の Debug ビルドで ERT が通るか確認し、
 直っていれば =use_llvm= 指定を外して Debug ビルドを高速化する。
 
-** TODO B-2: ghostty が SDKROOT を直接使うようになったら xcbuild 依存を外す
-対象: =nix/emacs-spectreshell.nix= (nativeBuildInputs の =xcbuild=)
+** TODO B-2: ghostty が SDKROOT を直接使うようになったら xcode-shim を外す
+対象: =nix/emacs-spectreshell.nix= (=xcodeShim=)
 
 macOS の Nix サンドボックスには Xcode がなく、ghostty の
 =pkg/apple-sdk= がビルドグラフ構築時に呼ぶ zig の
 =LibCInstallation.findNative= が =xcode-select --print-path= と
-=xcrun --sdk macosx --show-sdk-path= の実行に失敗して
+=xcrun --sdk <名前> --show-sdk-path= の実行に失敗して
 =DarwinSdkNotFound= panic になる (aarch64-darwin の =nix flake check=
-が全滅)。両コマンドを同梱し apple-sdk setup hook の $DEVELOPER_DIR
-から Nix 提供の SDK を解決する xcbuild を darwin のみ
-nativeBuildInputs に足して回避中。ghostty の pkg/apple-sdk (または
-zig std) が xcrun を介さず SDKROOT 環境変数を直接尊重するように
-なったら xcbuild 依存を削除する。
+が全滅)。$SDKROOT (apple-sdk setup hook が設定) を返すだけの
+xcode-select / xcrun シムを darwin のみ nativeBuildInputs に足して
+回避中。
+
+xcbuild (xcode-select / xcrun 同梱) では代替できないことを CI で確認
+済み: macosx SDK は $DEVELOPER_DIR から解決できるが、ghostty の
+build.zig は darwin ターゲットだと XCFramework 用に iOS / iOS
+Simulator 向けグラフも無条件に構築し (=GhosttyXCFramework.init=)、
+そこで要求される iphoneos SDK は CLT 由来の Nix apple-sdk に存在
+しない。シムは --sdk の値を無視して macOS SDK を返すのでここも通る
+(iOS 向けステップはグラフに乗るだけで実行されない)。
+
+ghostty の pkg/apple-sdk (または zig std) が xcrun を介さず SDKROOT
+環境変数を直接尊重するようになったらシムを削除する。
 
 * 性能・UX (設計判断を要する改善)
 
