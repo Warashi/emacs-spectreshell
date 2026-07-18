@@ -47,6 +47,17 @@ uninstall= 不可・ステップキャッシュ不可・Windows 非対応。tic 
 シンボリックリンク保存という制約 (コメントに明記) があり、InstallDir
 ステップでは表現できない。stderr の扱いのみ改善余地。
 
+** TODO B-1: zig 自前 x86_64 バックエンドの .so segfault が直ったら use_llvm を外す
+対象: =build.zig= (=addLibrary= の =.use_llvm = true=)
+
+zig 0.15.2 の自前 x86_64 バックエンド (Debug ビルドの既定) が生成した
+libspectreshell.so は、Emacs から dlopen して最初の =smp_allocator=
+確保に入ると =SmpAllocator.getCpuCount= 内の未初期化レジスタ参照
+(=movq (%r9), %rax= で r9=0) により segfault する。qemu-x86_64 +
+lldb で特定し、LLVM バックエンド強制 (=.use_llvm = true=) で回避中。
+zig を更新した際は x86_64 の Debug ビルドで ERT が通るか確認し、
+直っていれば =use_llvm= 指定を外して Debug ビルドを高速化する。
+
 * 性能・UX (設計判断を要する改善)
 
 ** TODO P-1: point の強制移動でスクロールバック閲覧が実質不能
