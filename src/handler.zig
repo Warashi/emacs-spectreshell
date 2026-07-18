@@ -49,10 +49,20 @@ pub const Handler = struct {
             .operating_status => try self.responses.appendSlice(self.alloc, "\x1b[0n"),
             .cursor_position => {
                 const t = self.inner.terminal;
+                // DECOM (origin mode) 有効時はスクロール領域の左上を原点と
+                // した相対座標で応答する (xterm 仕様、ghostty 本体
+                // stream_handler.zig の deviceStatusReport と同じ)。
+                const pos: struct { x: usize, y: usize } = if (t.modes.get(.origin)) .{
+                    .x = t.screens.active.cursor.x -| t.scrolling_region.left,
+                    .y = t.screens.active.cursor.y -| t.scrolling_region.top,
+                } else .{
+                    .x = t.screens.active.cursor.x,
+                    .y = t.screens.active.cursor.y,
+                };
                 var buf: [32]u8 = undefined;
                 const resp = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}R", .{
-                    t.screens.active.cursor.y + 1,
-                    t.screens.active.cursor.x + 1,
+                    pos.y + 1,
+                    pos.x + 1,
                 });
                 try self.responses.appendSlice(self.alloc, resp);
             },

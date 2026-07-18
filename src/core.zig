@@ -526,6 +526,19 @@ test "DSR (ESC[6n) はカーソル位置で応答する" {
     try testing.expectEqualStrings("\x1b[1;3R", update.responses);
 }
 
+test "DSR は DECOM 有効時にスクロール領域相対のカーソル位置で応答する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    // 行 3-5 をスクロール領域にして DECOM を有効化すると、カーソルは
+    // 領域左上 (絶対では行3) に移る。応答は領域相対の 1;1 であるべきで、
+    // 絶対座標の 3;1 を返してはならない。
+    var update = try t.feed(alloc, "\x1b[3;5r\x1b[?6h\x1b[6n");
+    defer update.deinit();
+    try testing.expectEqualStrings("\x1b[1;1R", update.responses);
+}
+
 test "OSC 2 はタイトル変更を通知する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);
