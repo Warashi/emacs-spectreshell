@@ -20,6 +20,5 @@ test "ghostty-vt モジュールを import できる" {
 }
 
 test {
-    _ = @import("row.zig");
-    _ = @import("handler.zig");
+    _ = @import("core.zig");
 }
