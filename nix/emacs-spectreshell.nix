@@ -6,9 +6,53 @@
   texinfo,
   callPackage,
   runCommand,
-  xcbuild,
+  writeShellScriptBin,
+  symlinkJoin,
   emacs31-nox,
 }:
+let
+  # macOS の Nix サンドボックスには Xcode がないが、ghostty の
+  # pkg/apple-sdk (zlib/simdutf/highway 等の pkg/* がビルドグラフ構築時に
+  # 呼ぶ) は zig の LibCInstallation.findNative 経由で
+  # `xcode-select --print-path` と `xcrun --sdk <名前> --show-sdk-path` を
+  # 実行して SDK を探すため、そのままでは DarwinSdkNotFound で panic する。
+  # xcbuild (xcode-select / xcrun 同梱) では解決できない: macosx は darwin
+  # stdenv の apple-sdk から解決できるものの、ghostty の build.zig は
+  # darwin ターゲットだと XCFramework 用に iOS / iOS Simulator 向けの
+  # グラフも無条件に構築し、そこで要求される iphoneos SDK は CLT 由来の
+  # Nix apple-sdk には存在しないため。
+  # そこで --sdk の値を無視して $SDKROOT (apple-sdk setup hook が設定する
+  # macOS SDK) を返すシムで両コマンドを置き換える。zig 側が見るのは
+  # 「exit 0 かつ stdout 非空」と SDK パスだけで、iOS 向けステップは
+  # グラフに乗るだけで実行されない (このパッケージの install が依存
+  # しない) ので、macOS SDK のパスを返しても実害はない。
+  # 想定外の引数はエラーにして誤用を検知する。
+  xcodeShim = symlinkJoin {
+    name = "xcode-shim";
+    paths = [
+      (writeShellScriptBin "xcode-select" ''
+        [ -n "''${SDKROOT:-}" ] || {
+          echo "xcode-select shim: SDKROOT is not set" >&2
+          exit 1
+        }
+        echo "$SDKROOT"
+      '')
+      (writeShellScriptBin "xcrun" ''
+        [ -n "''${SDKROOT:-}" ] || {
+          echo "xcrun shim: SDKROOT is not set" >&2
+          exit 1
+        }
+        case " $* " in
+          *" --show-sdk-path "*) echo "$SDKROOT" ;;
+          *)
+            echo "xcrun shim: unsupported invocation: xcrun $*" >&2
+            exit 1
+            ;;
+        esac
+      '')
+    ];
+  };
+in
 stdenv.mkDerivation (finalAttrs: {
   pname = "emacs-spectreshell";
   # build.zig.zon の .version と spectreshell.el の Version ヘッダに合わせる。
@@ -19,19 +63,12 @@ stdenv.mkDerivation (finalAttrs: {
   # ncurses は build.zig の terminfo install step が呼ぶ `tic` のために、
   # texinfo は Info マニュアル生成 step が呼ぶ `makeinfo` のために要る
   # (docs/design.org の「TERM=xterm-ghostty + terminfo 同梱」)。
-  # xcbuild は macOS の Nix サンドボックス用。Xcode がないため、ghostty の
-  # pkg/apple-sdk (zlib/simdutf/highway 等の pkg/* がビルドグラフ構築時に
-  # 呼ぶ) が使う zig の LibCInstallation.findNative が実行する
-  # `xcode-select --print-path` と `xcrun --sdk macosx --show-sdk-path` が
-  # 見つからず DarwinSdkNotFound で panic する。xcbuild は両コマンドを
-  # 同梱し、darwin stdenv の apple-sdk setup hook が設定する
-  # $DEVELOPER_DIR から Nix 提供の SDK を解決して返す。
   nativeBuildInputs = [
     zig
     ncurses
     texinfo
   ]
-  ++ lib.optionals stdenv.hostPlatform.isDarwin [ xcbuild ];
+  ++ lib.optionals stdenv.hostPlatform.isDarwin [ xcodeShim ];
 
   deps = callPackage ../build.zig.zon.nix {
     name = "${finalAttrs.pname}-cache-${finalAttrs.version}";
@@ -56,6 +93,11 @@ stdenv.mkDerivation (finalAttrs: {
     mkdir -p "$ZIG_GLOBAL_CACHE_DIR/p"
     cp -rL ${finalAttrs.deps}/. "$ZIG_GLOBAL_CACHE_DIR/p/"
     chmod -R u+w "$ZIG_GLOBAL_CACHE_DIR/p"
+  ''
+  # darwin stdenv の apple-sdk は xcbuild 製 xcrun を propagate しており
+  # PATH 上でシムより先に来る可能性があるため、シムを先頭に固定する
+  + lib.optionalString stdenv.hostPlatform.isDarwin ''
+    export PATH="${xcodeShim}/bin:$PATH"
   '';
 
   nativeCheckInputs = [ emacs31-nox ];
