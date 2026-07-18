@@ -10,7 +10,10 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    if (b.lazyDependency("ghostty", .{})) |dep| {
+    // target/optimize を渡さないと ghostty 側の standardTargetOptions が
+    // ホスト向けの既定値になり、クロスコンパイル時に simdutf/highway の
+    // 静的ライブラリだけホスト向けに作られてリンクに失敗する。
+    if (b.lazyDependency("ghostty", .{ .target = target, .optimize = optimize })) |dep| {
         mod.addImport("ghostty-vt", dep.module("ghostty-vt"));
         installTerminfo(b, dep);
     }
