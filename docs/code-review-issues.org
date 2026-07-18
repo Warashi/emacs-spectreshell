@@ -165,7 +165,13 @@ xterm 仕様に反する。
 
 ** API 契約・ドキュメント
 
-*** TODO M-11: :title / :cursor-visible が Elisp 側で未消費なのに文書は機能を約束
+*** DONE M-11: :title / :cursor-visible が Elisp 側で未消費なのに文書は機能を約束
+対応: =:title= は =spectreshell-title= スロット + abnormal hook
+(=spectreshell-title-functions=) で公開し、README / マニュアルの機能
+一覧を「通知として公開 (表示への反映はフック実装に委ねる)」へ修正。
+=:cursor-visible= は引き続き未消費だが、機能一覧はカーソル非表示を
+約束していないため文書修正は不要 (module-api.org の plist 仕様として
+提供されている事実は正確)。
 対象: =spectreshell.el=, =README.org=, =docs/spectreshell.org=,
 =docs/spectreshell.texi=
 

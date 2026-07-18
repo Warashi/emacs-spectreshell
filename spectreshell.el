@@ -165,7 +165,17 @@ constructor directly outside this file."
   rows
   cols
   send-fn
-  alt-saved)
+  alt-saved
+  title)
+
+(defvar spectreshell-title-functions nil
+  "Abnormal hook run when a terminal's title changes (OSC 0/2).
+Each function is called with two arguments, the `spectreshell' object
+and the new title string, with the terminal's buffer current.  The
+latest title is also always readable from `spectreshell-title'.
+spectreshell itself deliberately renames nothing (a buffer rename would
+break eshell's buffer bookkeeping, a frame title is not this layer's
+to own); displaying the title anywhere is entirely up to these hooks.")
 
 ;;;###autoload
 (defun spectreshell-start (buffer rows cols send-fn)
@@ -277,7 +287,10 @@ Return UPDATE unchanged, for callers that want to inspect it further."
         (spectreshell--apply-scrolled-off obj (plist-get update :scrolled-off))
         (spectreshell--apply-dirty obj (plist-get update :dirty))
         (spectreshell--trim-rows obj)
-        (spectreshell--move-point obj (plist-get update :cursor)))))
+        (spectreshell--move-point obj (plist-get update :cursor))
+        (when-let* ((title (plist-get update :title)))
+          (setf (spectreshell-title obj) title)
+          (run-hook-with-args 'spectreshell-title-functions obj title)))))
   (when-let* ((response (plist-get update :responses)))
     (funcall (spectreshell-send-fn obj) response))
   update)
