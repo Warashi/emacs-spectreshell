@@ -89,7 +89,7 @@ Actions ワークフローを整備する。
 出力が届くと =point-max= を端末領域終端と誤認し、=--trim-rows= の
 =delete-region= などが端末領域を破壊する。
 
-*** TODO M-2: 更新パスが undo リストを無制限に蓄積する
+*** DONE M-2: 更新パスが undo リストを無制限に蓄積する
 対象: =spectreshell.el= (=spectreshell--apply-update=)
 
 eshell バッファは undo 有効のため、feed ごとの delete/insert が undo

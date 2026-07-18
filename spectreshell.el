@@ -233,7 +233,12 @@ Return UPDATE unchanged, for callers that want to inspect it further."
     ;; deleting up to the wrong "end of buffer").
     (save-restriction
       (widen)
-      (let ((inhibit-read-only t))
+      ;; `buffer-undo-list' is bound to t because terminal redraw churn
+      ;; would otherwise accumulate unbounded undo entries (eshell buffers
+      ;; have undo enabled), and undoing a redraw after the job exits
+      ;; would corrupt confirmed scrollback text.
+      (let ((inhibit-read-only t)
+            (buffer-undo-list t))
         (spectreshell--handle-alt-screen obj (plist-get update :alt-screen))
         (spectreshell--apply-scrolled-off obj (plist-get update :scrolled-off))
         (spectreshell--apply-dirty obj (plist-get update :dirty))

@@ -99,6 +99,16 @@ recent last)."
     ;; 2行目 ("cd") の2文字目まで書いた直後なのでカーソルは row 1 col 2。
     (should (= (point) (spectreshell--row-col-pos term 1 2)))))
 
+(ert-deftest spectreshell-test-feed-does-not-record-undo ()
+  "undo が有効なバッファでも feed の再描画は undo エントリを積まない。
+積んでしまうと大量出力で undo リストが際限なく肥大化し、ジョブ終了後
+の undo が確定済みスクロールバックまで巻き戻してしまう。"
+  (spectreshell-test--with-terminal (term 3 5)
+    (buffer-enable-undo)
+    (spectreshell-feed term "hello")
+    (spectreshell-feed term "\r\nworld")
+    (should (null buffer-undo-list))))
+
 (ert-deftest spectreshell-test-feed-is-immune-to-narrowing ()
   "ユーザーがバッファをナローイング中でも feed は端末領域を壊さない。
 更新パスは point-max を端末領域終端として使うため、widen せずに動くと
