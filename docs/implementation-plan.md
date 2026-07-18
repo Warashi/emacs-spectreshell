@@ -1,0 +1,122 @@
+# spectreshell 実装計画
+
+[design.md](./design.md) の設計を実装するためのフェーズ別計画。
+各フェーズは「lint / test が通るコミット可能な単位」であり、
+フェーズ内もさらに意味のある最小単位でコミットを刻む。
+
+## Phase 0: ビルド基盤
+
+**ゴール**: Emacs から `module-load` できる空の `libspectreshell.so`。
+
+- build.zig で ghostty 依存から `ghostty-vt` モジュールを取り込み、
+  shared library をビルドする
+- emacs-module.h 相当の宣言を Zig で用意し (`plugin_is_GPL_compatible`、
+  `emacs_module_init`)、初期化のみ行うスケルトンを実装
+- `zig build` / nix ビルド (`nix build`) が通るよう
+  nix/libspectreshell.nix の postInstall スタブを削除して成果物を install
+- 手元の Emacs で `(module-load ".../libspectreshell.so")` が成功する
+  ことを確認する再現手順を Justfile に追加
+
+**完了条件**: `zig build` と `nix build` が成功し、Emacs で load できる。
+
+## Phase 1: Zig コア (emacs-module 非依存)
+
+**ゴール**: バイト列を食わせると更新情報が取れる純 Zig ライブラリ。
+
+- ghostty-vt の `Terminal` + `Stream` をラップした `Term` 構造体:
+  create / release / feed / resize
+- feed 結果の抽出:
+  - ダーティ行 (行番号・セル文字列・スタイル区間)
+  - 可視領域上端から流れ出た行 (確定化用)
+  - カーソル位置・可視状態
+  - PTY へ返送すべき応答バイト列 (DA / DSR 等)
+  - alternate screen 出入り、タイトル変更
+- key encoder / paste encoder のラップ
+- `zig build test` にユニットテストを追加
+  (SGR 色、CR による行上書き、スクロールアウト、alt screen、resize)
+
+**完了条件**: 上記が `zig build test` で検証されている。
+
+## Phase 2: モジュール境界
+
+**ゴール**: Phase 1 のコアを Elisp から呼べる。
+
+- emacs-module バインディング:
+  `spectreshell--create` / `--feed` / `--resize` / `--encode-key` /
+  `--encode-paste` / `--release`
+- user-ptr + finalizer による端末オブジェクトの寿命管理
+- Zig 値 ↔ Lisp 値 (文字列・整数・plist・vector) の変換層
+- feed の戻り値 plist を design.md の形式で構築
+
+**完了条件**: `emacs -batch` から create → feed → 戻り値検証の
+スモークテストが通る (ERT の最初のテストとして追加)。
+
+## Phase 3: spectreshell.el 描画エンジン
+
+**ゴール**: バイト列を渡すとバッファが正しく描画される (eshell 非依存)。
+
+- 端末オブジェクトとバッファ領域 (端末領域の開始マーカー) の管理
+- ダーティ行 diff のバッファ反映 (行単位の置換)
+- スタイル区間 → text property 変換、
+  `spectreshell-color-0..15` face 定義 (`:inherit ansi-color-*`)
+- スクロールアウト行の確定化、alternate screen の出入り
+  (領域退避・復元・消去)
+- カーソル位置への point 追従
+- OSC 8 ハイパーリンクの button 化
+- 応答バイト列を送信コールバックへ渡す仕組み
+- ERT: 一時バッファ + feed でバッファ内容と text property を検証
+
+**完了条件**: ERT で SGR 色・進捗表示 (\r)・確定化・alt screen の
+描画テストが通る。
+
+## Phase 4: キー入力
+
+**ゴール**: semi-char / emacs モードで実行中プロセスを操作できる。
+
+- キーイベント → 中間表現 (key + modifiers) の正規化
+- `spectreshell-semi-char-mode-map`: 印字可能キー・矢印・制御キーを
+  `--encode-key` 経由で送信。`C-c` プレフィックス・`M-x` は Emacs に残す
+- `C-y`: kill-ring 先頭を `--encode-paste` (bracketed paste) で送信
+- `C-c C-e` / `C-c C-j` によるモード切替と mode-line 表示
+- ERT: キーイベント→送信バイト列 (DECCKM on/off での矢印キー等) を検証
+
+**完了条件**: モード切替とキー送信の ERT が通る。
+
+## Phase 5: spectreshell-eshell.el
+
+**ゴール**: `spectreshell-eshell-mode` で eshell が eat-eshell-mode 同等に動く。
+
+- eshell のプロセス起動経路への advice:
+  process-filter 差し替え、`TERM` / `TERMINFO` 注入
+- プロセス開始で端末領域を開始し semi-char モードへ、
+  プロセス終了で確定化して通常 eshell に復帰
+- ウィンドウサイズ変更 → `--resize` + `set-process-window-size`
+- プロセス出力の応答バイト列返送の接続
+- ERT 統合テスト (`emacs -batch` + 実プロセス):
+  `printf` で色付き出力、スクロールアウト、exit 後のバッファ状態
+- 手動確認: `ls --color`、進捗表示するコマンド、`less`、`vim`、
+  eshell コマンドライン編集での ddskk
+
+**完了条件**: ERT 統合テストが通り、手動確認項目が動作する。
+
+## Phase 6: 仕上げ
+
+**ゴール**: v1 機能の完成と配布形態の整備。
+
+- マウス対応: Emacs マウスイベント → 端末座標変換 → エンコード送信
+  (alternate screen アプリでのクリック・スクロール)
+- terminfo: ghostty ソースの定義から xterm-ghostty の terminfo を
+  ビルド時生成・同梱し、`TERMINFO` で注入。
+  TERM 値の defcustom (fallback: `xterm-256color`)
+- nix パッケージの完成 (so + el + terminfo を成果物に含める)
+- README: インストール手順・設定例
+
+**完了条件**: `nix build` の成果物だけで新規環境にセットアップでき、
+v1 機能がすべて動作する。
+
+## 将来拡張 (v1 に含めない)
+
+- char モード (C-c 含む全キー送信)
+- OSC 52 クリップボード (書き込みのみ許可等のセキュリティ方針込み)
+- 画像 (kitty graphics / sixel)
+- 実行中プロセスへの IME 直接入力 (コミット捕捉ブリッジ、design.md 参照)
