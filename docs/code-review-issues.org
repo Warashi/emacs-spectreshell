@@ -259,7 +259,7 @@ C-S-a を区別できない。ASCII 大文字は =toLower= した値を入れる
 finalizer 未登録のまま =Term= がリークする (Emacs 側 memory-full 時
 のみの極低確率パス)。=pendingExit= を見て =term.deinit()= する。
 
-*** TODO L-8: copyStringContents のサブスライス返却は free 不整合の罠
+*** DONE L-8: copyStringContents のサブスライス返却は free 不整合の罠
 対象: =src/emacs.zig= (=copyStringContents=)
 
 =alloc(len)= した領域の =buf[0..len-1]= を返すため、arena 以外の

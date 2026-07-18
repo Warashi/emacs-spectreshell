@@ -187,6 +187,10 @@ pub fn makeUnibyteString(env: *Env, s: []const u8) *Value {
 
 /// copy_string_contents は「必要サイズ問い合わせ→本コピー」の 2 段呼び出し
 /// が仕様。SIZE には終端 NUL を含むため、返すスライスは len-1。
+///
+/// 契約: 返り値は len バイト確保した領域の先頭 len-1 バイトのサブスライス
+/// なので、alloc.free で個別解放してはならない (長さ不一致で illegal
+/// behavior になる)。呼び出し側は arena を渡して arena ごと破棄すること。
 pub fn copyStringContents(env: *Env, alloc: std.mem.Allocator, value: *Value) ![]u8 {
     var len: isize = 0;
     _ = env.copy_string_contents.?(env, value, null, &len);
