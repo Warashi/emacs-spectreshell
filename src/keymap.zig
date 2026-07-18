@@ -72,7 +72,11 @@ pub fn applyModifierName(mods: *Mods, name: []const u8) bool {
 /// key enum は補助情報にとどまり utf8 が主となる。
 pub fn charEvent(cp: u21, utf8: []const u8, mods: Mods) KeyEvent {
     const key: Key = if (cp < 128) (Key.fromASCII(@intCast(cp)) orelse .unidentified) else .unidentified;
-    const unshifted: u21 = if (cp < 128) cp else 0;
+    // ghostty の key_encode は「shift で得た文字か」を
+    // unshifted_codepoint と文字の不一致で判定するため、ASCII 大文字は
+    // シフト前の小文字を入れる。cp をそのまま入れると kitty/CSIu 有効時に
+    // shift ビットが脱落し、アプリが C-a と C-S-a を区別できなくなる。
+    const unshifted: u21 = if (cp < 128) std.ascii.toLower(@intCast(cp)) else 0;
     return .{
         .key = key,
         .utf8 = utf8,
@@ -109,6 +113,11 @@ test "charEvent は ascii 文字を Key.fromASCII と紐付ける" {
     const ev = charEvent('a', "a", .{});
     try testing.expectEqual(Key.key_a, ev.key);
     try testing.expectEqualStrings("a", ev.utf8);
+    try testing.expectEqual(@as(u21, 'a'), ev.unshifted_codepoint);
+}
+
+test "charEvent は ascii 大文字にシフト前の小文字を unshifted として持たせる" {
+    const ev = charEvent('A', "A", .{ .shift = true });
     try testing.expectEqual(@as(u21, 'a'), ev.unshifted_codepoint);
 }
 
