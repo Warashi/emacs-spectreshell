@@ -203,5 +203,75 @@ BODY がエラーで抜けても確実に kill する。"
       (with-current-buffer buf
         (should-not spectreshell-semi-char-mode)))))
 
+;; ---------------------------------------------------------------------
+;; 同梱 terminfo の自動検出
+;; ---------------------------------------------------------------------
+
+(defmacro spectreshell-eshell-test--with-fake-library (root-var files &rest body)
+  "Run BODY with ROOT-VAR bound to a fresh temp dir laid out per FILES.
+FILES is a list of relative paths; each is created as an empty file (or
+directory, if it ends in \"/\"), with intermediate directories made as
+needed.  Deletes ROOT-VAR's whole tree afterwards regardless of how BODY
+exits."
+  (declare (indent 2))
+  `(let ((,root-var (make-temp-file "spectreshell-terminfo-test" t)))
+     (unwind-protect
+         (progn
+           (dolist (rel ,files)
+             (let ((path (expand-file-name rel ,root-var)))
+               (if (string-suffix-p "/" rel)
+                   (make-directory path t)
+                 (make-directory (file-name-directory path) t)
+                 (with-temp-file path (insert ";; stub")))))
+           ,@body)
+       (delete-directory ,root-var t))))
+
+(ert-deftest spectreshell-eshell-test-detect-terminfo-directory-finds-local-zig-out ()
+  "ライブラリと同じディレクトリの zig-out/share/terminfo を検出できる
+(ローカルの `zig build'/`just build' チェックアウトの配置)。"
+  (spectreshell-eshell-test--with-fake-library
+      root '("spectreshell.el" "zig-out/share/terminfo/")
+    (let ((load-path (cons root load-path)))
+      (should (equal (spectreshell--detect-terminfo-directory)
+                      (expand-file-name "zig-out/share/terminfo" root))))))
+
+(ert-deftest spectreshell-eshell-test-detect-terminfo-directory-finds-nix-layout ()
+  "nix パッケージの配置 ($out/share/emacs/site-lisp から見た
+../../terminfo == $out/share/terminfo) を検出できる。"
+  (spectreshell-eshell-test--with-fake-library
+      root '("share/emacs/site-lisp/spectreshell.el" "share/terminfo/")
+    (let ((load-path (cons (expand-file-name "share/emacs/site-lisp" root) load-path)))
+      (should (equal (spectreshell--detect-terminfo-directory)
+                      (expand-file-name "share/terminfo" root))))))
+
+(ert-deftest spectreshell-eshell-test-detect-terminfo-directory-nil-when-absent ()
+  "候補ディレクトリがどちらも存在しなければ nil を返す。"
+  (spectreshell-eshell-test--with-fake-library
+      root '("spectreshell.el")
+    (let ((load-path (cons root load-path)))
+      (should (null (spectreshell--detect-terminfo-directory))))))
+
+;; ---------------------------------------------------------------------
+;; TERM 決定ロジック (xterm-ghostty -> xterm-256color フォールバック)
+;; ---------------------------------------------------------------------
+
+(ert-deftest spectreshell-eshell-test-effective-term-name-falls-back-without-terminfo ()
+  "既定値 xterm-ghostty のまま terminfo が見つからなければ xterm-256color にフォールバックする。"
+  (let ((spectreshell-term-name "xterm-ghostty")
+        (spectreshell-terminfo-directory nil))
+    (should (equal (spectreshell-eshell--effective-term-name) "xterm-256color"))))
+
+(ert-deftest spectreshell-eshell-test-effective-term-name-keeps-xterm-ghostty-when-terminfo-found ()
+  "terminfo が見つかっていれば xterm-ghostty のまま送出する。"
+  (let ((spectreshell-term-name "xterm-ghostty")
+        (spectreshell-terminfo-directory "/some/dir"))
+    (should (equal (spectreshell-eshell--effective-term-name) "xterm-ghostty"))))
+
+(ert-deftest spectreshell-eshell-test-effective-term-name-respects-explicit-override ()
+  "TERM をユーザーが明示的に変更していれば terminfo の有無に関わらずそのまま使う。"
+  (let ((spectreshell-term-name "screen")
+        (spectreshell-terminfo-directory nil))
+    (should (equal (spectreshell-eshell--effective-term-name) "screen"))))
+
 (provide 'spectreshell-eshell-test)
 ;;; spectreshell-eshell-test.el ends here
