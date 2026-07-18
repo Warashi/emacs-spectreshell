@@ -6,6 +6,7 @@
 ;; 経由での送信を検証する。
 
 (require 'ert)
+(require 'cl-lib)
 
 (defconst spectreshell-test--module-path
   (expand-file-name "../zig-out/lib/libspectreshell.so"
@@ -176,6 +177,162 @@ directly instead of going through the mode-line machinery."
             (setq spectreshell--current term)
             (execute-kbd-macro "a")
             (should (equal (car responses) "a")))
+        (kill-buffer buf)))))
+
+;; ---------------------------------------------------------------------
+;; マウス: BUTTON 判別
+;; ---------------------------------------------------------------------
+
+(ert-deftest spectreshell-key-test-mouse-button-number ()
+  "down/click/drag いずれの接頭辞・修飾子付きでも event-basic-type だけで判別できる。"
+  (should (equal (spectreshell--mouse-button-number '(down-mouse-1 nil)) 1))
+  (should (equal (spectreshell--mouse-button-number '(mouse-2 nil)) 2))
+  (should (equal (spectreshell--mouse-button-number '(drag-mouse-3 nil nil)) 3))
+  (should (equal (spectreshell--mouse-button-number '(C-down-mouse-1 nil)) 1))
+  (should (equal (spectreshell--mouse-button-number '(wheel-up nil)) 'wheel-up))
+  (should (equal (spectreshell--mouse-button-number '(mouse-4 nil)) 'wheel-up))
+  (should (equal (spectreshell--mouse-button-number '(wheel-down nil)) 'wheel-down))
+  (should (equal (spectreshell--mouse-button-number '(mouse-5 nil)) 'wheel-down)))
+
+;; ---------------------------------------------------------------------
+;; マウス: posn -> 端末座標変換
+;; ---------------------------------------------------------------------
+
+(defun spectreshell-key-test--posn (window pos)
+  "Return a minimal POSITION object usable with `posn-point'/`posn-window'.
+WINDOW may be nil (only `spectreshell--posn-terminal-coords', which never
+looks at `posn-window', is safe to use with that); POS is the buffer
+position (a marker is resolved to its integer position, since
+`posn-point' is documented to return an integer)."
+  (list window nil '(0 . 0) 0 nil (if (markerp pos) (marker-position pos) pos) nil nil nil nil))
+
+(ert-deftest spectreshell-key-test-mouse-posn-coords-first-row ()
+  "端末領域先頭行の POSN は (0 . 0) から数えた行・桁に変換される。"
+  (spectreshell-test--with-terminal (term 3 10)
+    (spectreshell-feed term "0123456789ABCDEFGHIJ")
+    (should (equal (spectreshell--posn-terminal-coords
+                     term (spectreshell-key-test--posn nil (spectreshell-marker term)))
+                    '(0 . 0)))
+    (should (equal (spectreshell--posn-terminal-coords
+                     term (spectreshell-key-test--posn nil (+ (spectreshell-marker term) 5)))
+                    '(0 . 5)))))
+
+(ert-deftest spectreshell-key-test-mouse-posn-coords-second-row ()
+  "2行目の POSN は ROW 1 に変換される。"
+  (spectreshell-test--with-terminal (term 3 10)
+    (spectreshell-feed term "0123456789ABCDEFGHIJ")
+    ;; 端末領域の2行目 ("ABCDEFGHIJ") の先頭は marker から11文字目
+    ;; (1行目10文字 + 改行1文字)。
+    (should (equal (spectreshell--posn-terminal-coords
+                     term (spectreshell-key-test--posn nil (+ (spectreshell-marker term) 11)))
+                    '(1 . 0)))))
+
+(ert-deftest spectreshell-key-test-mouse-posn-coords-before-terminal-region-is-nil ()
+  "端末領域より前 (確定済みスクロールバック) の POSN は nil になる。"
+  (spectreshell-test--with-terminal (term 1 5)
+    ;; 1行が流れ出て確定化され、marker が後ろへ動く。
+    (spectreshell-feed term "12345\r\n67890")
+    (should (> (spectreshell-marker term) (point-min)))
+    (should (null (spectreshell--posn-terminal-coords
+                    term (spectreshell-key-test--posn nil (point-min)))))))
+
+;; ---------------------------------------------------------------------
+;; マウス: エンコード送信
+;; ---------------------------------------------------------------------
+
+(ert-deftest spectreshell-key-test-mouse-send-sgr-encodes-and-sends ()
+  "mode 1000+1006 が有効な端末では send-mouse が SGR バイト列を送信する。"
+  (spectreshell-test--with-terminal (term 5 10 responses)
+    (spectreshell-feed term "\x1b[?1000h\x1b[?1006h")
+    (let ((posn (spectreshell-key-test--posn nil (+ (spectreshell-marker term) 2))))
+      (should (equal (spectreshell--send-mouse term 1 'press posn nil) "\x1b[<0;3;1M"))
+      (should (equal (car responses) "\x1b[<0;3;1M")))))
+
+(ert-deftest spectreshell-key-test-mouse-send-noop-when-tracking-disabled ()
+  "マウストラッキング未設定の端末では send-mouse は何も送らず nil を返す。"
+  (spectreshell-test--with-terminal (term 5 10 responses)
+    (let ((posn (spectreshell-key-test--posn nil (spectreshell-marker term))))
+      (should (null (spectreshell--send-mouse term 1 'press posn nil)))
+      (should (null responses)))))
+
+;; ---------------------------------------------------------------------
+;; マウス: down/wheel コマンド
+;; ---------------------------------------------------------------------
+
+(ert-deftest spectreshell-key-test-mouse-down-sends-press-and-tracks-drag ()
+  "down-mouse コマンドは press を送信してからドラッグ追跡に入る。
+`spectreshell--track-mouse-drag' は実イベントを読む無限ループのため、
+ここではそれ自体を差し替えて呼び出し引数だけを検証する。"
+  (spectreshell-test--with-terminal (term 5 10 responses)
+    (spectreshell-feed term "\x1b[?1000h\x1b[?1006h")
+    (let ((buf (generate-new-buffer "spectreshell-key-test-mouse"))
+          (tracked nil))
+      (unwind-protect
+          (save-window-excursion
+            (switch-to-buffer buf)
+            (setq spectreshell--current term)
+            (cl-letf (((symbol-function 'spectreshell--track-mouse-drag)
+                       (lambda (obj button mods) (setq tracked (list obj button mods)))))
+              (spectreshell-mouse-down
+               (list 'down-mouse-1 (spectreshell-key-test--posn (selected-window)
+                                                                  (spectreshell-marker term))))
+              (should (equal (car responses) "\x1b[<0;1;1M"))
+              (should (equal tracked (list term 1 nil)))))
+        (kill-buffer buf)))))
+
+(ert-deftest spectreshell-key-test-mouse-down-falls-back-to-mouse-set-point ()
+  "マウストラッキング無効時は mouse-set-point にフォールバックし、ドラッグ追跡はしない。"
+  (spectreshell-test--with-terminal (term 5 10 responses)
+    (let ((buf (generate-new-buffer "spectreshell-key-test-mouse"))
+          (tracked nil)
+          (fell-back nil))
+      (unwind-protect
+          (save-window-excursion
+            (switch-to-buffer buf)
+            (setq spectreshell--current term)
+            (cl-letf (((symbol-function 'spectreshell--track-mouse-drag)
+                       (lambda (obj button mods) (setq tracked (list obj button mods))))
+                      ((symbol-function 'mouse-set-point)
+                       (lambda (_event) (setq fell-back t))))
+              (spectreshell-mouse-down
+               (list 'down-mouse-1 (spectreshell-key-test--posn (selected-window)
+                                                                  (spectreshell-marker term))))
+              (should (null responses))
+              (should (null tracked))
+              (should fell-back)))
+        (kill-buffer buf)))))
+
+(ert-deftest spectreshell-key-test-mouse-wheel-sends-single-press ()
+  "wheel-up はボタン64 (wheel_up) の press 1回として送信される。"
+  (spectreshell-test--with-terminal (term 5 10 responses)
+    (spectreshell-feed term "\x1b[?1000h\x1b[?1006h")
+    (let ((buf (generate-new-buffer "spectreshell-key-test-mouse")))
+      (unwind-protect
+          (save-window-excursion
+            (switch-to-buffer buf)
+            (setq spectreshell--current term)
+            (spectreshell-mouse-wheel
+             (list 'wheel-up (spectreshell-key-test--posn (selected-window)
+                                                            (spectreshell-marker term))))
+            (should (equal (car responses) "\x1b[<64;1;1M")))
+        (kill-buffer buf)))))
+
+(ert-deftest spectreshell-key-test-mouse-wheel-falls-back-to-mwheel-scroll ()
+  "マウストラッキング無効時の wheel イベントは mwheel-scroll にフォールバックする。"
+  (spectreshell-test--with-terminal (term 5 10 responses)
+    (let ((buf (generate-new-buffer "spectreshell-key-test-mouse"))
+          (scrolled nil))
+      (unwind-protect
+          (save-window-excursion
+            (switch-to-buffer buf)
+            (setq spectreshell--current term)
+            (cl-letf (((symbol-function 'mwheel-scroll)
+                       (lambda (_event _arg) (setq scrolled t))))
+              (spectreshell-mouse-wheel
+               (list 'wheel-up (spectreshell-key-test--posn (selected-window)
+                                                              (spectreshell-marker term))))
+              (should (null responses))
+              (should scrolled)))
         (kill-buffer buf)))))
 
 (provide 'spectreshell-key-test)
