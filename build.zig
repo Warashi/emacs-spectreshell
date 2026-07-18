@@ -30,10 +30,25 @@ pub fn build(b: *std.Build) void {
     b.installFile("spectreshell.el", "share/emacs/site-lisp/spectreshell.el");
     b.installFile("spectreshell-eshell.el", "share/emacs/site-lisp/spectreshell-eshell.el");
 
+    installInfoManual(b);
+
     const tests = b.addTest(.{ .root_module = mod });
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
+}
+
+/// docs/spectreshell.texi から Info マニュアルを生成して share/info に
+/// install する。org ソース (docs/spectreshell.org) から直接生成しない
+/// のは、ビルド時依存に Emacs を持ち込まないため (.texi は `just info`
+/// で再生成してコミットする運用)。
+fn installInfoManual(b: *std.Build) void {
+    const makeinfo = b.addSystemCommand(&.{ "makeinfo", "--no-split", "-o" });
+    const info_file = makeinfo.addOutputFileArg("spectreshell.info");
+    makeinfo.addFileArg(b.path("docs/spectreshell.texi"));
+
+    const install_info = b.addInstallFile(info_file, "share/info/spectreshell.info");
+    b.getInstallStep().dependOn(&install_info.step);
 }
 
 /// ghostty 本体の `src/terminfo/main.zig` (std のみに依存する自己完結

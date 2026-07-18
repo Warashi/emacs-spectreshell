@@ -3,6 +3,7 @@
   stdenv,
   zig,
   ncurses,
+  texinfo,
   callPackage,
   runCommand,
 }:
@@ -12,11 +13,13 @@ stdenv.mkDerivation (finalAttrs: {
 
   src = ../.;
 
-  # ncurses は build.zig の terminfo install step が呼ぶ `tic` のために要る
+  # ncurses は build.zig の terminfo install step が呼ぶ `tic` のために、
+  # texinfo は Info マニュアル生成 step が呼ぶ `makeinfo` のために要る
   # (docs/design.org の「TERM=xterm-ghostty + terminfo 同梱」)。
   nativeBuildInputs = [
     zig
     ncurses
+    texinfo
   ];
 
   deps = callPackage ../build.zig.zon.nix {
