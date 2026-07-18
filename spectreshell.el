@@ -29,6 +29,7 @@
 (require 'subr-x)
 (require 'ansi-color)
 (require 'button)
+(require 'mwheel)
 
 ;; Defined by `libspectreshell.so' (module-load'ed at runtime, not a
 ;; regular Elisp library); declared to keep the byte-compiler quiet.
@@ -38,6 +39,7 @@
 (declare-function spectreshell--release "libspectreshell" (term))
 (declare-function spectreshell--encode-key "libspectreshell" (term key modifiers))
 (declare-function spectreshell--encode-paste "libspectreshell" (term text))
+(declare-function spectreshell--encode-mouse "libspectreshell" (term button action row col modifiers))
 
 (defgroup spectreshell nil
   "Terminal emulation rendering engine for eshell."
@@ -490,6 +492,129 @@ call per character."
              (spectreshell--encode-paste (spectreshell-term obj) (current-kill 0)))))
 
 ;; ---------------------------------------------------------------------
+;; Mouse input
+;; ---------------------------------------------------------------------
+
+(defun spectreshell--posn-terminal (posn)
+  "Return the `spectreshell--current' terminal for POSN's window, or nil.
+POSN is an `event-start'/`event-end' position object; nil covers both
+\"no terminal object there\" (mode-line, minibuffer, another buffer's
+window, ...) and \"nothing at all there\" (posn-window returned a frame,
+not a window, e.g. a click below the last line)."
+  (when-let* ((window (posn-window posn))
+              ((windowp window)))
+    (buffer-local-value 'spectreshell--current (window-buffer window))))
+
+(defun spectreshell--posn-terminal-coords (obj posn)
+  "Return OBJ's 0-origin (ROW . COL) terminal coordinates for POSN.
+POSN is an `event-start'/`event-end' position object.  Return nil when
+POSN has no buffer position at all (e.g. a click in the fringe) or
+falls before OBJ's terminal-region marker (a click on already-confirmed
+scrollback text, which is not part of the live terminal grid)."
+  (when-let* ((pt (posn-point posn))
+              (marker-pos (marker-position (spectreshell-marker obj)))
+              ((>= pt marker-pos)))
+    (with-current-buffer (spectreshell-buffer obj)
+      (save-excursion
+        (goto-char pt)
+        (let ((bol (line-beginning-position)))
+          ;; Clamp COL in case POSN lands past a short row's last
+          ;; character (rows are padded to `spectreshell-cols' by
+          ;; `spectreshell--pad-rows'/dirty-row replacement, so this is
+          ;; mostly a defensive bound rather than a normal occurrence).
+          (cons (count-lines marker-pos bol)
+                (max 0 (min (1- (spectreshell-cols obj)) (- pt bol)))))))))
+
+(defun spectreshell--send-mouse (obj button action posn mods)
+  "Encode a BUTTON/ACTION mouse report at POSN through OBJ and send it.
+Return the encoded bytes on success, or nil if POSN falls outside OBJ's
+terminal region or `spectreshell--encode-mouse' had nothing to send
+(mouse tracking off in the terminal, or this ACTION/BUTTON combination
+is not reported by its current tracking mode)."
+  (when-let* ((coords (spectreshell--posn-terminal-coords obj posn))
+              (bytes (spectreshell--encode-mouse (spectreshell-term obj) button action
+                                                  (car coords) (cdr coords) mods)))
+    (funcall (spectreshell-send-fn obj) bytes)
+    bytes))
+
+(defun spectreshell--mouse-button-number (event)
+  "Return the BUTTON argument for `spectreshell--encode-mouse' matching EVENT.
+`event-basic-type' already strips down/click/drag/double/triple and any
+modifier prefix off EVENT's head symbol, so it alone is enough to tell
+which button (or wheel direction) EVENT names."
+  (pcase (event-basic-type event)
+    ('mouse-1 1)
+    ('mouse-2 2)
+    ('mouse-3 3)
+    ((or 'wheel-up 'mouse-4) 'wheel-up)
+    ((or 'wheel-down 'mouse-5) 'wheel-down)
+    ((or 'wheel-left 'mouse-6) 'wheel-left)
+    ((or 'wheel-right 'mouse-7) 'wheel-right)))
+
+(defun spectreshell--track-mouse-drag (obj button mods)
+  "Track a mouse drag already reported to OBJ as a BUTTON press.
+Reads events in a `track-mouse'/`read-event' loop -- the same idiom
+`mouse-drag-region' uses -- so that a single Emacs down-mouse command
+invocation still reports the live motion and eventual release ghostty-vt
+(and whatever PTY-side app asked for SGR mouse motion, e.g. vim/less)
+expects to see, even though Emacs only ever delivered spectreshell one
+discrete down event.  Any event that is not part of this drag (a key
+press, a different mouse button, ...) ends the loop and is pushed back
+onto `unread-command-events' so the normal command loop still sees it."
+  (track-mouse
+    (catch 'spectreshell--mouse-drag-done
+      (while t
+        (let ((event (read-event)))
+          (cond
+           ((and (consp event) (eq (car event) 'mouse-movement))
+            (spectreshell--send-mouse obj button 'motion (event-start event) mods))
+           ((and (consp event) (memq (event-basic-type event) '(mouse-1 mouse-2 mouse-3)))
+            (spectreshell--send-mouse obj button 'release (event-end event) mods)
+            (throw 'spectreshell--mouse-drag-done nil))
+           (t
+            (when (or (symbolp event) (consp event))
+              (push event unread-command-events))
+            (throw 'spectreshell--mouse-drag-done nil))))))))
+
+(defun spectreshell-mouse-down (event)
+  "Report a mouse-button press for EVENT, then track its drag/release.
+Bound (with each ctrl/alt/shift combination) to `down-mouse-1/2/3' in
+`spectreshell-semi-char-mode-map'.  Falls back to `mouse-set-point'
+\(only) when EVENT's window has no current terminal, or the terminal's
+mouse tracking is off (`spectreshell--encode-mouse' returned nil for the
+press): docs/design.md accepts doing nothing beyond that, since fully
+reimplementing `mouse-drag-region' style selection is out of scope, but
+a plain click should still move point rather than being silently eaten."
+  (interactive "e")
+  (let* ((posn (event-start event))
+         (button (spectreshell--mouse-button-number event))
+         (mods (spectreshell--event-modifiers-to-modifiers (event-modifiers event)))
+         (obj (spectreshell--posn-terminal posn)))
+    (if (and obj (spectreshell--send-mouse obj button 'press posn mods))
+        (spectreshell--track-mouse-drag obj button mods)
+      (mouse-set-point event))))
+
+(defun spectreshell-mouse-wheel (event)
+  "Report a wheel-scroll EVENT to its window's current terminal.
+Bound (with each ctrl/alt/shift combination) to `wheel-up'/`wheel-down'/
+`wheel-left'/`wheel-right' and their `mouse-4'/`mouse-5'/`mouse-6'/
+`mouse-7' equivalents in `spectreshell-semi-char-mode-map'.  Sent as a
+single `press' report: ghostty-vt's mouse protocol (like every terminal
+mouse protocol descended from xterm's) has no separate release phase for
+a wheel click, mirroring how ghostty itself only ever calls its own
+`mouseReport' with `.press' for scroll wheel events.  Falls back to
+`mwheel-scroll' (ordinary Emacs scrolling) when there is no terminal to
+report to, or its mouse tracking is off, so semi-char mode does not
+disable mouse-wheel scrolling entirely between jobs that want it."
+  (interactive "e")
+  (let* ((posn (event-start event))
+         (button (spectreshell--mouse-button-number event))
+         (mods (spectreshell--event-modifiers-to-modifiers (event-modifiers event)))
+         (obj (spectreshell--posn-terminal posn)))
+    (unless (and obj (spectreshell--send-mouse obj button 'press posn mods))
+      (mwheel-scroll event nil))))
+
+;; ---------------------------------------------------------------------
 ;; semi-char / emacs mode
 ;; ---------------------------------------------------------------------
 
@@ -517,6 +642,21 @@ call per character."
                        (control shift) (meta shift) (control meta shift)))
         (define-key map (vector (event-convert-list (append mods (list key))))
           #'spectreshell-send-key)))
+    ;; Mouse: down-mouse-N starts `spectreshell--track-mouse-drag''s
+    ;; self-contained press/motion*/release loop; wheel events (and their
+    ;; mouse-4..7 legacy-numbered equivalents) have no separate down/up
+    ;; phase of their own and go straight to `spectreshell-mouse-wheel'.
+    (dolist (button '(down-mouse-1 down-mouse-2 down-mouse-3))
+      (dolist (mods '(() (control) (meta) (control meta) (shift)
+                       (control shift) (meta shift) (control meta shift)))
+        (define-key map (vector (event-convert-list (append mods (list button))))
+          #'spectreshell-mouse-down)))
+    (dolist (wheel '(wheel-up wheel-down wheel-left wheel-right
+                      mouse-4 mouse-5 mouse-6 mouse-7))
+      (dolist (mods '(() (control) (meta) (control meta) (shift)
+                       (control shift) (meta shift) (control meta shift)))
+        (define-key map (vector (event-convert-list (append mods (list wheel))))
+          #'spectreshell-mouse-wheel)))
     ;; C-c (kept as a prefix for Emacs commands, `C-c C-e' below included),
     ;; M-x, C-u (`universal-argument'), and C-y (`spectreshell-yank' below,
     ;; not a plain key send) are docs/design.md's named exceptions to
