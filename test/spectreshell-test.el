@@ -195,21 +195,42 @@ recent last)."
             (should (null (spectreshell--detect-module-path)))))
       (delete-directory root t))))
 
-(ert-deftest spectreshell-test-require-alone-autoloads-module ()
-  "`(require (quote spectreshell))' だけでモジュールが自動ロードされる
-(実運用向けの経路)。このテストファイル自身は他のテストのために
-`spectreshell' を先に `module-load' 済みで require しているため、
-同一プロセス内では `spectreshell-ensure-module-loaded' の no-op 分岐
-しか検証できない。実際に module-load を発火させる経路は、まだ
-何もロードしていないサブプロセスで別途検証する。"
+(ert-deftest spectreshell-test-start-autoloads-module ()
+  "`spectreshell-start' が最初の呼び出しでモジュールを自動ロードする
+(実運用向けの経路)。require 時点ではロードされない (ロード時副作用
+なし) ことも同時に検証する。このテストファイル自身は他のテストの
+ために `spectreshell' を先に `module-load' 済みで require している
+ため、実際に module-load を発火させる経路は、まだ何もロードしていない
+サブプロセスで検証する。"
   (let ((emacs (expand-file-name invocation-name invocation-directory)))
     (with-temp-buffer
       (let ((status (call-process
                      emacs nil t nil
                      "-Q" "--batch" "-L" spectreshell-test--repo-root
                      "--eval" "(require 'spectreshell)"
+                     "--eval" "(when (fboundp 'spectreshell--create) (error \"module loaded eagerly at require time\"))"
+                     "--eval" "(with-temp-buffer (spectreshell-start (current-buffer) 5 10 #'ignore))"
                      "--eval" "(unless (fboundp 'spectreshell--create) (error \"spectreshell--create not defined\"))")))
         (should (equal status 0))))))
+
+(ert-deftest spectreshell-test-require-succeeds-without-module ()
+  "モジュール未ビルドの環境でも `(require (quote spectreshell))' 自体は
+成功する (init.el を巻き込んで落とさない)。エラーになるのは
+`spectreshell-start' を呼んだ時点でよい。"
+  (let ((emacs (expand-file-name invocation-name invocation-directory))
+        (root (make-temp-file "spectreshell-no-module" t)))
+    (unwind-protect
+        (progn
+          (copy-file (expand-file-name "spectreshell.el" spectreshell-test--repo-root)
+                     (expand-file-name "spectreshell.el" root))
+          (with-temp-buffer
+            (let ((status (call-process
+                           emacs nil t nil
+                           "-Q" "--batch" "-L" root
+                           "--eval" "(require 'spectreshell)"
+                           "--eval" "(with-temp-buffer (unless (condition-case nil (progn (spectreshell-start (current-buffer) 5 10 #'ignore) nil) (error t)) (error \"spectreshell-start should signal without module\")))")))
+              (should (equal status 0)))))
+      (delete-directory root t))))
 
 (provide 'spectreshell-test)
 ;;; spectreshell-test.el ends here
