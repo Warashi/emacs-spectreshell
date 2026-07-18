@@ -43,7 +43,9 @@
       });
       packages = forAllSystems (pkgs: rec {
         default = libspectreshell;
-        libspectreshell = pkgs.callPackage ./nix/libspectreshell.nix { };
+        libspectreshell = pkgs.callPackage ./nix/libspectreshell.nix {
+          zig = pkgs.zig_0_15;
+        };
       });
     };
 }
