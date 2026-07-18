@@ -212,7 +212,7 @@ spectreshell-title-functions がバッファをカレントにして呼ばれる
                     :type 'spectreshell-terminal-released))))
 
 ;; ---------------------------------------------------------------------
-;; libspectreshell.so の自動検出・自動ロード
+;; libspectreshell モジュールの自動検出・自動ロード
 ;; ---------------------------------------------------------------------
 
 (ert-deftest spectreshell-test-detect-module-path-finds-local-zig-out ()
@@ -227,6 +227,34 @@ spectreshell-title-functions がバッファをカレントにして呼ばれる
           (let ((load-path (cons root load-path)))
             (should (equal (spectreshell--detect-module-path)
                             (expand-file-name "zig-out/lib/libspectreshell.so" root)))))
+      (delete-directory root t))))
+
+(ert-deftest spectreshell-test-detect-module-path-finds-local-dylib ()
+  "zig が darwin 慣習で命名した zig-out/lib/libspectreshell.dylib も検出できる。"
+  (let ((root (make-temp-file "spectreshell-module-test" t)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "zig-out/lib" root) t)
+          (with-temp-file (expand-file-name "spectreshell.el" root) (insert ";; stub"))
+          (with-temp-file (expand-file-name "zig-out/lib/libspectreshell.dylib" root) (insert ""))
+          (let ((load-path (cons root load-path)))
+            (should (equal (spectreshell--detect-module-path)
+                            (expand-file-name "zig-out/lib/libspectreshell.dylib" root)))))
+      (delete-directory root t))))
+
+(ert-deftest spectreshell-test-detect-module-path-finds-nix-dylib-layout ()
+  "nix パッケージ配置でも .dylib ($out/lib/libspectreshell.dylib) を検出できる。"
+  (let ((root (make-temp-file "spectreshell-module-test" t)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name "share/emacs/site-lisp" root) t)
+          (make-directory (expand-file-name "lib" root) t)
+          (with-temp-file (expand-file-name "share/emacs/site-lisp/spectreshell.el" root)
+            (insert ";; stub"))
+          (with-temp-file (expand-file-name "lib/libspectreshell.dylib" root) (insert ""))
+          (let ((load-path (cons (expand-file-name "share/emacs/site-lisp" root) load-path)))
+            (should (equal (spectreshell--detect-module-path)
+                            (expand-file-name "lib/libspectreshell.dylib" root)))))
       (delete-directory root t))))
 
 (ert-deftest spectreshell-test-detect-module-path-finds-nix-layout ()

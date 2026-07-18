@@ -50,18 +50,22 @@
 (defconst spectreshell--module-candidate-subpaths
   '(;; A local `zig build'/`just build' checkout: `spectreshell.el' loads
     ;; from the repository root, and `build.zig' installs the module next
-    ;; to the terminfo database under `zig-out'.
+    ;; to the terminfo database under `zig-out'.  Zig names the shared
+    ;; library after the target platform's convention (`.so' on Linux,
+    ;; `.dylib' on darwin), so probe both suffixes for each layout.
     "zig-out/lib/libspectreshell.so"
+    "zig-out/lib/libspectreshell.dylib"
     ;; The nix package layout: `spectreshell.el' loads from
     ;; "$out/share/emacs/site-lisp", three levels up from which is
     ;; "$out", the parent of "$out/lib".
-    "../../../lib/libspectreshell.so")
-  "Paths to probe for `libspectreshell.so'.
+    "../../../lib/libspectreshell.so"
+    "../../../lib/libspectreshell.dylib")
+  "Paths to probe for the libspectreshell dynamic module.
 Each is relative to the directory `spectreshell.el' (this library) was
 loaded from; see `spectreshell--detect-module-path'.")
 
 (defun spectreshell--detect-module-path ()
-  "Return a path to `libspectreshell.so' found near this library, or nil.
+  "Return a path to the libspectreshell module found near this library, or nil.
 Probes `spectreshell--module-candidate-subpaths' relative to wherever
 `locate-library' says `spectreshell.el' itself was loaded from, and
 returns the first one that exists as a file."
@@ -72,7 +76,7 @@ returns the first one that exists as a file."
                       spectreshell--module-candidate-subpaths))))
 
 (defun spectreshell-ensure-module-loaded ()
-  "Load `libspectreshell.so' via `module-load' unless already loaded.
+  "Load the libspectreshell module via `module-load' unless already loaded.
 Called lazily by `spectreshell-start' -- the first entry point that
 needs a module function -- rather than at library load time, so that
 merely loading this file (a plain `require', possibly triggered by an
@@ -88,7 +92,7 @@ as a much more confusing error far from its cause."
   (unless (fboundp 'spectreshell--create)
     (if-let* ((path (spectreshell--detect-module-path)))
         (module-load path)
-      (error "Spectreshell: libspectreshell.so not found near %s (tried: %s); run `zig build' or `nix build' first"
+      (error "Spectreshell: libspectreshell module not found near %s (tried: %s); run `zig build' or `nix build' first"
              (or (locate-library "spectreshell") "spectreshell.el")
              (mapconcat #'identity spectreshell--module-candidate-subpaths ", ")))))
 
