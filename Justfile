@@ -15,3 +15,10 @@ test-el: build
 zon2nix:
   zon2nix --15 --nix=build.zig.zon.nix build.zig.zon
   nixfmt build.zig.zon.nix
+
+# nix build の成果物 (so + el + terminfo) だけで module-load + start +
+# feed の最小動作をスモークテストする (docs/implementation-plan.md Phase 6:
+# 「nix build の成果物だけで新規環境にセットアップできる」ことの確認)。
+nix-check:
+  nix build --out-link result
+  emacs -Q --batch -L result/share/emacs/site-lisp --eval '(progn (require (quote spectreshell)) (require (quote spectreshell-eshell)) (with-temp-buffer (let ((term (spectreshell-start (current-buffer) 5 10 (lambda (bytes) bytes)))) (spectreshell-feed term "hello") (unless (string-prefix-p "hello" (buffer-string)) (error "nix-check: unexpected buffer contents: %S" (buffer-string))) (unless spectreshell-terminfo-directory (error "nix-check: terminfo not auto-detected")) (message "nix-check OK"))))'
