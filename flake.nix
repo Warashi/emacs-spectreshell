@@ -23,14 +23,6 @@
         systems.follows = "systems";
       };
     };
-
-    zon2nix = {
-      url = "github:nix-community/zon2nix";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        zig-overlay.follows = "zig-overlay";
-      };
-    };
   };
 
   outputs =
@@ -38,7 +30,6 @@
       self,
       nixpkgs,
       zig-overlay,
-      zon2nix,
       ...
     }@inputs:
     let
@@ -48,10 +39,8 @@
     {
       formatter = forAllPlatforms (pkgs: pkgs.nixfmt-tree);
       devShells = forAllPlatforms (pkgs: {
-        default = pkgs.mkShell {
-          packages = [
-            pkgs.nixfmt
-          ];
+        default = pkgs.callPackage ./nix/devShell.nix {
+          zig = zig-overlay.packages.${pkgs.stdenv.hostPlatform.system}."0.16.0";
         };
       });
     };
