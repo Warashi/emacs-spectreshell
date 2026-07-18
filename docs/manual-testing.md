@@ -51,6 +51,17 @@ alternate screen が消えて元のプロンプト位置に戻ることを確認
 alternate screen 内でのカーソル移動・色・ステータスラインが正しく
 描画されること、`:q` で抜けると元の eshell バッファに戻ることを確認する。
 
+### マウス操作
+
+`less` や `vim` のようにマウストラッキングを有効化するアプリを
+alternate screen で実行し、クリックでのカーソル移動・ドラッグでの
+範囲選択 (vim のビジュアルモード等)・ホイールスクロールが効くことを
+確認する。マウストラッキングを有効化しないコマンド (プレーンな
+`ls` 等) の実行中は、通常どおりクリックで point が動き、ホイールで
+バッファがスクロールすることも確認する
+(`spectreshell-mouse-down`/`spectreshell-mouse-wheel` の
+`mouse-set-point`/`mwheel-scroll` フォールバック)。
+
 ### eshell コマンドライン編集での ddskk
 
 ddskk 有効化 (`skk-mode`) した状態で、プロセスを実行していない
@@ -60,11 +71,6 @@ eshell のコマンドライン (プロンプトの後ろ) で日本語入力を
 
 ## 既知の制限
 
-- **マウス操作は未実装** (Phase 6)。`less`/`vim` 等でのクリック・
-  ホイールスクロールは効かない。
-- **terminfo は未同梱** (Phase 6)。`spectreshell-term-name` の既定値
-  `xterm-256color` を送っているため、spectreshell が実際に対応している
-  機能の一部を子プロセスが過小に認識する可能性がある。
 - **TRAMP / リモート `default-directory` は対象外。**
   `spectreshell-eshell--gather-process-output-advice` は
   `file-remote-p` を検出すると spectreshell への接続を行わず、常に
