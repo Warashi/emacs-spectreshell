@@ -1,0 +1,376 @@
+;;; spectreshell-eshell.el --- eshell integration for spectreshell -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Shinnosuke Sawada-Dazai
+
+;; Author: Shinnosuke Sawada-Dazai <shin@warashi.dev>
+;; Keywords: terminals, processes
+;; Package-Requires: ((emacs "31.1"))
+
+;; This file is part of emacs-spectreshell, and is distributed under
+;; the MIT License; see LICENSE for details.
+
+;;; Commentary:
+
+;; `spectreshell-eshell-mode' wires eshell's own external-process machinery
+;; (esh-proc.el's `eshell-gather-process-output') into the
+;; eshell-independent rendering core in spectreshell.el, the same way
+;; `eat-eshell-mode' wires eat's terminal into eshell.  See docs/design.md's
+;; "eshell 統合 (spectreshell-eshell.el)" section for the rationale.
+;;
+;; Only the pipeline stage whose output eshell would otherwise write
+;; straight to the buffer for interactive display -- the last stage of a
+;; pipeline, or the whole command when it isn't piped at all
+;; (`eshell-interactive-output-p') -- gets attached to a terminal.  Earlier
+;; pipeline stages keep talking to the next stage the way eshell always
+;; has (a plain pipe, relayed through `process-send-string'); they have no
+;; screen of their own to render.
+
+;;; Code:
+
+(require 'esh-proc)
+(require 'esh-mode)
+;; Only to reach `eshell-visual-command-p' below, so it is guaranteed to
+;; exist by the time `spectreshell-eshell-mode' first runs regardless of
+;; when the first eshell buffer (which is what normally loads eshell's
+;; optional modules, `eshell-term' included) gets created; loading the
+;; file does not by itself turn the module on for any buffer (that also
+;; needs `eshell-term' in `eshell-modules-list', per em-term.el), so this
+;; is harmless even for users who have disabled it.
+(require 'em-term)
+(require 'spectreshell)
+
+(defgroup spectreshell-eshell nil
+  "eshell integration for spectreshell."
+  :group 'spectreshell
+  :prefix "spectreshell-")
+
+(defcustom spectreshell-term-name "xterm-256color"
+  "TERM value spectreshell exports for eshell's external processes.
+A dedicated terminfo entry describing spectreshell's actual
+capabilities is planned for Phase 6 (docs/implementation-plan.md);
+until it is bundled, this defaults to a value practically every system
+already has terminfo for, at the cost of spectreshell under-reporting
+some of what it can actually render."
+  :type 'string)
+
+(defcustom spectreshell-terminfo-directory nil
+  "Directory added to TERMINFO for eshell's external processes, or nil.
+Nil (the default) leaves TERMINFO untouched, since spectreshell does
+not yet bundle a terminfo database of its own (Phase 6).  Set this if
+you separately install a terminfo entry matching
+`spectreshell-term-name' somewhere not already on the system's default
+terminfo search path."
+  :type '(choice (const :tag "Do not set TERMINFO" nil) directory))
+
+;; ---------------------------------------------------------------------
+;; Per-buffer terminal/process bookkeeping
+;; ---------------------------------------------------------------------
+
+(defvar-local spectreshell-eshell--process nil
+  "The process `spectreshell--current' (if any) in this buffer is attached to.
+Kept in lockstep with `spectreshell--current' by
+`spectreshell-eshell--attach'/`spectreshell-eshell--detach':
+`spectreshell-resize' needs the `spectreshell' struct but
+`set-process-window-size' needs the process object, and neither one
+holds a reference to the other.")
+
+;; ---------------------------------------------------------------------
+;; Terminal geometry
+;; ---------------------------------------------------------------------
+
+(defun spectreshell-eshell--terminal-size (buffer)
+  "Return (ROWS . COLS) for a new spectreshell terminal in BUFFER.
+Prefers a window currently showing BUFFER: `window-body-height' and
+`window-max-chars-per-line' are exactly the visible terminal cell
+counts a real terminal would report via TIOCGWINSZ.  Falls back to the
+selected frame's size when BUFFER has no window yet (e.g. a job
+started into a buffer that isn't displayed anywhere), and to a plain
+80x24 under `noninteractive' (batch Emacs, as ERT runs under), where
+frame dimensions do not correspond to anything a user could see."
+  (if-let* ((window (get-buffer-window buffer t)))
+      (cons (window-body-height window) (window-max-chars-per-line window))
+    (if noninteractive
+        (cons 24 80)
+      (cons (frame-height) (frame-width)))))
+
+(defun spectreshell-eshell--window-size-change (window)
+  "Resize this buffer's running spectreshell terminal to fit WINDOW.
+Buffer-local member of `window-size-change-functions', added by
+`spectreshell-eshell--attach'.  Left in place after the terminal it was
+added for finalizes (`spectreshell-eshell--detach' does not remove it):
+`spectreshell--current' being nil then makes every subsequent call of
+this a no-op, which is cheaper than tracking add/remove state across
+however many jobs run in this buffer over its lifetime."
+  (when-let* ((obj spectreshell--current)
+              (proc spectreshell-eshell--process)
+              (rows (window-body-height window))
+              (cols (window-max-chars-per-line window)))
+    (unless (and (= rows (spectreshell-rows obj)) (= cols (spectreshell-cols obj)))
+      (spectreshell-resize obj rows cols)
+      (set-process-window-size proc rows cols))))
+
+;; ---------------------------------------------------------------------
+;; Attach / detach
+;; ---------------------------------------------------------------------
+
+(defun spectreshell-eshell--attach (proc size)
+  "Start a spectreshell terminal for PROC and take over its buffer I/O.
+Called right after `eshell-gather-process-output' creates PROC, when
+`eshell-interactive-output-p' said PROC is the pipeline stage whose
+output is headed for interactive display.  Replaces PROC's filter and
+sentinel (installed for the plain, non-terminal-emulating case by
+`eshell-gather-process-output' itself) and switches PROC's buffer into
+`spectreshell-semi-char-mode' for the job's duration.  SIZE is the
+(ROWS . COLS) `spectreshell-eshell--gather-process-output-advice' already
+computed and had `spectreshell-eshell--wrap-command-for-pty' give PROC's
+pty via `stty' before exec'ing the real command, reused here (rather
+than measured again) so the terminal spectreshell creates always
+matches the size the child's very first ioctl already saw."
+  (when-let* ((buffer (process-buffer proc))
+              ((buffer-live-p buffer)))
+    (with-current-buffer buffer
+      ;; `spectreshell-start' anchors the terminal region at point, which
+      ;; must therefore be exactly where PROC's first output byte belongs;
+      ;; `eshell-gather-process-output' always leaves the buffer's point at
+      ;; that position right after creating PROC, but pin it explicitly
+      ;; rather than relying on that undocumented ordering.
+      (goto-char (point-max))
+      (pcase-let* ((`(,rows . ,cols) size)
+                   (obj (spectreshell-start
+                         buffer rows cols
+                         (lambda (bytes) (process-send-string proc bytes)))))
+        (process-put proc 'spectreshell-eshell-terminal obj)
+        ;; PROC's output must reach `spectreshell-feed' as exact raw bytes
+        ;; (docs/module-api.md) and PROC's input (encode-key/encode-paste/
+        ;; response bytes, all already-encoded unibyte strings) must reach
+        ;; PROC unchanged; only `no-conversion' guarantees both directions
+        ;; skip Emacs's usual coding-system decode/encode step entirely.
+        (set-process-coding-system proc 'no-conversion 'no-conversion)
+        (set-process-filter proc #'spectreshell-eshell--filter)
+        (set-process-sentinel proc #'spectreshell-eshell--sentinel)
+        (set-process-window-size proc rows cols)
+        (setq spectreshell--current obj
+              spectreshell-eshell--process proc)
+        (add-hook 'window-size-change-functions
+                   #'spectreshell-eshell--window-size-change nil t)
+        (spectreshell-semi-char-mode 1)))))
+
+(defun spectreshell-eshell--detach (proc)
+  "Finalize PROC's spectreshell terminal and leave semi-char mode.
+Called from `spectreshell-eshell--sentinel' once PROC is no longer
+live.  Idempotent (PROC's `spectreshell-eshell-terminal' property is
+cleared on first use) because a process sentinel can run more than
+once for the same process."
+  (when-let* ((obj (process-get proc 'spectreshell-eshell-terminal)))
+    (process-put proc 'spectreshell-eshell-terminal nil)
+    (if (buffer-live-p (spectreshell-buffer obj))
+        (with-current-buffer (spectreshell-buffer obj)
+          (spectreshell-finalize obj)
+          ;; `spectreshell-eshell--filter' bypasses eshell's own output
+          ;; path entirely (`eshell-insertion-filter'/
+          ;; `eshell-interactive-process-filter'), the only code that
+          ;; normally advances `eshell-last-output-end'; without this,
+          ;; `eshell-sentinel''s prompt (run right after this function
+          ;; returns) would land wherever that marker was last left --
+          ;; i.e. right before the terminal region, not after it.
+          (set-marker eshell-last-output-end (point-max))
+          (when (eq spectreshell--current obj)
+            (setq spectreshell--current nil
+                  spectreshell-eshell--process nil))
+          (spectreshell-semi-char-mode -1))
+      ;; The buffer was killed while PROC was still running: there is
+      ;; nothing left to finalize *into*, so just release the module
+      ;; terminal directly instead of leaving it for the GC finalizer.
+      (spectreshell--release (spectreshell-term obj)))))
+
+;; ---------------------------------------------------------------------
+;; Filter / sentinel
+;; ---------------------------------------------------------------------
+
+(defun spectreshell-eshell--filter (proc bytes)
+  "Feed BYTES from PROC into its spectreshell terminal.
+Installed as PROC's process filter in place of eshell's own
+`eshell-interactive-process-filter': BYTES is already the raw byte
+stream (`spectreshell-eshell--attach' forced `no-conversion'), and
+`spectreshell-feed' writes the decoded, decorated result straight into
+PROC's buffer itself, so there is nothing left for eshell's own output
+machinery to do with it."
+  (when (buffer-live-p (process-buffer proc))
+    (spectreshell-feed (process-get proc 'spectreshell-eshell-terminal) bytes)))
+
+(defun spectreshell-eshell--sentinel (proc string)
+  "Finalize PROC's spectreshell terminal, then run `eshell-sentinel'.
+Installed as PROC's process sentinel in place of plain `eshell-sentinel'
+by `spectreshell-eshell--attach', so that the terminal region is frozen
+into ordinary buffer text (and semi-char mode turned off) before
+`eshell-sentinel' prints eshell's next prompt below it.  STRING is
+passed through unchanged; PROC's actual bookkeeping (removing it from
+`eshell-process-list', closing handles, recording the exit status
+`eshell-cmd.el' reads back, ...) is still entirely `eshell-sentinel''s
+job."
+  (unless (process-live-p proc)
+    (spectreshell-eshell--detach proc))
+  (eshell-sentinel proc string))
+
+;; ---------------------------------------------------------------------
+;; `eshell-gather-process-output' / `make-process' advice
+;; ---------------------------------------------------------------------
+
+(defvar spectreshell-eshell--want-pty nil
+  "Non-nil while the `make-process' advice should force a pty connection.
+Let-bound around the one `eshell-gather-process-output' call that will
+own the terminal (docs/design.md's \"only the pipeline stage with a
+screen of its own\" simplification); left nil for every other
+concurrent pipeline stage, which keeps talking to the next stage over
+whatever plain pipe eshell itself set up.")
+
+(defvar spectreshell-eshell--pty-size nil
+  "(ROWS . COLS) to give the child's pty via `stty' while
+`spectreshell-eshell--want-pty' is non-nil.  Let-bound alongside it by
+`spectreshell-eshell--gather-process-output-advice', from the same
+measurement `spectreshell-eshell--attach' goes on to use for the
+terminal itself.")
+
+(defun spectreshell-eshell--force-pty-output (connection-type)
+  "Return CONNECTION-TYPE with its output side forced to `pty'.
+CONNECTION-TYPE is a `make-process' :connection-type value (nil, `pipe',
+`pty', or an (INPUT . OUTPUT) cons, per its docstring).  The input side
+is left exactly as eshell chose it: spectreshell only ever needs its
+own writes, via `process-send-string', to reach the child, never real
+terminal typing on that side."
+  (cons (if (consp connection-type) (car connection-type) connection-type)
+        'pty))
+
+(defun spectreshell-eshell--wrap-command-for-pty (command rows cols)
+  "Return a `make-process' :command list that sanitizes PROC's pty first.
+COMMAND is the original (PROGRAM . ARGS) list.  A pty Emacs itself just
+opened for a subprocess defaults to `-echo -onlcr' (checked directly
+with `stty -a' against one), unlike a real terminal's; under correct
+VT100 semantics that turns even completely ordinary newline-terminated
+output -- i.e. most Unix programs, which rely on the tty driver's
+ONLCR to turn a bare LF into a proper new line -- into a staircase.
+`term.el' (`term-exec-1') works around exactly this the same way: exec
+through a tiny `/bin/sh -c' wrapper that runs `stty ... sane' first,
+copied here (ROWS/COLS included so the child's very first ioctl
+already sees the right size, same as `term-exec-1')."
+  (append
+   (list "/bin/sh" "-c"
+         (format "stty -nl echo rows %d columns %d sane 2>%s;\
+if [ $1 = .. ]; then shift; fi; exec \"$@\""
+                 rows cols null-device)
+         "..")
+   command))
+
+(defun spectreshell-eshell--make-process-advice (orig &rest args)
+  "Force a pty and pre-sanitize it while `spectreshell-eshell--want-pty' holds.
+Around-advice for `make-process' (ORIG ARGS); rewriting the actual
+`:connection-type'/`:command' keyword arguments is the only way to
+guarantee both, regardless of eshell's own pipeline connection-type
+choice or the user's `process-connection-type' setting, since a
+process's pty-vs-pipe-ness and what actually gets exec'd into it are
+both fixed at OS-level creation time and cannot be changed afterwards."
+  (if spectreshell-eshell--want-pty
+      (apply orig (plist-put
+                   (plist-put args :connection-type
+                              (spectreshell-eshell--force-pty-output
+                               (plist-get args :connection-type)))
+                   :command
+                   (spectreshell-eshell--wrap-command-for-pty
+                    (plist-get args :command)
+                    (car spectreshell-eshell--pty-size)
+                    (cdr spectreshell-eshell--pty-size))))
+    (apply orig args)))
+
+(defun spectreshell-eshell--process-environment ()
+  "Return `process-environment' plus spectreshell's TERM/TERMINFO exports.
+`eshell-gather-process-output' rebuilds `process-environment' for the
+child from whatever `process-environment' *dynamically* is at the
+moment it calls `eshell-environment-variables' (which copies the
+special variable's then-current value), so let-binding this function's
+result around a call to it is enough to reach the child even though
+eshell never asks anyone else for extra variables directly.  Prepended
+(rather than appended) so these two values win over any same-named
+variable already inherited from Emacs's own environment."
+  (append (list (concat "TERM=" spectreshell-term-name))
+          (when spectreshell-terminfo-directory
+            (list (concat "TERMINFO=" spectreshell-terminfo-directory)))
+          process-environment))
+
+(defun spectreshell-eshell--gather-process-output-advice (orig command args)
+  "Run ORIG (`eshell-gather-process-output' COMMAND ARGS) under spectreshell.
+Always exports `spectreshell-term-name'/`spectreshell-terminfo-directory'
+into the child's environment (real shells export TERM unconditionally,
+not only for the foreground job).
+
+Additionally attaches spectreshell when both of these hold: (1)
+`eshell-interactive-output-p' says this call's output is headed for
+interactive display -- COMMAND is the pipeline's last (or only) stage,
+docs/design.md's simplification -- and (2) `default-directory' is
+local; TRAMP's own remote `make-process' replacement does not
+necessarily route through the `make-process' advice below, so a remote
+pty built on that assumption could well be wrong, and is not attempted
+at all.  When attaching, ORIG's own `make-process' call is arranged to
+get a pty sized and sanitized for `spectreshell-eshell--terminal-size''s
+ROWS/COLS (via `spectreshell-eshell--want-pty'/`spectreshell-eshell--pty-size'),
+and the resulting process is attached to a new spectreshell terminal of
+that same size (`spectreshell-eshell--attach')."
+  (let* ((attach (and (eshell-interactive-output-p)
+                       (not (file-remote-p default-directory))))
+         (size (and attach (spectreshell-eshell--terminal-size (current-buffer))))
+         (spectreshell-eshell--want-pty attach)
+         (spectreshell-eshell--pty-size size)
+         (process-environment (spectreshell-eshell--process-environment))
+         (proc (funcall orig command args)))
+    (when (and attach (processp proc))
+      (spectreshell-eshell--attach proc size))
+    proc))
+
+;; ---------------------------------------------------------------------
+;; Minor mode
+;; ---------------------------------------------------------------------
+
+;;;###autoload
+(define-minor-mode spectreshell-eshell-mode
+  "Route eshell's external-process output through spectreshell's terminal.
+A global minor mode: while on, `eshell-gather-process-output' (and
+therefore every eshell buffer's external commands, present and future)
+is advised to attach spectreshell to whichever pipeline stage would
+otherwise write straight to the buffer (docs/design.md).  That process
+gets a pty, TERM/TERMINFO in its environment, and drives the buffer
+through spectreshell's VT emulation instead of eshell's own plain-text
+output filter for as long as it runs."
+  :global t
+  :group 'spectreshell-eshell
+  (if spectreshell-eshell-mode
+      (progn
+        (advice-add 'eshell-gather-process-output :around
+                    #'spectreshell-eshell--gather-process-output-advice)
+        (advice-add 'make-process :around
+                    #'spectreshell-eshell--make-process-advice)
+        (advice-add 'eshell-visual-command-p :around
+                    #'spectreshell-eshell--visual-command-p-advice))
+    (advice-remove 'eshell-gather-process-output
+                    #'spectreshell-eshell--gather-process-output-advice)
+    (advice-remove 'make-process
+                    #'spectreshell-eshell--make-process-advice)
+    (advice-remove 'eshell-visual-command-p
+                    #'spectreshell-eshell--visual-command-p-advice)))
+
+;; Defined after `spectreshell-eshell-mode' itself (rather than up with the
+;; other advice functions) purely so this can refer to that variable
+;; without a forward `defvar' declaration.
+(defun spectreshell-eshell--visual-command-p-advice (orig command args)
+  "Disable `em-term.el''s visual-command redirection while spectreshell runs.
+Around-advice for `eshell-visual-command-p' (ORIG COMMAND ARGS).  When
+the optional `eshell-term' module is enabled, eshell normally routes
+commands like `less'/`vim'/`top' (`eshell-visual-commands') to a
+separate `term-mode' buffer instead of `eshell-gather-process-output',
+specifically because plain eshell cannot render their escape codes --
+exactly the problem spectreshell solves, and docs/design.md picks
+\"run every external command's output through spectreshell\" over
+\"only visual commands, in a separate buffer\" for that reason.  Without
+this advice those commands would never reach the advice above at all."
+  (and (not spectreshell-eshell-mode) (funcall orig command args)))
+
+(provide 'spectreshell-eshell)
+;;; spectreshell-eshell.el ends here
