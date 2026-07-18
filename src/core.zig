@@ -18,6 +18,15 @@ fn writeUtf8Coord(w: *std.Io.Writer, coord: usize) !void {
     try w.writeAll(buf[0..n]);
 }
 
+/// mode 1005 の座標はコードポイントとして UTF-8 化されるため、変換後の
+/// 値がサロゲート域 (U+D800-U+DFFF) に入る座標はエンコード不能。
+/// utf8Encode のエラーで encode-mouse 全体を落とすのではなく、x10 の
+/// 座標 222 超過と同じく「報告なし」として扱うための事前判定。
+fn utf8CoordEncodable(coord: usize) bool {
+    const cp = 32 + coord + 1;
+    return cp < 0xd800 or cp > 0xdfff;
+}
+
 /// scrolled_off の各行。Row と DirtyRow で所有権の解放ロジックが重複するが、
 /// DirtyRow は行番号を持つため型を分けている。
 pub const Row = row_mod.Extracted;
@@ -260,6 +269,10 @@ pub const Term = struct {
                 try w.writeByte(@intCast(32 + row + 1));
             },
             .utf8 => {
+                if (!utf8CoordEncodable(col) or !utf8CoordEncodable(row)) {
+                    aw.deinit();
+                    return null;
+                }
                 try w.writeAll("\x1b[M");
                 try w.writeByte(32 + button_code);
                 try writeUtf8Coord(w, col);
@@ -685,6 +698,34 @@ test "encodeMouse はモード1000 (normal)ではmotionをnullにする" {
     defer update.deinit();
 
     const bytes = try t.encodeMouse(alloc, .left, .motion, 1, 1, .{});
+    try testing.expectEqual(@as(?[]u8, null), bytes);
+}
+
+test "encodeMouse はutf8形式 (1005) で座標をUTF-8エンコードする" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[?1000h\x1b[?1005h");
+    defer update.deinit();
+
+    const bytes = try t.encodeMouse(alloc, .left, .press, 0, 300, .{});
+    defer if (bytes) |b| alloc.free(b);
+    // col 300 -> コードポイント 333 (0x14D) は UTF-8 2バイト、row 0 -> 33。
+    try testing.expectEqualStrings(&[_]u8{ 0x1b, '[', 'M', 32, 0xc5, 0x8d, 33 }, bytes.?);
+}
+
+test "encodeMouse はutf8形式でサロゲート域に入る座標を null にする" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[?1000h\x1b[?1005h");
+    defer update.deinit();
+
+    // 32 + 56000 + 1 = 0xDAE1 はサロゲート域でありコードポイントとして
+    // UTF-8 化できない。エラーではなく「報告なし」で返す。
+    const bytes = try t.encodeMouse(alloc, .left, .press, 56000, 0, .{});
     try testing.expectEqual(@as(?[]u8, null), bytes);
 }
 

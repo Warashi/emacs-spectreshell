@@ -234,7 +234,7 @@ C-S-a を区別できない。ASCII 大文字は =toLower= した値を入れる
 循環リストを渡すと car/cdr の funcall ループが終わらず C-g も効かない。
 ループ回数上限を導入する。
 
-*** TODO L-5: UTF-8 マウス座標 (mode 1005) のサロゲート域でエラーになる
+*** DONE L-5: UTF-8 マウス座標 (mode 1005) のサロゲート域でエラーになる
 対象: =src/core.zig= (=writeUtf8Coord=)
 
 座標 55255〜57342 で =utf8Encode= がサロゲートエラーになり encode-mouse
