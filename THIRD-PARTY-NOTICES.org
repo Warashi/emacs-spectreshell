@@ -4,7 +4,9 @@
 [[file:LICENSE][MIT License]] で提供される。一方、ビルドされた
 ~libspectreshell.so~ には以下の第三者ソフトウェアが静的リンクされる
 (いずれも ~ghostty-vt~ モジュールの依存として取り込まれる)。
-ビルド済みバイナリを再配布する場合は、本ファイルを成果物に同梱すること。
+ビルド済みバイナリを再配布する場合は、本ファイルを成果物に同梱すること
+(zig build / nix build の成果物には ~share/doc/spectreshell/~ として
+自動で同梱される)。
 
 デュアルライセンスの依存 (simdutf: Apache-2.0 OR MIT、highway:
 Apache-2.0 OR BSD-3-Clause) については、本プロジェクトはそれぞれ

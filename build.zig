@@ -32,6 +32,13 @@ pub fn build(b: *std.Build) void {
 
     installInfoManual(b);
 
+    // The built .so statically links third-party code, so redistributing
+    // the build output requires shipping these notices with it
+    // (THIRD-PARTY-NOTICES.org); installing them into the output itself
+    // means no packaging step can forget them.
+    b.installFile("LICENSE", "share/doc/spectreshell/LICENSE");
+    b.installFile("THIRD-PARTY-NOTICES.org", "share/doc/spectreshell/THIRD-PARTY-NOTICES.org");
+
     const tests = b.addTest(.{ .root_module = mod });
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
