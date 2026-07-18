@@ -199,7 +199,11 @@ directly instead of going through the mode-line machinery."
   (should (equal (spectreshell--mouse-button-number '(wheel-up nil)) 'wheel-up))
   (should (equal (spectreshell--mouse-button-number '(mouse-4 nil)) 'wheel-up))
   (should (equal (spectreshell--mouse-button-number '(wheel-down nil)) 'wheel-down))
-  (should (equal (spectreshell--mouse-button-number '(mouse-5 nil)) 'wheel-down)))
+  (should (equal (spectreshell--mouse-button-number '(mouse-5 nil)) 'wheel-down))
+  (should (equal (spectreshell--mouse-button-number '(wheel-left nil)) 'wheel-left))
+  (should (equal (spectreshell--mouse-button-number '(mouse-6 nil)) 'wheel-left))
+  (should (equal (spectreshell--mouse-button-number '(wheel-right nil)) 'wheel-right))
+  (should (equal (spectreshell--mouse-button-number '(mouse-7 nil)) 'wheel-right)))
 
 (ert-deftest spectreshell-key-test-mouse-clicks-do-not-fall-through-to-globals ()
   "mouse-1/2/3 のクリックはグローバルの mouse-yank-primary /

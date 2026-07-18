@@ -103,9 +103,11 @@ test "applyModifierName は既知の修飾子だけ Mods に反映する" {
     var mods: Mods = .{};
     try testing.expect(applyModifierName(&mods, "ctrl"));
     try testing.expect(applyModifierName(&mods, "alt"));
+    try testing.expect(applyModifierName(&mods, "super"));
     try testing.expect(!applyModifierName(&mods, "hyper"));
     try testing.expect(mods.ctrl);
     try testing.expect(mods.alt);
+    try testing.expect(mods.super);
     try testing.expect(!mods.shift);
 }
 
