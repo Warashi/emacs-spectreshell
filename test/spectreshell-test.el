@@ -99,6 +99,18 @@ recent last)."
     ;; 2行目 ("cd") の2文字目まで書いた直後なのでカーソルは row 1 col 2。
     (should (= (point) (spectreshell--row-col-pos term 1 2)))))
 
+(ert-deftest spectreshell-test-feed-is-immune-to-narrowing ()
+  "ユーザーがバッファをナローイング中でも feed は端末領域を壊さない。
+更新パスは point-max を端末領域終端として使うため、widen せずに動くと
+狭められた point-max を誤認して行数計算や余剰行削除が誤動作する。"
+  (spectreshell-test--with-terminal (term 3 5)
+    (spectreshell-feed term "abc")
+    (narrow-to-region (point-min) (1+ (point-min)))
+    (spectreshell-feed term "\r\nxyz")
+    (widen)
+    (should (= 3 (spectreshell--row-count term)))
+    (should (string-match-p "xyz" (buffer-string)))))
+
 (ert-deftest spectreshell-test-cursor-position-with-wide-chars ()
   ":cursor の COL はセル列なので、全角文字の行では文字数と一致しない。
 「あいう」はセル列 6 だが文字数は 3 であり、point は「う」の直後

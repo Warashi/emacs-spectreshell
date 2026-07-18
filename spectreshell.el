@@ -226,12 +226,19 @@ releasing the module's terminal object."
   "Apply the module UPDATE plist for OBJ to its buffer and send-fn.
 Return UPDATE unchanged, for callers that want to inspect it further."
   (with-current-buffer (spectreshell-buffer obj)
-    (let ((inhibit-read-only t))
-      (spectreshell--handle-alt-screen obj (plist-get update :alt-screen))
-      (spectreshell--apply-scrolled-off obj (plist-get update :scrolled-off))
-      (spectreshell--apply-dirty obj (plist-get update :dirty))
-      (spectreshell--trim-rows obj)
-      (spectreshell--move-point obj (plist-get update :cursor))))
+    ;; This runs from a process filter at arbitrary times, so the user may
+    ;; have narrowed the buffer meanwhile; every helper below treats
+    ;; `point-max' as the terminal region's end, which a narrowed
+    ;; `point-max' would silently corrupt (e.g. `spectreshell--trim-rows'
+    ;; deleting up to the wrong "end of buffer").
+    (save-restriction
+      (widen)
+      (let ((inhibit-read-only t))
+        (spectreshell--handle-alt-screen obj (plist-get update :alt-screen))
+        (spectreshell--apply-scrolled-off obj (plist-get update :scrolled-off))
+        (spectreshell--apply-dirty obj (plist-get update :dirty))
+        (spectreshell--trim-rows obj)
+        (spectreshell--move-point obj (plist-get update :cursor)))))
   (when-let* ((response (plist-get update :responses)))
     (funcall (spectreshell-send-fn obj) response))
   update)

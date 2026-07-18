@@ -82,7 +82,7 @@ Actions ワークフローを整備する。
 
 ** Elisp: 堅牢性
 
-*** TODO M-1: 更新パスがナローイングの影響を受ける
+*** DONE M-1: 更新パスがナローイングの影響を受ける
 対象: =spectreshell.el= (=spectreshell--apply-update= 一式)
 
 =save-restriction= + =widen= がなく、ユーザーが =C-x n n= 中にプロセス
