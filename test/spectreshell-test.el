@@ -64,6 +64,18 @@ recent last)."
     ;; SGR リセット後の "0m" 以降は既定 face (span なし) に戻る。
     (should (null (get-text-property (+ (point-min) 3) 'face)))))
 
+(ert-deftest spectreshell-test-split-escape-sequence-across-feeds ()
+  "feed 境界で分割された SGR シーケンスと UTF-8 文字も正しく描画される。
+PTY の read はエスケープシーケンスや多バイト文字を任意の位置で切る。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-feed term "\x1b[3")
+    (spectreshell-feed term "1m")
+    ;; "あ" (E3 81 82) を unibyte のまま1バイト目とそれ以降に分割する。
+    (spectreshell-feed term "\343")
+    (spectreshell-feed term "\201\202")
+    (should (string-prefix-p "あ" (buffer-string)))
+    (should (member '(:foreground "red3") (get-text-property (point-min) 'face)))))
+
 (ert-deftest spectreshell-test-carriage-return-overwrites-line ()
   "\\r による上書きは同じ行の内容を新しい内容で置き換える。"
   (spectreshell-test--with-terminal (term 1 20)

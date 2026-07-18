@@ -179,7 +179,7 @@ xterm 仕様に反する。
 =:cursor-visible= は当面未対応としてドキュメントの機能一覧を実態に
 合わせる。
 
-*** TODO M-12: feed 分割 (エスケープシーケンス/UTF-8 境界跨ぎ) のテストがない
+*** DONE M-12: feed 分割 (エスケープシーケンス/UTF-8 境界跨ぎ) のテストがない
 対象: =src/core.zig=, =test/spectreshell-test.el=
 
 「Parser 状態を永続化しているので feed 跨ぎの分割に耐える」という

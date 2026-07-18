@@ -433,6 +433,38 @@ test "feed は 24bit色の span を抽出する" {
     ));
 }
 
+test "feed 境界で分割されたエスケープシーケンスも解釈される" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 1, 10);
+    defer t.deinit();
+
+    {
+        var update = try t.feed(alloc, "\x1b[3");
+        defer update.deinit();
+    }
+
+    var update = try t.feed(alloc, "1mHi");
+    defer update.deinit();
+    try testing.expectEqual(@as(usize, 1), update.dirty[0].spans.len);
+    try testing.expect(Color.eql(update.dirty[0].spans[0].style.fg, .{ .palette = 1 }));
+}
+
+test "feed 境界で分割された UTF-8 多バイト文字も描画される" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 1, 10);
+    defer t.deinit();
+
+    // "あ" (0xE3 0x81 0x82) を 1 バイト目とそれ以降に分割して食わせる。
+    {
+        var update = try t.feed(alloc, "\xe3");
+        defer update.deinit();
+    }
+
+    var update = try t.feed(alloc, "\x81\x82!");
+    defer update.deinit();
+    try testing.expectEqualStrings("あ!       ", update.dirty[0].text);
+}
+
 test "CRによる行上書きは同じ行を再びダーティにする" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 1, 10);
