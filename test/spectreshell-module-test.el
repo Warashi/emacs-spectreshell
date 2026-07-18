@@ -6,16 +6,7 @@
 ;; 文字列の挙動 (copy_string_contents / make_unibyte_string) を実証する。
 
 (require 'ert)
-
-(defconst spectreshell-test--module-path
-  (expand-file-name "../zig-out/lib/libspectreshell.so"
-                     (file-name-directory (or load-file-name buffer-file-name)))
-  "テスト対象の libspectreshell.so への絶対パス。
-`just test-el' が事前に `zig build' を実行して用意する。")
-
-(unless (featurep 'spectreshell-module)
-  (module-load spectreshell-test--module-path)
-  (provide 'spectreshell-module))
+(require 'spectreshell-test-helper)
 
 (ert-deftest spectreshell-module-test-create-and-feed-returns-dirty-row ()
   "feed \"hello\" した直後の :dirty に行0のテキスト \"hello...\" が含まれる。"

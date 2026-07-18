@@ -7,17 +7,7 @@
 
 (require 'ert)
 (require 'cl-lib)
-
-(defconst spectreshell-test--module-path
-  (expand-file-name "../zig-out/lib/libspectreshell.so"
-                     (file-name-directory (or load-file-name buffer-file-name)))
-  "テスト対象の libspectreshell.so への絶対パス。
-`just test-el' が事前に `zig build' を実行して用意する。")
-
-(unless (featurep 'spectreshell-module)
-  (module-load spectreshell-test--module-path)
-  (provide 'spectreshell-module))
-
+(require 'spectreshell-test-helper)
 (require 'spectreshell)
 ;; `spectreshell-test--with-terminal' も一緒に持ってくる (spectreshell-test.el 参照)。
 (require 'spectreshell-test)

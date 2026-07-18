@@ -8,23 +8,7 @@
 
 (require 'ert)
 (require 'button)
-
-(defconst spectreshell-test--repo-root
-  (expand-file-name ".." (file-name-directory (or load-file-name buffer-file-name)))
-  "このリポジトリのルートディレクトリへの絶対パス。
-`load-file-name'/`buffer-file-name' はロード時 (トップレベルフォーム
-評価中) にしか正しく束縛されないため、ERT のテスト本体からではなく
-ここでロード時に一度だけ計算しておく。")
-
-(defconst spectreshell-test--module-path
-  (expand-file-name "zig-out/lib/libspectreshell.so" spectreshell-test--repo-root)
-  "テスト対象の libspectreshell.so への絶対パス。
-`just test-el' が事前に `zig build' を実行して用意する。")
-
-(unless (featurep 'spectreshell-module)
-  (module-load spectreshell-test--module-path)
-  (provide 'spectreshell-module))
-
+(require 'spectreshell-test-helper)
 (require 'spectreshell)
 
 (defmacro spectreshell-test--with-terminal (spec &rest body)
