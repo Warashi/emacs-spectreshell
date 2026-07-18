@@ -1,4 +1,16 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
+// Env の vtable レイアウト (特に Timespec の i64/i64 決め打ち) は 64bit
+// の Linux/macOS でのみ検証済み。それ以外のターゲットでは extract_time
+// 以降のフィールドオフセットがずれ、リンクは通っても実行時に即クラッシュ
+// するため、ビルド時点で明示的に弾く。
+comptime {
+    const os = builtin.target.os.tag;
+    if (@sizeOf(usize) != 8 or !(os == .linux or os.isDarwin())) {
+        @compileError("spectreshell: emacs.Env layout is only verified for 64-bit Linux/macOS targets");
+    }
+}
 
 /// emacs-module.h の struct emacs_value_tag* に対応する不透明ポインタ。
 /// ヘッダの警告どおり NULL を「無効値」の目印として使わないため、
