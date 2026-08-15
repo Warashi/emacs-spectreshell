@@ -155,6 +155,13 @@ directly instead of going through the mode-line machinery."
     (should (eq (key-binding (kbd "M-x")) #'execute-extended-command))
     (should (eq (key-binding (kbd "C-u")) #'universal-argument))))
 
+(ert-deftest spectreshell-key-test-c-x-prefix-stays-in-emacs ()
+  "semi-char モード中も C-x は Emacs のプレフィックスキーのまま残る。"
+  (with-temp-buffer
+    (spectreshell-semi-char-mode 1)
+    (should (eq (key-binding (kbd "C-x o")) #'other-window))
+    (should (eq (key-binding (kbd "C-x b")) #'switch-to-buffer))))
+
 ;; ---------------------------------------------------------------------
 ;; 実イベント経由での送信 (execute-kbd-macro)
 ;; ---------------------------------------------------------------------

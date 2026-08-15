@@ -817,13 +817,16 @@ disable mouse-wheel scrolling entirely between jobs that want it."
                        (control shift) (meta shift) (control meta shift)))
         (define-key map (vector (event-convert-list (append mods (list wheel))))
           #'spectreshell-mouse-wheel)))
-    ;; C-c (kept as a prefix for Emacs commands, `C-c C-e' below included),
-    ;; M-x, C-u (`universal-argument'), and C-y (`spectreshell-yank' below,
-    ;; not a plain key send) are docs/design.org's named exceptions to
-    ;; "send nearly everything"; every other control letter goes straight
-    ;; to the PTY.
+    ;; C-c and C-x (both kept as prefixes for Emacs commands, `C-c C-e'
+    ;; below included), M-x, C-u (`universal-argument'), and C-y
+    ;; (`spectreshell-yank' below, not a plain key send) are
+    ;; docs/design.org's named exceptions to "send nearly everything";
+    ;; every other control letter goes straight to the PTY.  Leaving C-x
+    ;; to Emacs makes C-x itself unsendable (no escape hatch exists yet);
+    ;; window/buffer commands are the far more common need in a terminal
+    ;; buffer than a nested `emacs -nw' or readline's `C-x C-e'.
     (dolist (letter (number-sequence ?a ?z))
-      (unless (memq letter '(?c ?u ?y))
+      (unless (memq letter '(?c ?u ?x ?y))
         (define-key map (kbd (format "C-%c" letter)) #'spectreshell-send-key)))
     ;; M-x is the only named meta exception.
     (dolist (letter (number-sequence ?a ?z))

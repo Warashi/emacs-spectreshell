@@ -180,8 +180,9 @@ eshell 編集に戻る。
 @table @asis
 @item semi-char モード (実行中のデフォルト)
 印字可能キー・矢印・C-a 等
-ほとんどのキーをそのまま実行中プロセスへ送信する。 @code{C-c} プレフィックス
-と @code{M-x} は Emacs 側に残る。 @code{C-y} は kill-ring の内容を bracketed
+ほとんどのキーをそのまま実行中プロセスへ送信する。 @code{C-c} ・ @code{C-x}
+プレフィックスと @code{M-x} は Emacs 側に残るため、 @code{C-x o} や @code{C-x b} で
+そのまま別ウィンドウ・別バッファへ移動できる。 @code{C-y} は kill-ring の内容を bracketed
 paste としてプロセスへ送る (日本語もこの経路で送信できる)。
 @item emacs モード
 全キーが通常の Emacs 操作になる。実行中の出力を

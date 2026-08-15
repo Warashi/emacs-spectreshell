@@ -147,8 +147,9 @@ underline (スタイル種別含む)・strikethrough・inverse・faint・
 プロセス実行中は 2 モードを切り替える:
 
 - *semi-char モード* (実行中のデフォルト): 印字可能キー・矢印・
-  C-a 等ほとんどのキーを PTY に送信。 ~C-c~ プレフィックス・ ~M-x~ は
-  Emacs に残す。 ~C-y~ は kill-ring の内容を
+  C-a 等ほとんどのキーを PTY に送信。 ~C-c~ / ~C-x~ プレフィックス・
+  ~M-x~ は Emacs に残す (~C-x o~ ・ ~C-x b~ 等のウィンドウ・バッファ
+  操作を端末バッファからそのまま使えるようにするため)。 ~C-y~ は kill-ring の内容を
   ~spectreshell--encode-paste~ 経由 (bracketed paste) で送信。
   ~C-c C-e~ で emacs モードへ。
 - *emacs モード*: 全キーが通常の Emacs。バッファ閲覧・コピー用。
