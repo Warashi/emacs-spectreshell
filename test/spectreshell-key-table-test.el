@@ -127,6 +127,8 @@ every `should' in the test passes)."
   ;; 修飾付きの TAB/RET/DEL。修飾子ビットを剥がした文字で判定するので、
   ;; 生の制御文字に meta が乗った形でも特殊キー扱いになる。
   ("M-RET" "\e\r")
+  ;; GUI のシンボル形は修飾子ごとに別イベントなので個別の束縛で拾う。
+  ("C-<backspace>" "\C-h")
 
   ;; 矢印。DECCKM オフでは CSI、オンでは SS3。
   ("<up>" "\e[A")
@@ -177,12 +179,9 @@ every `should' in the test passes)."
 ;; 網羅が見た目だけになって穴が不可視になるのと、直したときに ERT が
 ;; unexpected pass として報告してくれるため。
 (spectreshell-key-table-test--deftests :failed
-  ;; 修飾付き特殊キーとキーマップの穴 (docs/issues.org L-2)。
-  ;; C-<backspace> の期待値 0x08 は ghostty の function_keys.zig が
-  ;; backspace の ctrl 系に与えている値で、エンコーダ単体では既に
-  ;; 得られる (欠けているのは束縛だけ)。
-  ("<backtab>" "\e[Z")
-  ("C-<backspace>" "\C-h"))
+  ;; GUI の S-TAB。`backtab' シンボルは tab + shift への読み替えが要る
+  ;; (docs/issues.org L-2)。
+  ("<backtab>" "\e[Z"))
 
 (provide 'spectreshell-key-table-test)
 ;;; spectreshell-key-table-test.el ends here

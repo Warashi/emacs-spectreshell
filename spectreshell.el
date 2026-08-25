@@ -805,10 +805,18 @@ disable mouse-wheel scrolling entirely between jobs that want it."
       (unless (eq (cdr pair) 'escape)
         (define-key map (vector (car pair)) #'spectreshell-send-key))
       (define-key map (vector (cdr pair)) #'spectreshell-send-key))
-    ;; Unlike TAB/RET/ESC/DEL, a modified function key (`C-up', `M-S-f5', ...)
-    ;; is its own distinct symbol rather than a modifier bit layered on a
-    ;; shared base event, so each combination needs its own binding.
+    ;; A modified function key (`C-up', `M-S-f5', ...) is its own distinct
+    ;; symbol rather than a modifier bit layered on a shared base event, so
+    ;; each combination needs its own binding.  tab/return/backspace/escape
+    ;; are in the list too, for their GUI symbol form (`C-<backspace>');
+    ;; their terminal form is a modifier bit on the raw C0 code and is
+    ;; already covered above -- including `M-RET', which keymaps look up
+    ;; through the ESC prefix and the raw binding.  The unmodified pass of
+    ;; the inner loop re-binds what the ASCII loop just bound, to the same
+    ;; command; splitting the list by modifier to avoid that would only
+    ;; make the table harder to read.
     (dolist (key '(up down left right home end prior next insert delete
+                   tab return backspace escape
                    f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12))
       (dolist (mods '(() (control) (meta) (control meta) (shift)
                        (control shift) (meta shift) (control meta shift)))
