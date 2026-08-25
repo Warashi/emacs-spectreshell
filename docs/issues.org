@@ -44,8 +44,8 @@ BASIC の upcase 形そのものなら生の EVENT を KEY に使うようにし
 (7a3a954、=test/spectreshell-key-table-test.el= の =A= / =Z= 行)。
 
 meta 併用の大文字 (=M-A=) は meta ビットにより =characterp= の外へ出る
-ため対象外で、まだ小文字に落ちる。同じ表の =M-A= 行に残してあり、修飾子
-ビット表現まで含めた正規化の作り直しは L-2 側で扱う。
+ため当初は対象外だったが、修飾ビットを落とした文字で判定するよう改めて
+対応した (=M-<大文字>= の束縛追加を含む。同じ表の =M-A= 行)。
 
 ** DONE L-20: C-M-<letter> がキーマップに無く送られない
 対象: =spectreshell.el= (semi-char keymap)

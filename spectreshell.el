@@ -856,6 +856,13 @@ disable mouse-wheel scrolling entirely between jobs that want it."
     (dolist (letter (number-sequence ?a ?z))
       (unless (eq letter ?x)
         (define-key map (kbd (format "M-%c" letter)) #'spectreshell-send-key)))
+    ;; M-<upper-case> needs its own bindings: with none, Emacs
+    ;; shift-translates `M-A' down to `M-a' before the lookup, so the upper
+    ;; case is gone before `spectreshell--event-to-key' sees the event.
+    ;; M-X is bound like the rest -- docs/design.org's exception names M-x,
+    ;; a different event.
+    (dolist (letter (number-sequence ?A ?Z))
+      (define-key map (kbd (format "M-%c" letter)) #'spectreshell-send-key))
     ;; C-M-<letter> is bound without exceptions: docs/design.org names
     ;; C-c/C-x (as prefixes), M-x and C-y, and none of those is the same
     ;; event as its C-M- counterpart, so nothing in this range has a
