@@ -169,14 +169,21 @@ every `should' in the test passes)."
 ;; 網羅が見た目だけになって穴が不可視になるのと、直したときに ERT が
 ;; unexpected pass として報告してくれるため。
 (spectreshell-key-table-test--deftests :failed
+  ;; メタ併用の大文字。L-19 の修正は修飾子ビット表現の EVENT を対象外に
+  ;; しているため、meta ビット付きの ?A はまだ小文字に落ちる。
+  ("M-A" "\eA")
+
   ;; C-M-<letter> はキーマップに束縛が無く、Emacs 側のコマンドに流れて
   ;; 何も送られない (docs/issues.org L-20)。
   ("C-M-a" "\e\C-a")
 
   ;; 修飾付き特殊キーとキーマップの穴 (docs/issues.org L-2)。
+  ;; C-<backspace> の期待値 0x08 は ghostty の function_keys.zig が
+  ;; backspace の ctrl 系に与えている値で、エンコーダ単体では既に
+  ;; 得られる (欠けているのは束縛だけ)。
   ("<backtab>" "\e[Z")
   ("M-RET" "\e\r")
-  ("C-<backspace>" "\e[3;5~"))
+  ("C-<backspace>" "\C-h"))
 
 (provide 'spectreshell-key-table-test)
 ;;; spectreshell-key-table-test.el ends here

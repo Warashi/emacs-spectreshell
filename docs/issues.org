@@ -41,7 +41,11 @@ ascii 特殊キー判定が raw イベント完全一致のため、束縛を足
 =event-basic-type= が =?A= を =?a= に落として shift を修飾子側へ移す
 ため、KEY が =("a" shift)= になり PTY には =a= が出ていた。EVENT が
 BASIC の upcase 形そのものなら生の EVENT を KEY に使うようにして対応
-(=test/spectreshell-key-table-test.el= の =A= / =Z= 行)。
+(7a3a954、=test/spectreshell-key-table-test.el= の =A= / =Z= 行)。
+
+meta 併用の大文字 (=M-A=) は meta ビットにより =characterp= の外へ出る
+ため対象外で、まだ小文字に落ちる。同じ表の =M-A= 行に残してあり、修飾子
+ビット表現まで含めた正規化の作り直しは L-2 側で扱う。
 
 ** TODO L-20: C-M-<letter> がキーマップに無く送られない
 対象: =spectreshell.el= (semi-char keymap)

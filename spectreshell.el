@@ -572,8 +572,9 @@ modifier press, ...)."
         ;; whenever EVENT *is* BASIC's upcased form -- true for `A' (and for
         ;; every character that is its own upcase, where this changes
         ;; nothing), but not for a modifier-bit encoded event like `C-S-a',
-        ;; whose control bit puts it outside `characterp' entirely and whose
-        ;; KEY must stay the bare letter.
+        ;; whose shift bit (2^25) puts it past the largest character code and
+        ;; so outside `characterp' entirely; its KEY must stay the bare
+        ;; letter, with the case carried by MODIFIERS as before.
         (when-let* ((key (spectreshell--basic-type-to-key
                           (if (and (characterp event) (characterp basic)
                                    (eq event (upcase basic)))
