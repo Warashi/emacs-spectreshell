@@ -548,6 +548,14 @@ Control-i/Control-m/Control-\\[/Control-? (`event-basic-type' cannot
 tell them apart either), but docs/module-api.org encodes them as their
 own symbols rather than as \"i\"/\"m\"/\"[\"/\"?\" plus `ctrl'.")
 
+(defun spectreshell--event-char (event)
+  "Return EVENT's character code with Emacs's modifier bits cleared.
+Nil when EVENT is not an integer event.  `event-basic-type' cannot serve
+this purpose: it also strips the control that a C0 code *is* (it reports
+?\\M-\\r as ?m) and downcases, both of which discard exactly what the
+callers below need to look at."
+  (and (integerp event) (logand event (max-char))))
+
 (defun spectreshell--event-to-key (event)
   "Normalize EVENT to a (KEY . MODIFIERS) pair for `spectreshell--encode-key'.
 EVENT is anything `last-command-event' can hold: an integer (a plain or
@@ -556,11 +564,12 @@ combined with modifiers, e.g. `C-up' or `M-S-f5').  KEY/MODIFIERS follow
 docs/module-api.org.  Return nil when EVENT has no PTY-sendable
 representation (mouse events, unrecognized function keys, a bare
 modifier press, ...)."
-  ;; TAB/RET/ESC/DEL must be matched on the raw EVENT, not on
-  ;; `event-basic-type', because that function's stripping of the
+  ;; TAB/RET/ESC/DEL must be matched on the modifier-bit-stripped EVENT,
+  ;; not on `event-basic-type', because that function's stripping of the
   ;; "control" that is baked into those ASCII codes is exactly what turns
   ;; them into indistinguishable-from-C-i/C-m/C-[/C-? in the first place.
-  (let ((ascii (and (integerp event) (assq event spectreshell--ascii-special-keys))))
+  (let* ((char (spectreshell--event-char event))
+         (ascii (and char (assq char spectreshell--ascii-special-keys))))
     (if ascii
         (cons (cdr ascii)
               (spectreshell--event-modifiers-to-modifiers
@@ -568,17 +577,17 @@ modifier press, ...)."
       (let ((basic (event-basic-type event)))
         ;; `event-basic-type' downcases an upper-case character and reports
         ;; the case difference as a `shift' modifier instead, so its return
-        ;; value alone would send `a' for a typed `A'.  Prefer the raw EVENT
-        ;; whenever EVENT *is* BASIC's upcased form -- true for `A' (and for
-        ;; every character that is its own upcase, where this changes
-        ;; nothing), but not for a modifier-bit encoded event like `C-S-a',
-        ;; whose shift bit (2^25) puts it past the largest character code and
-        ;; so outside `characterp' entirely; its KEY must stay the bare
-        ;; letter, with the case carried by MODIFIERS as before.
+        ;; value alone would send `a' for a typed `A'.  Prefer EVENT's own
+        ;; character whenever it *is* BASIC's upcased form -- true for `A'
+        ;; and `M-A' (and for every character that is its own upcase, where
+        ;; this changes nothing), but not for a modifier-bit encoded event
+        ;; like `C-S-a', whose shift lives in a bit rather than in the
+        ;; character; its KEY must stay the bare letter, with the case
+        ;; carried by MODIFIERS as before.
         (when-let* ((key (spectreshell--basic-type-to-key
-                          (if (and (characterp event) (characterp basic)
-                                   (eq event (upcase basic)))
-                              event
+                          (if (and (characterp basic) char
+                                   (eq char (upcase basic)))
+                              char
                             basic))))
           (cons key (spectreshell--event-modifiers-to-modifiers
                      (event-modifiers event))))))))

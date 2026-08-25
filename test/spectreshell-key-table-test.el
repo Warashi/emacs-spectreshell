@@ -123,6 +123,10 @@ every `should' in the test passes)."
   ("DEL" "\d")
   ("<backspace>" "\d")
 
+  ;; 修飾付きの TAB/RET/DEL。修飾子ビットを剥がした文字で判定するので、
+  ;; 生の制御文字に meta が乗った形でも特殊キー扱いになる。
+  ("M-RET" "\e\r")
+
   ;; 矢印。DECCKM オフでは CSI、オンでは SS3。
   ("<up>" "\e[A")
   ("<down>" "\e[B")
@@ -181,7 +185,6 @@ every `should' in the test passes)."
   ;; backspace の ctrl 系に与えている値で、エンコーダ単体では既に
   ;; 得られる (欠けているのは束縛だけ)。
   ("<backtab>" "\e[Z")
-  ("M-RET" "\e\r")
   ("C-<backspace>" "\C-h"))
 
 (provide 'spectreshell-key-table-test)
