@@ -20,7 +20,7 @@ load-check: build
 
 # emacs-module 境界と spectreshell.el 描画エンジン・キー入力・eshell 統合の ERT テスト一式
 test-el: build
-  emacs -Q --batch -L . -L test -l test/spectreshell-module-test.el -l test/spectreshell-test.el -l test/spectreshell-key-test.el -l test/spectreshell-eshell-test.el -f ert-run-tests-batch-and-exit
+  emacs -Q --batch -L . -L test -l test/spectreshell-module-test.el -l test/spectreshell-test.el -l test/spectreshell-key-test.el -l test/spectreshell-key-table-test.el -l test/spectreshell-eshell-test.el -f ert-run-tests-batch-and-exit
 
 # Info マニュアルの texi を docs/spectreshell.org から再生成する。
 # 生成物の .texi をコミットしておくのは、ビルド (zig build / nix build) が
