@@ -24,16 +24,20 @@
 領域管理) が必要で、docs/design.org の「最後のパイプラインステージ
 のみ」簡略化の見直しを含む。別途設計してから対応する。
 
-** TODO L-2: キーマップの穴 (backtab / 修飾付き TAB・RET・DEL)
+** DONE L-2: キーマップの穴 (backtab / 修飾付き TAB・RET・DEL)
 対象: =spectreshell.el= (semi-char keymap, =spectreshell--event-to-key=)
 
 =backtab= (GUI の S-TAB)、=C-<tab>= / =M-RET= / =C-<backspace>= 等が
-未束縛で Emacs 側コマンドに流れる。=spectreshell--event-to-key= 自体も
-ascii 特殊キー判定が raw イベント完全一致のため、束縛を足すだけでは
-=M-RET= が =return= + alt にならない。
+未束縛で Emacs 側コマンドに流れていた。=spectreshell--event-to-key= も
+ascii 特殊キー判定が raw イベント完全一致だったため、=M-RET= が
+=return= + alt にならなかった。
 
-イベント正規化 (=--event-to-key=) の基本ケース分解を修飾付き ascii
-特殊キーまで広げる設計変更が必要。単体で意味のある改修として対応する。
+判定を「Emacs の修飾ビットだけを落とした文字」で行うようにし
+(=spectreshell--event-char=)、=backtab= は =tab= + shift への読み替え表
+(=spectreshell--aliased-key-symbols=) で扱う。束縛側は修飾付き特殊キーの
+ループに tab / return / backspace / escape / backtab を追加した
+(=test/spectreshell-key-table-test.el= の =M-RET= / =C-<backspace>= /
+=<backtab>= 行)。
 
 ** DONE L-19: シフト付き英字が小文字で送られる
 対象: =spectreshell.el= (=spectreshell--event-to-key=)

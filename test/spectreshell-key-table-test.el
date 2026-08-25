@@ -55,7 +55,11 @@ types (a `kbd' string or a key vector), EXPECTED the bytes that must
 reach the PTY, FEED an optional terminal mode setup string.  One test per
 row rather than one test per table so that a row flipping from failing to
 passing is reported on its own (ERT only reports an unexpected pass when
-every `should' in the test passes)."
+every `should' in the test passes).
+EXPECTED-RESULT is `:passed' for the whole table today; a newly found gap
+is meant to be added as a row with the bytes it should send and
+`:failed', so that the table stays honest about the hole and ERT reports
+the fix as an unexpected pass."
   (declare (indent 1))
   `(progn
      ,@(mapcar
@@ -80,7 +84,7 @@ every `should' in the test passes)."
         rows)))
 
 ;; ---------------------------------------------------------------------
-;; 送れているキー
+;; 打鍵 -> PTY バイト列の表
 ;; ---------------------------------------------------------------------
 
 (spectreshell-key-table-test--deftests :passed
@@ -129,6 +133,8 @@ every `should' in the test passes)."
   ("M-RET" "\e\r")
   ;; GUI のシンボル形は修飾子ごとに別イベントなので個別の束縛で拾う。
   ("C-<backspace>" "\C-h")
+  ;; S-TAB は `backtab' という独自シンボルで届くので tab + shift に読み替える。
+  ("<backtab>" "\e[Z")
 
   ;; 矢印。DECCKM オフでは CSI、オンでは SS3。
   ("<up>" "\e[A")
@@ -169,19 +175,6 @@ every `should' in the test passes)."
   ("C-<up>" "\e[1;5A")
   ("C-M-<up>" "\e[1;7A")
   ("C-<right>" "\e[1;5C"))
-
-;; ---------------------------------------------------------------------
-;; 既知の穴 (docs/issues.org L-2)
-;; ---------------------------------------------------------------------
-
-;; 期待値は「本来送るべきバイト列」で、現状は束縛や正規化が無いために
-;; 一致しない。行を削らず :expected-result :failed で残すのは、削ると表の
-;; 網羅が見た目だけになって穴が不可視になるのと、直したときに ERT が
-;; unexpected pass として報告してくれるため。
-(spectreshell-key-table-test--deftests :failed
-  ;; GUI の S-TAB。`backtab' シンボルは tab + shift への読み替えが要る
-  ;; (docs/issues.org L-2)。
-  ("<backtab>" "\e[Z"))
 
 (provide 'spectreshell-key-table-test)
 ;;; spectreshell-key-table-test.el ends here

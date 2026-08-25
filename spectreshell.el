@@ -548,6 +548,13 @@ Control-i/Control-m/Control-\\[/Control-? (`event-basic-type' cannot
 tell them apart either), but docs/module-api.org encodes them as their
 own symbols rather than as \"i\"/\"m\"/\"[\"/\"?\" plus `ctrl'.")
 
+(defconst spectreshell--aliased-key-symbols
+  '((backtab tab shift))
+  "Function-key symbols that stand for another KEY plus extra MODIFIERS.
+Emacs reports Shift-TAB as a `backtab' symbol of its own, carrying no
+`shift' modifier, but docs/module-api.org has no such KEY: what the
+terminal wants for it is TAB with `shift' (CSI Z).")
+
 (defun spectreshell--event-char (event)
   "Return EVENT's character code with Emacs's modifier bits cleared.
 Nil when EVENT is not an integer event.  `event-basic-type' cannot serve
@@ -574,23 +581,28 @@ modifier press, ...)."
         (cons (cdr ascii)
               (spectreshell--event-modifiers-to-modifiers
                (remove 'control (event-modifiers event))))
-      (let ((basic (event-basic-type event)))
-        ;; `event-basic-type' downcases an upper-case character and reports
-        ;; the case difference as a `shift' modifier instead, so its return
-        ;; value alone would send `a' for a typed `A'.  Prefer EVENT's own
-        ;; character whenever it *is* BASIC's upcased form -- true for `A'
-        ;; and `M-A' (and for every character that is its own upcase, where
-        ;; this changes nothing), but not for a modifier-bit encoded event
-        ;; like `C-S-a', whose shift lives in a bit rather than in the
-        ;; character; its KEY must stay the bare letter, with the case
-        ;; carried by MODIFIERS as before.
-        (when-let* ((key (spectreshell--basic-type-to-key
-                          (if (and (characterp basic) char
-                                   (eq char (upcase basic)))
-                              char
-                            basic))))
-          (cons key (spectreshell--event-modifiers-to-modifiers
-                     (event-modifiers event))))))))
+      (let* ((basic (event-basic-type event))
+             (alias (and (symbolp basic)
+                         (assq basic spectreshell--aliased-key-symbols)))
+             (mods (spectreshell--event-modifiers-to-modifiers
+                    (event-modifiers event))))
+        (if alias
+            (cons (nth 1 alias) (delete-dups (append mods (cddr alias))))
+          ;; `event-basic-type' downcases an upper-case character and reports
+          ;; the case difference as a `shift' modifier instead, so its return
+          ;; value alone would send `a' for a typed `A'.  Prefer EVENT's own
+          ;; character whenever it *is* BASIC's upcased form -- true for `A'
+          ;; and `M-A' (and for every character that is its own upcase, where
+          ;; this changes nothing), but not for a modifier-bit encoded event
+          ;; like `C-S-a', whose shift lives in a bit rather than in the
+          ;; character; its KEY must stay the bare letter, with the case
+          ;; carried by MODIFIERS as before.
+          (when-let* ((key (spectreshell--basic-type-to-key
+                            (if (and (characterp basic) char
+                                     (eq char (upcase basic)))
+                                char
+                              basic))))
+            (cons key mods)))))))
 
 (defun spectreshell--basic-type-to-key (basic)
   "Return the `spectreshell--encode-key' KEY for modifier-stripped BASIC.
@@ -816,7 +828,7 @@ disable mouse-wheel scrolling entirely between jobs that want it."
     ;; command; splitting the list by modifier to avoid that would only
     ;; make the table harder to read.
     (dolist (key '(up down left right home end prior next insert delete
-                   tab return backspace escape
+                   tab return backspace escape backtab
                    f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12))
       (dolist (mods '(() (control) (meta) (control meta) (shift)
                        (control shift) (meta shift) (control meta shift)))
