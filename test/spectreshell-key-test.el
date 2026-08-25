@@ -20,6 +20,17 @@
   "印字可能な平文字 ?a は修飾子なしの \"a\" に正規化される。"
   (should (equal (spectreshell--event-to-key ?a) '("a"))))
 
+(ert-deftest spectreshell-key-test-shifted-letter-keeps-its-case ()
+  "?A は小文字に落ちず、shift 修飾子付きの \"A\" になる。
+KEY を大文字のまま渡すことでレガシーエンコードでは \"A\" が送られ、
+shift を残すことで kitty/CSIu 有効時も shift ビットが立つ
+\(`src/keymap.zig' の charEvent が unshifted_codepoint を補う)。"
+  (should (equal (spectreshell--event-to-key ?A) '("A" shift))))
+
+(ert-deftest spectreshell-key-test-control-shift-letter-stays-lowercase ()
+  "?\\C-\\S-a は修飾子ビット表現なので KEY は素の \"a\" のまま残る。"
+  (should (equal (spectreshell--event-to-key ?\C-\S-a) '("a" ctrl shift))))
+
 (ert-deftest spectreshell-key-test-control-letter ()
   "?\\C-a は ctrl 修飾子付きの \"a\" に復元される。"
   (should (equal (spectreshell--event-to-key ?\C-a) '("a" ctrl))))

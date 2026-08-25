@@ -35,12 +35,13 @@ ascii 特殊キー判定が raw イベント完全一致のため、束縛を足
 イベント正規化 (=--event-to-key=) の基本ケース分解を修飾付き ascii
 特殊キーまで広げる設計変更が必要。単体で意味のある改修として対応する。
 
-** TODO L-19: シフト付き英字が小文字で送られる
+** DONE L-19: シフト付き英字が小文字で送られる
 対象: =spectreshell.el= (=spectreshell--event-to-key=)
 
-=event-basic-type= は =?A= を =?a= に落として shift を修飾子側へ移す
-ため、KEY が =("a" shift)= になり PTY には =a= が出る。常用中に踏んだ
-退行で、=test/spectreshell-key-table-test.el= の =A= / =Z= 行が該当する。
+=event-basic-type= が =?A= を =?a= に落として shift を修飾子側へ移す
+ため、KEY が =("a" shift)= になり PTY には =a= が出ていた。EVENT が
+BASIC の upcase 形そのものなら生の EVENT を KEY に使うようにして対応
+(=test/spectreshell-key-table-test.el= の =A= / =Z= 行)。
 
 ** TODO L-20: C-M-<letter> がキーマップに無く送られない
 対象: =spectreshell.el= (semi-char keymap)

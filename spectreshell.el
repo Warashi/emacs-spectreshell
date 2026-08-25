@@ -565,8 +565,22 @@ modifier press, ...)."
         (cons (cdr ascii)
               (spectreshell--event-modifiers-to-modifiers
                (remove 'control (event-modifiers event))))
-      (when-let* ((key (spectreshell--basic-type-to-key (event-basic-type event))))
-        (cons key (spectreshell--event-modifiers-to-modifiers (event-modifiers event)))))))
+      (let ((basic (event-basic-type event)))
+        ;; `event-basic-type' downcases an upper-case character and reports
+        ;; the case difference as a `shift' modifier instead, so its return
+        ;; value alone would send `a' for a typed `A'.  Prefer the raw EVENT
+        ;; whenever EVENT *is* BASIC's upcased form -- true for `A' (and for
+        ;; every character that is its own upcase, where this changes
+        ;; nothing), but not for a modifier-bit encoded event like `C-S-a',
+        ;; whose control bit puts it outside `characterp' entirely and whose
+        ;; KEY must stay the bare letter.
+        (when-let* ((key (spectreshell--basic-type-to-key
+                          (if (and (characterp event) (characterp basic)
+                                   (eq event (upcase basic)))
+                              event
+                            basic))))
+          (cons key (spectreshell--event-modifiers-to-modifiers
+                     (event-modifiers event))))))))
 
 (defun spectreshell--basic-type-to-key (basic)
   "Return the `spectreshell--encode-key' KEY for modifier-stripped BASIC.

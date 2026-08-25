@@ -87,6 +87,8 @@ every `should' in the test passes)."
   ;; 印字可能 ASCII。self-insert-command の remap 経由で送る。
   ("a" "a")
   ("z" "z")
+  ("A" "A")
+  ("Z" "Z")
   ("0" "0")
   ("9" "9")
   ("SPC" " ")
@@ -167,11 +169,6 @@ every `should' in the test passes)."
 ;; 網羅が見た目だけになって穴が不可視になるのと、直したときに ERT が
 ;; unexpected pass として報告してくれるため。
 (spectreshell-key-table-test--deftests :failed
-  ;; シフト付き英字。`event-basic-type' が ?A を ?a に落とすため小文字が
-  ;; 送られる (docs/issues.org L-19)。
-  ("A" "A")
-  ("Z" "Z")
-
   ;; C-M-<letter> はキーマップに束縛が無く、Emacs 側のコマンドに流れて
   ;; 何も送られない (docs/issues.org L-20)。
   ("C-M-a" "\e\C-a")
