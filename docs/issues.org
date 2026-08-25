@@ -36,8 +36,8 @@ ascii 特殊キー判定が raw イベント完全一致だったため、=M-RET
 (=spectreshell--event-char=)、=backtab= は =tab= + shift への読み替え表
 (=spectreshell--aliased-key-symbols=) で扱う。束縛側は修飾付き特殊キーの
 ループに tab / return / backspace / escape / backtab を追加した
-(=test/spectreshell-key-table-test.el= の =M-RET= / =C-<backspace>= /
-=<backtab>= 行)。
+(900d340・234e9b9・cd38ac4、=test/spectreshell-key-table-test.el= の
+=M-RET= / =C-<backspace>= / =<backtab>= 行)。
 
 ** DONE L-19: シフト付き英字が小文字で送られる
 対象: =spectreshell.el= (=spectreshell--event-to-key=)
@@ -49,7 +49,8 @@ BASIC の upcase 形そのものなら生の EVENT を KEY に使うようにし
 
 meta 併用の大文字 (=M-A=) は meta ビットにより =characterp= の外へ出る
 ため当初は対象外だったが、修飾ビットを落とした文字で判定するよう改めて
-対応した (=M-<大文字>= の束縛追加を含む。同じ表の =M-A= 行)。
+対応した (900d340・3a9fe0d、=M-<大文字>= の束縛追加を含む。同じ表の
+=M-A= 行)。
 
 ** DONE L-20: C-M-<letter> がキーマップに無く送られない
 対象: =spectreshell.el= (semi-char keymap)
@@ -57,8 +58,8 @@ meta 併用の大文字 (=M-A=) は meta ビットにより =characterp= の外�
 キーマップは =C-<letter>= と =M-<letter>= を個別に束縛しているだけで
 =C-M-<letter>= の組が無く、Emacs 側のコマンドに流れていた。
 =--event-to-key= は =?\C-\M-a= を =("a" ctrl alt)= に正規化できていた
-ので、a-z 全字の束縛を足して対応 (=test/spectreshell-key-table-test.el=
-の =C-M-a= 行)。docs/design.org の例外は =C-c= / =C-x= プレフィックス・
+ので、a-z 全字の束縛を足して対応 (a031601、
+=test/spectreshell-key-table-test.el= の =C-M-a= 行)。docs/design.org の例外は =C-c= / =C-x= プレフィックス・
 =M-x=・=C-y= で、どれも =C-M-= 版とは別イベントのため除外は設けていない。
 
 * ビルド・パッケージング
