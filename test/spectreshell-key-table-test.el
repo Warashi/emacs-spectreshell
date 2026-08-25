@@ -109,6 +109,9 @@ every `should' in the test passes)."
   ("M-f" "\ef")
   ("M-z" "\ez")
 
+  ;; C-M-<letter>。ESC 前置 + 制御文字。
+  ("C-M-a" "\e\C-a")
+
   ;; TAB/RET/ESC/DEL。端末フレームは生の制御文字、GUI フレームはシンボル
   ;; 形で届くので両方を表に置く (ESC は生の 27 がプレフィックスキーの
   ;; ため、束縛があるのはシンボル形だけ)。
@@ -172,10 +175,6 @@ every `should' in the test passes)."
   ;; メタ併用の大文字。L-19 の修正は修飾子ビット表現の EVENT を対象外に
   ;; しているため、meta ビット付きの ?A はまだ小文字に落ちる。
   ("M-A" "\eA")
-
-  ;; C-M-<letter> はキーマップに束縛が無く、Emacs 側のコマンドに流れて
-  ;; 何も送られない (docs/issues.org L-20)。
-  ("C-M-a" "\e\C-a")
 
   ;; 修飾付き特殊キーとキーマップの穴 (docs/issues.org L-2)。
   ;; C-<backspace> の期待値 0x08 は ghostty の function_keys.zig が

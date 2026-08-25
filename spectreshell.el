@@ -847,6 +847,12 @@ disable mouse-wheel scrolling entirely between jobs that want it."
     (dolist (letter (number-sequence ?a ?z))
       (unless (eq letter ?x)
         (define-key map (kbd (format "M-%c" letter)) #'spectreshell-send-key)))
+    ;; C-M-<letter> is bound without exceptions: docs/design.org names
+    ;; C-c/C-x (as prefixes), M-x and C-y, and none of those is the same
+    ;; event as its C-M- counterpart, so nothing in this range has a
+    ;; reason to stay on the Emacs side.
+    (dolist (letter (number-sequence ?a ?z))
+      (define-key map (kbd (format "C-M-%c" letter)) #'spectreshell-send-key))
     (define-key map (kbd "C-y") #'spectreshell-yank)
     (define-key map (kbd "C-c C-e") #'spectreshell-emacs-mode)
     map)

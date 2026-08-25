@@ -47,13 +47,15 @@ meta 併用の大文字 (=M-A=) は meta ビットにより =characterp= の外�
 ため対象外で、まだ小文字に落ちる。同じ表の =M-A= 行に残してあり、修飾子
 ビット表現まで含めた正規化の作り直しは L-2 側で扱う。
 
-** TODO L-20: C-M-<letter> がキーマップに無く送られない
+** DONE L-20: C-M-<letter> がキーマップに無く送られない
 対象: =spectreshell.el= (semi-char keymap)
 
 キーマップは =C-<letter>= と =M-<letter>= を個別に束縛しているだけで
-=C-M-<letter>= の組がない。=--event-to-key= は =?\C-\M-a= を
-=("a" ctrl alt)= に正規化できる (=spectreshell-key-test.el= 参照) ので、
-不足しているのは束縛だけ。=key-table-test= の =C-M-a= 行が該当する。
+=C-M-<letter>= の組が無く、Emacs 側のコマンドに流れていた。
+=--event-to-key= は =?\C-\M-a= を =("a" ctrl alt)= に正規化できていた
+ので、a-z 全字の束縛を足して対応 (=test/spectreshell-key-table-test.el=
+の =C-M-a= 行)。docs/design.org の例外は =C-c= / =C-x= プレフィックス・
+=M-x=・=C-y= で、どれも =C-M-= 版とは別イベントのため除外は設けていない。
 
 * ビルド・パッケージング
 
