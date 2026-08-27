@@ -34,6 +34,8 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
 #+begin_src elisp
 (:dirty ((ROW TEXT SPANS) ...)
  :scrolled-off ((TEXT . SPANS) ...)
+ :styles ((ID . STYLE-PLIST) ...)
+ :styles-reset t-or-omitted
  :cursor (ROW . COL)
  :cursor-visible t-or-nil
  :responses "raw-bytes-or-omitted"
@@ -47,6 +49,13 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
   ~(TEXT . SPANS)~ の cons で、SPANS は TEXT の後ろに続く proper list
   ではなく「SPANS というリスト値そのもの」を cdr に持つ点に注意
   (~(cdr entry)~ で SPANS 全体が取れる)。
+- *~:styles~*: この update で *初めて使われた* スタイル ID とその内容。
+  ID は端末ごとの通し番号で、一度送ったスタイルは二度と送らない。
+  受け手は ID→スタイル (および ID→face) を覚えておく必要がある。
+- *~:styles-reset~*: 真なら、それまでの ID をすべて捨てること
+  (モジュールがテーブルを振り直した)。同じ update に画面全行が
+  ~:dirty~ として載るので、捨てた直後に描き直せる。ID の種類が上限を
+  超えたときだけ起きる。
 - *~:cursor~* / *~:cursor-visible~*: 常に含まれる。ROW/COL はどちらも
   0-origin で、COL は *端末セル列* である点に注意 (SPANS の START/END
   と違いコードポイントオフセットではない)。全角文字は 1 文字で 2 セル
@@ -62,14 +71,20 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
 ** SPANS
 
 #+begin_src elisp
-((START END . STYLE-PLIST) ...)
+((START END ID) ...)        ; ハイパーリンクなし
+((START END ID . URI) ...)  ; OSC 8 のリンク区間
 #+end_src
 
 START/END は TEXT 内のコードポイントオフセット (Emacs の文字列
-インデックスと一致、バイトオフセットでもセル幅でもない)。装飾のない
-区間は SPANS に現れない (「span が無い = 既定描画」)。STYLE-PLIST は
-proper list なので ~(START END . STYLE-PLIST)~ は実質
-~(START END :fg 1 :bold t ...)~ という平らなリストになる。
+インデックスと一致、バイトオフセットでもセル幅でもない)。ID は
+~:styles~ で送られたスタイル ID。装飾もリンクもない区間は SPANS に
+現れない (「span が無い = 既定描画」)。
+
+スタイルを plist ではなく ID で送るのは、1 行に数十区間が乗る出力
+(git-delta の差分など) で、区間ごとに plist を作って face に変換する
+コストが描画時間の大半を占めるため。ID なら受け手は face を 1 回だけ
+作ってキャッシュできる。URI をスタイルに含めないのは、face と無関係
+なうえ、URI ごとに ID が増えるとキャッシュが効かなくなるため。
 
 STYLE-PLIST のキーはすべて値が既定 (装飾なし) の場合キーごと省略する:
 
@@ -78,7 +93,6 @@ STYLE-PLIST のキーはすべて値が既定 (装飾なし) の場合キーご�
 | ~:fg~ / ~:bg~ | パレット index (0〜255 の整数) または ~"#rrggbb"~ 文字列 (24bit色) |
 | ~:bold~ / ~:italic~ / ~:faint~ / ~:strikethrough~ / ~:inverse~ | ~t~ |
 | ~:underline~ | ~t~ (single) / ~double~ / ~curly~ / ~dotted~ / ~dashed~ |
-| ~:hyperlink~ | URI 文字列 (OSC 8) |
 
 * ~--encode-key~ の KEY / MODIFIERS
 

@@ -149,6 +149,22 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
       (should button)
       (should (equal (button-get button 'spectreshell-hyperlink-uri) "https://example.com")))))
 
+(ert-deftest spectreshell-test-face-cache-follows-theme-change ()
+  "テーマ変更後に描かれた行は、キャッシュされた古い色ではなく新しい色になる。"
+  (let ((original (face-foreground 'spectreshell-color-1 nil t)))
+    (unwind-protect
+        (spectreshell-test--with-terminal (term 1 10)
+          (set-face-foreground 'spectreshell-color-1 "#111111")
+          (spectreshell-feed term "\x1b[31mHi")
+          (should (member '(:foreground "#111111")
+                          (get-text-property (point-min) 'face)))
+          (set-face-foreground 'spectreshell-color-1 "#222222")
+          (spectreshell--invalidate-faces)
+          (spectreshell-feed term "\x1b[31mHo")
+          (should (member '(:foreground "#222222")
+                          (get-text-property (point-min) 'face))))
+      (set-face-foreground 'spectreshell-color-1 original))))
+
 (ert-deftest spectreshell-test-24bit-color-sets-literal-rgb-foreground ()
   "24bit 色 (\\e[38;2;R;G;Bm) はそのまま \"#rrggbb\" として foreground に載る。"
   (spectreshell-test--with-terminal (term 1 10)

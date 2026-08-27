@@ -25,10 +25,25 @@ fn hyperlinkUri(pin: ghostty_vt.Pin, cell: *const ghostty_vt.Cell) ?[]const u8 {
     return link.uri.slice(page.memory);
 }
 
+fn sameUri(a: ?[]const u8, b: ?[]const u8) bool {
+    if (a) |av| {
+        const bv = b orelse return false;
+        return std.mem.eql(u8, av, bv);
+    }
+    return b == null;
+}
+
 /// text は Emacs 文字列と対応させるため常に Unicode コードポイント単位で
 /// 数える (バイトオフセットでもセル列でもない)。spacer セルは wide 文字の
 /// 継続を示すだけで内容を持たないため読み飛ばす。
-pub fn extractRow(alloc: std.mem.Allocator, pin: ghostty_vt.Pin) !Extracted {
+///
+/// スタイルは TABLE で intern して ID にする。intern は区間を閉じるときの
+/// 1 回だけで、セルごとの比較は Style.eql で済ませる。
+pub fn extractRow(
+    alloc: std.mem.Allocator,
+    pin: ghostty_vt.Pin,
+    table: *style.Table,
+) !Extracted {
     const cells = pin.cells(.all);
 
     var text: std.ArrayList(u8) = .empty;
@@ -40,6 +55,7 @@ pub fn extractRow(alloc: std.mem.Allocator, pin: ghostty_vt.Pin) !Extracted {
     }
 
     var cur_style: ?style.Style = null;
+    var cur_uri: ?[]const u8 = null;
     var cur_span_start: usize = 0;
     var cp_index: usize = 0;
 
@@ -54,14 +70,14 @@ pub fn extractRow(alloc: std.mem.Allocator, pin: ghostty_vt.Pin) !Extracted {
         else
             ghostty_vt.Style{};
         const uri = hyperlinkUri(pin, cell);
-        const this_style = style.Style.fromGhostty(cell_style, uri);
+        const this_style = style.Style.fromGhostty(cell_style);
 
-        if (cur_style == null or !cur_style.?.eql(this_style)) {
-            try closeSpan(alloc, &spans, cur_style, cur_span_start, cp_index);
+        if (cur_style == null or !cur_style.?.eql(this_style) or !sameUri(cur_uri, uri)) {
+            try closeSpan(alloc, table, &spans, cur_style, cur_uri, cur_span_start, cp_index);
             cur_style = this_style;
+            cur_uri = uri;
             cur_span_start = cp_index;
         }
-
         var buf: [4]u8 = undefined;
         const cp = cell.codepoint();
         if (cp == 0) {
@@ -84,7 +100,7 @@ pub fn extractRow(alloc: std.mem.Allocator, pin: ghostty_vt.Pin) !Extracted {
         }
     }
 
-    try closeSpan(alloc, &spans, cur_style, cur_span_start, cp_index);
+    try closeSpan(alloc, table, &spans, cur_style, cur_uri, cur_span_start, cp_index);
 
     return .{
         .text = try text.toOwnedSlice(alloc),
@@ -95,22 +111,27 @@ pub fn extractRow(alloc: std.mem.Allocator, pin: ghostty_vt.Pin) !Extracted {
 /// 既定スタイルの区間まで律儀に span 化すると、装飾のない大半の行が常に
 /// span を持つことになり Elisp 側の負担が増えるため、既定スタイルは
 /// span を発行しない (span が無い = 既定描画、という約束にする)。
+/// ハイパーリンクは装飾ではないが Emacs 側でボタン化が要るので、既定
+/// スタイルでも URI が付いていれば span を出す。
 fn closeSpan(
     alloc: std.mem.Allocator,
+    table: *style.Table,
     spans: *std.ArrayList(Span),
     cur_style: ?style.Style,
+    uri: ?[]const u8,
     start: usize,
     end: usize,
 ) !void {
     const s = cur_style orelse return;
     if (end <= start) return;
-    if (s.isDefault()) return;
-    var duped = try s.dupe(alloc);
-    errdefer duped.deinit(alloc);
+    if (s.isDefault() and uri == null) return;
+    const owned_uri: ?[]u8 = if (uri) |u| try alloc.dupe(u8, u) else null;
+    errdefer if (owned_uri) |u| alloc.free(u);
     try spans.append(alloc, .{
         .start = start,
         .end = end,
-        .style = duped,
+        .id = try table.intern(s),
+        .hyperlink = owned_uri,
     });
 }
 
@@ -118,11 +139,39 @@ test "extractRow は空行から空文字列と空スパンを返す" {
     const alloc = std.testing.allocator;
     var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 5, .rows = 3 });
     defer t.deinit(alloc);
+    var table: style.Table = .init(alloc);
+    defer table.deinit();
 
     const pin = t.screens.active.pages.pin(.{ .viewport = .{ .y = 0 } }).?;
-    var row = try extractRow(alloc, pin);
+    var row = try extractRow(alloc, pin, &table);
     defer row.deinit(alloc);
 
     try std.testing.expectEqualStrings("     ", row.text);
     try std.testing.expectEqual(@as(usize, 0), row.spans.len);
+}
+
+test "extractRow は同じスタイルの区間に同じ ID を振る" {
+    const alloc = std.testing.allocator;
+    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 8, .rows = 2 });
+    defer t.deinit(alloc);
+    var table: style.Table = .init(alloc);
+    defer table.deinit();
+
+    // 赤 aa / 緑 bb / 赤 cc → 同じ赤の 2 区間は同じ ID になる
+    t.setCursorPos(1, 1);
+    try t.setAttribute(.{ .direct_color_fg = .{ .r = 1, .g = 2, .b = 3 } });
+    try t.printString("aa");
+    try t.setAttribute(.{ .direct_color_fg = .{ .r = 9, .g = 9, .b = 9 } });
+    try t.printString("bb");
+    try t.setAttribute(.{ .direct_color_fg = .{ .r = 1, .g = 2, .b = 3 } });
+    try t.printString("cc");
+
+    const pin = t.screens.active.pages.pin(.{ .viewport = .{ .y = 0 } }).?;
+    var row = try extractRow(alloc, pin, &table);
+    defer row.deinit(alloc);
+
+    try std.testing.expectEqual(@as(usize, 3), row.spans.len);
+    try std.testing.expectEqual(row.spans[0].id, row.spans[2].id);
+    try std.testing.expect(row.spans[0].id != row.spans[1].id);
+    try std.testing.expectEqual(@as(usize, 2), table.count());
 }

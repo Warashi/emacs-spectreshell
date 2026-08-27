@@ -8,6 +8,13 @@ pub const Color = style.Color;
 pub const Underline = style.Underline;
 pub const Style = style.Style;
 pub const Span = style.Span;
+pub const StyleId = style.StyleId;
+
+/// スタイルテーブルの既定の上限。truecolor を細かく変える出力
+/// (グラデーション等) は理屈上いくらでも新しいスタイルを作れるので、
+/// 上限を超えたら ID を振り直して全行を送り直す。Emacs 側のキャッシュも
+/// 道連れに捨てさせる。
+const default_style_limit = 4096;
 
 /// UTF-8 マウス報告 (mode 1005) の1座標分。32 (SP) + 1-origin 変換込みの
 /// コードポイントを直接 UTF-8 で書く (xterm の実装に合わせて西暦2000年
@@ -87,6 +94,12 @@ pub const Update = struct {
     responses: []u8,
     alt_screen: AltScreen,
     title: ?[]u8,
+    /// この update で初出のスタイル。ID は styles_first_id からの連番。
+    /// Term のテーブルからの借用 (Term の方が長生きする) なので解放しない。
+    styles: []const Style,
+    styles_first_id: StyleId,
+    /// 真なら受け手は覚えている ID をすべて捨てる (テーブルを振り直した)。
+    styles_reset: bool,
 
     pub fn deinit(self: *Update) void {
         for (self.dirty) |*d| d.deinit(self.alloc);
@@ -110,6 +123,9 @@ pub const Term = struct {
     responses: std.ArrayList(u8) = .empty,
     pending_title: ?[]u8 = null,
     in_alt_screen: bool = false,
+    styles: style.Table,
+    /// テストから小さい値にできるよう Term のフィールドにしている。
+    style_limit: usize = default_style_limit,
 
     pub fn init(alloc: std.mem.Allocator, rows: u16, cols: u16) !*Term {
         const self = try alloc.create(Term);
@@ -119,6 +135,7 @@ pub const Term = struct {
             .alloc = alloc,
             .terminal = try .init(alloc, .{ .rows = rows, .cols = cols }),
             .stream = undefined,
+            .styles = .init(alloc),
         };
         self.stream = .initAlloc(alloc, .init(
             &self.terminal,
@@ -133,6 +150,7 @@ pub const Term = struct {
     pub fn deinit(self: *Term) void {
         const alloc = self.alloc;
         self.stream.deinit();
+        self.styles.deinit();
         self.render.deinit(alloc);
         self.terminal.deinit(alloc);
         self.responses.deinit(alloc);
@@ -291,6 +309,12 @@ pub const Term = struct {
     }
 
     fn buildUpdate(self: *Term, alloc: std.mem.Allocator) !Update {
+        // 振り直しは行の抽出を始める前に済ませる。抽出の途中で振り直すと
+        // 1 つの update に新旧の ID が混ざる。
+        const styles_reset = self.styles.count() > self.style_limit;
+        if (styles_reset) self.styles.clear();
+        const styles_mark = self.styles.count();
+
         const alt_screen: AltScreen = alt: {
             const now_alt = self.terminal.screens.active_key == .alternate;
             defer self.in_alt_screen = now_alt;
@@ -312,7 +336,7 @@ pub const Term = struct {
                 null,
             );
             while (it.next()) |pin| {
-                var extracted = try row_mod.extractRow(alloc, pin);
+                var extracted = try row_mod.extractRow(alloc, pin, &self.styles);
                 errdefer extracted.deinit(alloc);
                 try scrolled_off.append(alloc, extracted);
             }
@@ -333,8 +357,10 @@ pub const Term = struct {
         const row_dirty = self.render.row_data.items(.dirty);
         const rows: usize = self.render.rows;
         for (0..rows) |y| {
-            if (!row_dirty[y]) continue;
-            var extracted = try row_mod.extractRow(alloc, row_pins[y]);
+            // ID を振り直した回は、画面に残っている行が Emacs 側から見て
+            // 未知の ID を指したままになるので、全行を送り直す。
+            if (!row_dirty[y] and !styles_reset) continue;
+            var extracted = try row_mod.extractRow(alloc, row_pins[y], &self.styles);
             errdefer extracted.deinit(alloc);
             try dirty.append(alloc, .{ .row = y, .text = extracted.text, .spans = extracted.spans });
             // RenderState の行 dirty フラグは「ハンドリングした側が false に
@@ -378,6 +404,9 @@ pub const Term = struct {
             .cursor = cursor,
             .responses = responses,
             .alt_screen = alt_screen,
+            .styles = self.styles.since(styles_mark),
+            .styles_first_id = @intCast(styles_mark),
+            .styles_reset = styles_reset,
             .title = title,
         };
     }
@@ -403,7 +432,7 @@ test "feed は SGR 16色の span を抽出する" {
     const span = update.dirty[0].spans[0];
     try testing.expectEqual(@as(usize, 0), span.start);
     try testing.expectEqual(@as(usize, 2), span.end);
-    try testing.expect(Color.eql(span.style.fg, .{ .palette = 1 }));
+    try testing.expect(Color.eql(t.styles.get(span.id).fg, .{ .palette = 1 }));
 }
 
 test "feed は 256色の span を抽出する" {
@@ -415,7 +444,7 @@ test "feed は 256色の span を抽出する" {
     defer update.deinit();
 
     try testing.expectEqual(@as(usize, 1), update.dirty[0].spans.len);
-    try testing.expect(Color.eql(update.dirty[0].spans[0].style.fg, .{ .palette = 208 }));
+    try testing.expect(Color.eql(t.styles.get(update.dirty[0].spans[0].id).fg, .{ .palette = 208 }));
 }
 
 test "feed は 24bit色の span を抽出する" {
@@ -428,7 +457,7 @@ test "feed は 24bit色の span を抽出する" {
 
     try testing.expectEqual(@as(usize, 1), update.dirty[0].spans.len);
     try testing.expect(Color.eql(
-        update.dirty[0].spans[0].style.fg,
+        t.styles.get(update.dirty[0].spans[0].id).fg,
         .{ .rgb = .{ .r = 10, .g = 20, .b = 30 } },
     ));
 }
@@ -446,7 +475,7 @@ test "feed 境界で分割されたエスケープシーケンスも解釈され
     var update = try t.feed(alloc, "1mHi");
     defer update.deinit();
     try testing.expectEqual(@as(usize, 1), update.dirty[0].spans.len);
-    try testing.expect(Color.eql(update.dirty[0].spans[0].style.fg, .{ .palette = 1 }));
+    try testing.expect(Color.eql(t.styles.get(update.dirty[0].spans[0].id).fg, .{ .palette = 1 }));
 }
 
 test "feed 境界で分割された UTF-8 多バイト文字も描画される" {
@@ -849,4 +878,48 @@ test "encodeMouse はx10形式でバイト直値エンコードする" {
     defer if (bytes) |b| alloc.free(b);
     // ESC [ M (32+button) (32+col+1) (32+row+1)。
     try testing.expectEqualStrings(&[_]u8{ 0x1b, '[', 'M', 32, 32 + 3, 32 + 2 }, bytes.?);
+}
+
+test "feed は初出のスタイルだけを styles に載せる" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 1, 10);
+    defer t.deinit();
+
+    const first_id = blk: {
+        var update = try t.feed(alloc, "\x1b[31mHi");
+        defer update.deinit();
+        try testing.expectEqual(@as(usize, 1), update.styles.len);
+        try testing.expectEqual(@as(StyleId, 0), update.styles_first_id);
+        try testing.expect(!update.styles_reset);
+        break :blk update.dirty[0].spans[0].id;
+    };
+
+    // 2 回目は同じスタイルなので新規登録はなく、ID だけが再利用される。
+    var update = try t.feed(alloc, "\x1b[31mHo");
+    defer update.deinit();
+    try testing.expectEqual(@as(usize, 0), update.styles.len);
+    try testing.expectEqual(first_id, update.dirty[0].spans[0].id);
+}
+
+test "スタイルが上限を超えると ID を振り直して全行を送り直す" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 3, 4);
+    defer t.deinit();
+    t.style_limit = 2;
+
+    // 画面に同時に載る色数で上限を超えさせる (テーブルは行の抽出時に
+    // 育つので、SGR を並べるだけでは増えない)。
+    {
+        var update = try t.feed(alloc, "\x1b[31ma\x1b[32mb\x1b[33mc");
+        defer update.deinit();
+        try testing.expectEqual(@as(usize, 3), update.styles.len);
+        try testing.expect(!update.styles_reset);
+    }
+
+    var update = try t.feed(alloc, "");
+    defer update.deinit();
+    try testing.expect(update.styles_reset);
+    try testing.expectEqual(@as(StyleId, 0), update.styles_first_id);
+    // 振り直し回は dirty でない行も含めて全行が載る。
+    try testing.expectEqual(@as(usize, 3), update.dirty.len);
 }

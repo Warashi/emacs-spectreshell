@@ -172,7 +172,27 @@ constructor directly outside this file."
   cols
   send-fn
   alt-saved
-  title)
+  title
+  styles
+  face-generation)
+
+(defvar spectreshell--face-generation 0
+  "Counter bumped whenever cached `face' values may have gone stale.
+Terminals cache the `face' value they built for each style ID; those
+values embed colors resolved against the frame and theme current at the
+time (see `spectreshell--resolve-color'), so a new theme or a new frame
+\(a daemon's first real frame in particular, since the startup terminal
+resolves colors differently) invalidates them.  A counter rather than a
+registry of live terminals: each terminal compares it against its own
+`spectreshell-face-generation' on the next update and refreshes then.")
+
+(defun spectreshell--invalidate-faces (&rest _)
+  "Mark every terminal's cached `face' values as stale."
+  (setq spectreshell--face-generation (1+ spectreshell--face-generation)))
+
+(add-hook 'enable-theme-functions #'spectreshell--invalidate-faces)
+(add-hook 'disable-theme-functions #'spectreshell--invalidate-faces)
+(add-hook 'after-make-frame-functions #'spectreshell--invalidate-faces)
 
 (defvar spectreshell-title-functions nil
   "Abnormal hook run when a terminal's title changes (OSC 0/2).
@@ -206,7 +226,11 @@ Return a new `spectreshell' object to pass to the other
      :rows rows
      :cols cols
      :send-fn send-fn
-     :alt-saved nil)))
+     :alt-saved nil
+     ;; Style IDs are small consecutive integers assigned by the module,
+     ;; so `eq' hashing is exact and cheap here.
+     :styles (make-hash-table :test 'eq)
+     :face-generation spectreshell--face-generation)))
 
 (defun spectreshell-feed (obj bytes)
   "Feed BYTES (a unibyte string) to OBJ's terminal and update its buffer.
@@ -289,6 +313,9 @@ Return UPDATE unchanged, for callers that want to inspect it further."
       ;; would corrupt confirmed scrollback text.
       (let ((inhibit-read-only t)
             (buffer-undo-list t))
+        ;; Styles first: the rows below are drawn from style IDs that this
+        ;; call is what teaches OBJ about.
+        (spectreshell--apply-styles obj update)
         (spectreshell--handle-alt-screen obj (plist-get update :alt-screen))
         (spectreshell--apply-scrolled-off obj (plist-get update :scrolled-off))
         (spectreshell--apply-dirty obj (plist-get update :dirty))
@@ -300,6 +327,35 @@ Return UPDATE unchanged, for callers that want to inspect it further."
   (when-let* ((response (plist-get update :responses)))
     (funcall (spectreshell-send-fn obj) response))
   update)
+
+;; ---------------------------------------------------------------------
+;; Style table
+;; ---------------------------------------------------------------------
+
+(defun spectreshell--apply-styles (obj update)
+  "Absorb UPDATE's :styles and :styles-reset into OBJ's style table.
+The module sends each style once, when its ID is first used, so OBJ
+must remember them: they are what later updates' spans refer to."
+  (let ((table (spectreshell-styles obj)))
+    (when (plist-get update :styles-reset)
+      (clrhash table))
+    ;; A stale generation invalidates the cached `face' values but not the
+    ;; style plists themselves -- those are never re-sent, so dropping them
+    ;; would leave later spans pointing at IDs this terminal cannot resolve.
+    (unless (eq (spectreshell-face-generation obj) spectreshell--face-generation)
+      (setf (spectreshell-face-generation obj) spectreshell--face-generation)
+      (maphash (lambda (_id entry) (setcdr entry nil)) table))
+    (pcase-dolist (`(,id . ,style) (plist-get update :styles))
+      (puthash id (cons style nil) table))))
+
+(defun spectreshell--style-face (obj id)
+  "Return the `face' property value for style ID in OBJ, building it once.
+Nil for an unknown ID (only reachable if the module and this file
+disagree about the style protocol) and for a style with no visual
+attributes (a span carrying only a hyperlink)."
+  (when-let* ((entry (gethash id (spectreshell-styles obj))))
+    (or (cdr entry)
+        (setcdr entry (spectreshell--span-face (car entry))))))
 
 ;; ---------------------------------------------------------------------
 ;; Terminal-region geometry helpers
@@ -344,7 +400,7 @@ of the terminal region."
     (pcase-let ((`(,row ,text ,spans) entry))
       (spectreshell--pad-rows obj row)
       (pcase-let* ((`(,beg . ,end) (spectreshell--row-bounds obj row))
-                   (new (spectreshell--decorate-row text spans)))
+                   (new (spectreshell--decorate-row obj text spans)))
         ;; ghostty-vt's dirty tracking is page-granular (module-api.org), so
         ;; a batch often marks rows dirty whose rendered content did not
         ;; actually change; skipping the replace avoids pointless
@@ -354,30 +410,27 @@ of the terminal region."
           (goto-char beg)
           (insert new))))))
 
-(defun spectreshell--decorate-row (text spans)
-  "Return a copy of TEXT with SPANS applied as face/button properties.
-SPANS is the module's per-row span list; TEXT is fresh from the module
-on every call, so it is safe to add properties to it directly."
+(defun spectreshell--decorate-row (obj text spans)
+  "Return TEXT with SPANS applied as face/button properties, using OBJ's styles.
+SPANS is the module's per-row span list, each element (START END ID) or
+\(START END ID . URI); TEXT is fresh from the module on every call, so it
+is safe to add properties to it directly."
   (dolist (span spans)
-    (pcase-let ((`(,start ,end . ,style) span))
-      (let ((face (spectreshell--span-face style))
-            (uri (plist-get style :hyperlink)))
-        (when face
-          (put-text-property start end 'face face text))
-        (when uri
-          ;; `make-text-button' only buttonizes a BEG..END buffer range OR
-          ;; (as a convenience) an *entire* string, never a substring
-          ;; range of one; splice a buttonized copy of just [start,end)
-          ;; back into TEXT to get the same effect here. Length is
-          ;; preserved, so later spans' indices in this same loop stay
-          ;; valid.
-          (setq text (concat (substring text 0 start)
-                              (make-text-button
-                               (substring text start end) nil
-                               'type 'spectreshell-hyperlink
-                               'help-echo uri
-                               'spectreshell-hyperlink-uri uri)
-                              (substring text end)))))))
+    (pcase-let ((`(,start ,end ,id . ,uri) span))
+      (when-let* ((face (spectreshell--style-face obj id)))
+        (put-text-property start end 'face face text))
+      (when uri
+        ;; `make-text-button' only buttonizes a BEG..END buffer range OR
+        ;; (as a convenience) an *entire* string, never a substring range
+        ;; of one, so apply the properties it would have applied instead
+        ;; of splicing a buttonized copy back into TEXT.
+        (add-text-properties
+         start end
+         (list 'category (button-category-symbol 'spectreshell-hyperlink)
+               'button '(t)
+               'help-echo uri
+               'spectreshell-hyperlink-uri uri)
+         text))))
   text)
 
 ;; ---------------------------------------------------------------------
@@ -463,7 +516,7 @@ real terminal content and are kept."
       (goto-char marker)
       (insert (mapconcat (lambda (entry)
                             (spectreshell--trim-trailing-blanks
-                             (spectreshell--decorate-row (car entry) (cdr entry))))
+                             (spectreshell--decorate-row obj (car entry) (cdr entry))))
                           scrolled-off "\n")
               "\n")
       ;; The marker's default (nil) insertion-type leaves it *behind* text

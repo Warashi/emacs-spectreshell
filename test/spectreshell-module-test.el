@@ -18,14 +18,33 @@
     (spectreshell--release term)))
 
 (ert-deftest spectreshell-module-test-sgr-color-produces-fg-in-style-plist ()
-  "SGR (ESC[31m) で塗った文字の span に :fg 1 (パレット index) が付く。"
+  "SGR (ESC[31m) で塗った span の style ID が :styles で :fg 1 と対応づく。"
   (let* ((term (spectreshell--create 1 10))
          (update (spectreshell--feed term "\x1b[31mHi\x1b[0m"))
          (row0 (car (plist-get update :dirty)))
          (span (car (nth 2 row0))))
-    ;; span = (START END :fg 1)
+    ;; span = (START END ID)
     (should (equal (seq-take span 2) '(0 2)))
-    (should (eq (plist-get (cddr span) :fg) 1))
+    (should (eq (plist-get (alist-get (nth 2 span) (plist-get update :styles)) :fg) 1))
+    (spectreshell--release term)))
+
+(ert-deftest spectreshell-module-test-styles-are-sent-only-on-first-use ()
+  "同じスタイルの 2 回目の feed では :styles が空で、ID だけが再利用される。"
+  (let* ((term (spectreshell--create 1 10))
+         (first (spectreshell--feed term "\x1b[31mHi"))
+         (id (nth 2 (car (nth 2 (car (plist-get first :dirty))))))
+         (second (spectreshell--feed term "\x1b[31mHo")))
+    (should (plist-get first :styles))
+    (should (null (plist-get second :styles)))
+    (should (eq id (nth 2 (car (nth 2 (car (plist-get second :dirty)))))))
+    (spectreshell--release term)))
+
+(ert-deftest spectreshell-module-test-osc8-span-carries-uri-in-cdr ()
+  "OSC 8 のリンク区間は (START END ID . URI) の形になる。"
+  (let* ((term (spectreshell--create 1 10))
+         (update (spectreshell--feed term "\x1b]8;;https://example.com\x1b\\li\x1b]8;;\x1b\\"))
+         (span (car (nth 2 (car (plist-get update :dirty))))))
+    (should (equal (cddr (cdr span)) "https://example.com"))
     (spectreshell--release term)))
 
 (ert-deftest spectreshell-module-test-dsr-cursor-position-produces-responses ()

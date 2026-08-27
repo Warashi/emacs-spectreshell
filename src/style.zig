@@ -53,8 +53,10 @@ pub const Underline = enum {
     }
 };
 
-/// hyperlink はスパン比較・所有権管理を span 抽出側に委ねるため、ここでは
-/// 借用スライスとして保持する (span 確定時に呼び出し側が dupe する)。
+/// ハイパーリンク URI は Style に含めない。Style は Table で intern して
+/// ID 化する対象であり、URI を含めると (a) URI ごとに別スタイルが増えて
+/// テーブルが膨らみ、(b) 所有権のある文字列を持つためハッシュキーにできない。
+/// URI は face とも無関係 (Emacs 側ではボタン化に使う) なので Span 側が持つ。
 pub const Style = struct {
     fg: Color = .default,
     bg: Color = .default,
@@ -64,9 +66,8 @@ pub const Style = struct {
     underline: Underline = .none,
     strikethrough: bool = false,
     inverse: bool = false,
-    hyperlink: ?[]const u8 = null,
 
-    pub fn fromGhostty(gs: ghostty_vt.Style, hyperlink: ?[]const u8) Style {
+    pub fn fromGhostty(gs: ghostty_vt.Style) Style {
         return .{
             .fg = Color.fromGhostty(gs.fg_color),
             .bg = Color.fromGhostty(gs.bg_color),
@@ -76,7 +77,6 @@ pub const Style = struct {
             .underline = Underline.fromGhostty(gs.flags.underline),
             .strikethrough = gs.flags.strikethrough,
             .inverse = gs.flags.inverse,
-            .hyperlink = hyperlink,
         };
     }
 
@@ -88,8 +88,7 @@ pub const Style = struct {
             !self.faint and
             self.underline == .none and
             !self.strikethrough and
-            !self.inverse and
-            self.hyperlink == null;
+            !self.inverse;
     }
 
     pub fn eql(a: Style, b: Style) bool {
@@ -100,35 +99,73 @@ pub const Style = struct {
         if (a.faint != b.faint) return false;
         if (a.underline != b.underline) return false;
         if (a.strikethrough != b.strikethrough) return false;
-        if (a.inverse != b.inverse) return false;
-        if (a.hyperlink) |ah| {
-            const bh = b.hyperlink orelse return false;
-            return std.mem.eql(u8, ah, bh);
-        }
-        return b.hyperlink == null;
+        return a.inverse == b.inverse;
+    }
+};
+
+pub const StyleId = u32;
+
+/// Style を ID に intern するテーブル。同じ端末が生きている間 ID は安定
+/// なので、Emacs 側は「初出のときだけ送られてくる ID→スタイル」を覚えて
+/// face をキャッシュでき、スパンごとのスタイル構築をやめられる。
+///
+/// ID は 0 から連番。新規登録は必ず末尾に積まれるので、update 構築の前後
+/// で count() を比べれば「この update で初出のスタイル」が since() で取れる。
+pub const Table = struct {
+    alloc: std.mem.Allocator,
+    map: std.AutoHashMapUnmanaged(Style, StyleId) = .empty,
+    styles: std.ArrayListUnmanaged(Style) = .empty,
+
+    pub fn init(alloc: std.mem.Allocator) Table {
+        return .{ .alloc = alloc };
     }
 
-    /// alloc で複製した完全に所有されたコピーを返す。
-    pub fn dupe(self: Style, alloc: std.mem.Allocator) !Style {
-        var copy = self;
-        if (self.hyperlink) |uri| copy.hyperlink = try alloc.dupe(u8, uri);
-        return copy;
-    }
-
-    pub fn deinit(self: *Style, alloc: std.mem.Allocator) void {
-        if (self.hyperlink) |uri| alloc.free(uri);
+    pub fn deinit(self: *Table) void {
+        self.map.deinit(self.alloc);
+        self.styles.deinit(self.alloc);
         self.* = undefined;
+    }
+
+    pub fn intern(self: *Table, s: Style) !StyleId {
+        const gop = try self.map.getOrPut(self.alloc, s);
+        if (!gop.found_existing) {
+            const id: StyleId = @intCast(self.styles.items.len);
+            errdefer _ = self.map.remove(s);
+            try self.styles.append(self.alloc, s);
+            gop.value_ptr.* = id;
+        }
+        return gop.value_ptr.*;
+    }
+
+    pub fn get(self: *const Table, id: StyleId) Style {
+        return self.styles.items[id];
+    }
+
+    pub fn count(self: *const Table) usize {
+        return self.styles.items.len;
+    }
+
+    /// ID が MARK 以降のスタイル (= その時点以降に初出だったもの) を返す。
+    pub fn since(self: *const Table, mark: usize) []const Style {
+        return self.styles.items[mark..];
+    }
+
+    pub fn clear(self: *Table) void {
+        self.map.clearRetainingCapacity();
+        self.styles.clearRetainingCapacity();
     }
 };
 
 /// text 内のコードポイントオフセット [start, end) に対応するスタイル区間。
+/// hyperlink は alloc で複製した所有スライス。
 pub const Span = struct {
     start: usize,
     end: usize,
-    style: Style,
+    id: StyleId,
+    hyperlink: ?[]u8 = null,
 
     pub fn deinit(self: *Span, alloc: std.mem.Allocator) void {
-        self.style.deinit(alloc);
+        if (self.hyperlink) |uri| alloc.free(uri);
         self.* = undefined;
     }
 };
@@ -141,17 +178,58 @@ test "Color eql は同種同値のみ真" {
     try std.testing.expect(!Color.eql(.{ .palette = 3 }, .default));
 }
 
-test "Style.isDefault はハイパーリンクありで偽になる" {
+test "Style.isDefault は装飾が1つでもあれば偽になる" {
     var s: Style = .{};
     try std.testing.expect(s.isDefault());
-    s.hyperlink = "https://example.com";
+    s.bold = true;
     try std.testing.expect(!s.isDefault());
 }
 
-test "Style.eql はハイパーリンク文字列の中身を比較する" {
-    const a: Style = .{ .hyperlink = "https://a" };
-    const b: Style = .{ .hyperlink = "https://a" };
-    const c: Style = .{ .hyperlink = "https://b" };
-    try std.testing.expect(Style.eql(a, b));
-    try std.testing.expect(!Style.eql(a, c));
+test "Style.eql は全フィールドを比較する" {
+    try std.testing.expect(Style.eql(.{ .bold = true }, .{ .bold = true }));
+    try std.testing.expect(!Style.eql(.{ .bold = true }, .{ .italic = true }));
+    try std.testing.expect(!Style.eql(.{ .fg = .{ .palette = 1 } }, .{ .fg = .{ .palette = 2 } }));
+}
+
+test "Table.intern は同じスタイルに同じ ID を返す" {
+    const alloc = std.testing.allocator;
+    var table: Table = .init(alloc);
+    defer table.deinit();
+
+    const a = try table.intern(.{ .bold = true });
+    const b = try table.intern(.{ .bold = true });
+    const c = try table.intern(.{ .italic = true });
+    try std.testing.expectEqual(a, b);
+    try std.testing.expect(a != c);
+    try std.testing.expectEqual(@as(usize, 2), table.count());
+}
+
+test "Table.since はその位置以降に新しく登録されたスタイルだけを返す" {
+    const alloc = std.testing.allocator;
+    var table: Table = .init(alloc);
+    defer table.deinit();
+
+    _ = try table.intern(.{ .bold = true });
+    const mark = table.count();
+    _ = try table.intern(.{ .bold = true }); // 既出なので増えない
+    const id = try table.intern(.{ .faint = true });
+
+    const news = table.since(mark);
+    try std.testing.expectEqual(@as(usize, 1), news.len);
+    try std.testing.expectEqual(@as(StyleId, id), @as(StyleId, @intCast(mark)));
+    try std.testing.expect(news[0].faint);
+}
+
+test "Table.clear は ID を 0 から振り直す" {
+    const alloc = std.testing.allocator;
+    var table: Table = .init(alloc);
+    defer table.deinit();
+
+    _ = try table.intern(.{ .bold = true });
+    const before = try table.intern(.{ .italic = true });
+    table.clear();
+    try std.testing.expectEqual(@as(usize, 0), table.count());
+    const after = try table.intern(.{ .italic = true });
+    try std.testing.expect(before != after);
+    try std.testing.expectEqual(@as(StyleId, 0), after);
 }

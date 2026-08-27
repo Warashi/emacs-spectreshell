@@ -150,25 +150,34 @@ fn pushStyleItems(
         try items.append(arena, emacs.intern(env, ":inverse"));
         try items.append(arena, emacs.t(env));
     }
-    if (s.hyperlink) |uri| {
-        try items.append(arena, emacs.intern(env, ":hyperlink"));
-        try items.append(arena, emacs.makeString(env, uri));
-    }
 }
 
-/// SPANS の1要素 (START END . STYLE-PLIST)。STYLE-PLIST は真のリストなので
-/// ドット対の末尾に連結しても平らな proper list として構築できる。
-fn spanValue(env: *emacs.Env, arena: std.mem.Allocator, span: style.Span) !*emacs.Value {
+/// SPANS の1要素 (START END ID . URI)。URI が無ければ (START END ID)。
+fn spanValue(env: *emacs.Env, span: style.Span) *emacs.Value {
+    const start = emacs.makeInteger(env, @intCast(span.start));
+    const end = emacs.makeInteger(env, @intCast(span.end));
+    const id = emacs.makeInteger(env, span.id);
+    // URI 付きは OSC 8 のときだけなので、cons を 3 回積む遅い形はそちらに
+    // 寄せ、大多数を占める URI なしを list 1 回で作る。
+    const uri = span.hyperlink orelse return emacs.list(env, &.{ start, end, id });
+    return emacs.cons(env, start, emacs.cons(env, end, emacs.cons(env, id, emacs.makeString(env, uri))));
+}
+
+/// :styles の1要素 (ID . STYLE-PLIST)。
+fn styleEntryValue(
+    env: *emacs.Env,
+    arena: std.mem.Allocator,
+    id: core.StyleId,
+    s: style.Style,
+) !*emacs.Value {
     var items: std.ArrayList(*emacs.Value) = .empty;
-    try items.append(arena, emacs.makeInteger(env, @intCast(span.start)));
-    try items.append(arena, emacs.makeInteger(env, @intCast(span.end)));
-    try pushStyleItems(env, arena, &items, span.style);
-    return emacs.list(env, items.items);
+    try pushStyleItems(env, arena, &items, s);
+    return emacs.cons(env, emacs.makeInteger(env, id), emacs.list(env, items.items));
 }
 
 fn spansListValue(env: *emacs.Env, arena: std.mem.Allocator, spans: []const style.Span) !*emacs.Value {
     var items: std.ArrayList(*emacs.Value) = .empty;
-    for (spans) |s| try items.append(arena, try spanValue(env, arena, s));
+    for (spans) |s| try items.append(arena, spanValue(env, s));
     return emacs.list(env, items.items);
 }
 
@@ -202,6 +211,21 @@ fn buildUpdatePlist(env: *emacs.Env, arena: std.mem.Allocator, update: *const co
         for (update.scrolled_off) |r| try rows.append(arena, try scrolledOffValue(env, arena, r));
         try items.append(arena, emacs.intern(env, ":scrolled-off"));
         try items.append(arena, emacs.list(env, rows.items));
+    }
+
+    {
+        var entries: std.ArrayList(*emacs.Value) = .empty;
+        for (update.styles, 0..) |s, i| {
+            const id: core.StyleId = update.styles_first_id + @as(core.StyleId, @intCast(i));
+            try entries.append(arena, try styleEntryValue(env, arena, id, s));
+        }
+        try items.append(arena, emacs.intern(env, ":styles"));
+        try items.append(arena, emacs.list(env, entries.items));
+    }
+
+    if (update.styles_reset) {
+        try items.append(arena, emacs.intern(env, ":styles-reset"));
+        try items.append(arena, emacs.t(env));
     }
 
     try items.append(arena, emacs.intern(env, ":cursor"));
