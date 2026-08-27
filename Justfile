@@ -43,3 +43,10 @@ nix-check:
   test -f result/share/doc/spectreshell/LICENSE
   test -f result/share/doc/spectreshell/THIRD-PARTY-NOTICES.org
   emacs -Q --batch -L result/share/emacs/site-lisp --eval '(progn (require (quote spectreshell)) (require (quote spectreshell-eshell)) (with-temp-buffer (let ((term (spectreshell-start (current-buffer) 5 10 (lambda (bytes) bytes)))) (spectreshell-feed term "hello") (unless (string-prefix-p "hello" (buffer-string)) (error "nix-check: unexpected buffer contents: %S" (buffer-string))) (unless spectreshell-terminfo-directory (error "nix-check: terminfo not auto-detected")) (message "nix-check OK"))))'
+
+# 描画パスの計測 (ERT ではなく手動実行)。
+# Debug ビルドはモジュール側が数倍遅く、実運用 (nix build = release) とは
+# ボトルネックの見え方が変わるため、release でビルドし直してから計る。
+bench:
+  zig build --release=safe
+  emacs -Q --batch -L . -L test -l test/spectreshell-bench.el -f spectreshell-bench-run
