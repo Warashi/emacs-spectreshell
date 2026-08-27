@@ -371,18 +371,16 @@ attributes (a span carrying only a hyperlink)."
   (count-lines (spectreshell-marker obj) (point-max)))
 
 (defun spectreshell--pad-rows (obj upto)
-  "Append blank lines to OBJ's terminal region until row UPTO exists."
-  (let ((blank (concat (make-string (spectreshell-cols obj) ?\s) "\n")))
-    (goto-char (point-max))
-    (while (<= (spectreshell--row-count obj) upto)
-      (insert blank))))
-
-(defun spectreshell--row-bounds (obj row)
-  "Return (BEG . END) of ROW's text, sans trailing newline, in OBJ."
-  (save-excursion
-    (goto-char (spectreshell-marker obj))
-    (forward-line row)
-    (cons (point) (line-end-position))))
+  "Append blank lines to OBJ's terminal region until row UPTO exists.
+The line count is taken once and the whole padding inserted in one go:
+counting it per appended line means re-scanning the entire region for
+every row, which is the dominant cost when a full screen has to be
+built up from nothing."
+  (let ((missing (- (1+ upto) (spectreshell--row-count obj))))
+    (when (> missing 0)
+      (let ((blank (concat (make-string (spectreshell-cols obj) ?\s) "\n")))
+        (goto-char (point-max))
+        (insert (mapconcat #'identity (make-list missing blank)))))))
 
 (defun spectreshell--trim-rows (obj)
   "Delete trailing buffer lines beyond OBJ's current row count.
@@ -415,19 +413,29 @@ font-lock on.  The cost is that a foreign modification of the terminal
 region is no longer noticed and repaired on the next dirty batch, which
 no longer happens by ordinary means -- the region is rewritten from the
 module, not edited."
-  (let ((cache (spectreshell-row-cache obj)))
-    (dolist (entry dirty)
-      (pcase-let ((`(,row ,text ,spans) entry))
-        (let ((cached (gethash row cache)))
-          (unless (and cached
-                       (equal (car cached) text)
-                       (equal (cdr cached) spans))
-            (puthash row (cons text spans) cache)
-            (spectreshell--pad-rows obj row)
-            (pcase-let ((`(,beg . ,end) (spectreshell--row-bounds obj row)))
-              (delete-region beg end)
-              (goto-char beg)
-              (insert (spectreshell--decorate-row obj text spans)))))))))
+  (when dirty
+    ;; Pad once for the highest row, then walk the rows in one pass:
+    ;; locating each row from the region's start instead would re-scan
+    ;; the rows above it for every row in the batch.
+    (spectreshell--pad-rows obj (apply #'max (mapcar #'car dirty)))
+    (let ((cache (spectreshell-row-cache obj))
+          (at-row 0))
+      (goto-char (spectreshell-marker obj))
+      (dolist (entry dirty)
+        (pcase-let ((`(,row ,text ,spans) entry))
+          (forward-line (- row at-row))
+          (setq at-row row)
+          (let ((cached (gethash row cache)))
+            (unless (and cached
+                         (equal (car cached) text)
+                         (equal (cdr cached) spans))
+              (puthash row (cons text spans) cache)
+              (let ((beg (point)))
+                (delete-region beg (line-end-position))
+                ;; `insert' leaves point at the end of the new row, which
+                ;; is still on line `at-row', so the next `forward-line'
+                ;; delta stays correct.
+                (insert (spectreshell--decorate-row obj text spans))))))))))
 
 (defun spectreshell--decorate-row (obj text spans)
   "Return TEXT with SPANS applied as face/button properties, using OBJ's styles.
