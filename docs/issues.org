@@ -110,6 +110,15 @@ ghostty の pkg/apple-sdk (または zig std) が xcrun を介さず SDKROOT
 
 * 性能・UX (設計判断を要する改善)
 
+** TODO P-6: 描画の残りコストは span ごとの put-text-property
+対象: =spectreshell.el= (=spectreshell--decorate-row=)
+
+=just bench= の 40 区間/行 (50x200) で、1 フレーム 11.6 ms のうち
+5.9 ms が装飾 (2000 回の =put-text-property=)、残りが行の置換と GC。
+区間ごとにプロパティを載せる以外の API が Emacs 側に無いため、これ以上は
+「行あたりの区間数を減らす」か「Emacs の再描画側」の話になる。
+体感で足りなくなったら再測してから考える。
+
 ** TODO P-1: point の強制移動でスクロールバック閲覧が実質不能
 対象: =spectreshell.el= (=spectreshell--move-point=)
 
@@ -118,13 +127,15 @@ ghostty の pkg/apple-sdk (または zig std) が xcrun を介さず SDKROOT
 同様「point がカーソル位置にあったときだけ追従」方式を検討する。
 追従条件 (semi-char モード中は常に追従すべきか等) の仕様決めが必要。
 
-** TODO P-2: font-lock 有効時に dirty 行スキップ最適化が無効化される
+** DONE P-2: font-lock 有効時に dirty 行スキップ最適化が無効化される
 対象: =spectreshell.el= (=spectreshell--apply-dirty=)
 
 =fontified= プロパティにより =equal-including-properties= が常に不一致
-になり、全 dirty 行を毎回書き換える。比較前のプロパティ正規化か
-jit-lock 制御を検討する。H-2 (dirty フラグのクリア) 対応後は影響が
-大きく下がっている。
+になり、全 dirty 行を毎回書き換えていた。
+
+比較対象をバッファのテキストから「モジュールが最後に送ってきた生の
+=(TEXT . SPANS)=」に変えて解決した。他モードが後から付けたプロパティに
+左右されず、装飾を組み立てる前に短絡できる (9aa4f2a)。
 
 ** TODO P-3: Zig ホットパスの intern / funcall 回数
 対象: =src/module.zig=
@@ -140,13 +151,15 @@ XTGETTCAP・kitty keyboard query (CSI ? u)・DECRQM が黙殺され、neovim
 等の起動時タイムアウト待ちの原因になり得る。DA と同様に横取りして応答
 する価値があるが、各クエリの正しい応答値の調査が必要。
 
-** TODO P-5: --pad-rows の O(n^2) と modification hooks
+** DONE P-5: --pad-rows の O(n^2) と modification hooks
 対象: =spectreshell.el=
 
-ループ 1 周ごとに =count-lines= で全域を数え直している。必要行数を
-一度計算して一括 insert にする。更新パスでの
-=inhibit-modification-hooks= 束縛も検討 (他モードのフック互換性と
-トレードオフ)。
+ループ 1 周ごとに =count-lines= で全域を数え直していた。必要行数を一度
+計算して一括 insert にし、dirty 行の位置決めも先頭から数え直さず前の行
+からの差分で進めるようにした (1364d1a)。
+
+=inhibit-modification-hooks= の束縛は見送っている (他モードのフック
+互換性とのトレードオフで、計測上の支配項でもない)。
 
 * 対応済み (2026-07-18 レビュー分の記録)
 
