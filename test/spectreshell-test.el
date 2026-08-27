@@ -156,8 +156,22 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
     (let ((inhibit-read-only t))
       (put-text-property (point-min) (+ (point-min) 2) 'spectreshell-test-mark t))
     ;; 同じ内容を書き直す (行は dirty になるが描画結果は変わらない)。
-    (spectreshell-feed term "\x1b[Hhi")
+    (should (plist-get (spectreshell-feed term "\x1b[Hhi") :dirty))
     (should (get-text-property (point-min) 'spectreshell-test-mark))))
+
+(ert-deftest spectreshell-test-styles-reset-redraws-recycled-ids ()
+  "スタイル ID の振り直し後は、同じ span でも新しいスタイルで描き直される。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-feed term "\x1b[31mhi")
+    (should (member (list :foreground (face-foreground 'spectreshell-color-1 nil 'default))
+                    (get-text-property (point-min) 'face)))
+    ;; 振り直しでは ID 0 が別のスタイルを指し得る。span の中身は同じまま
+    ;; なので、行キャッシュも一緒に捨てないと古い色が残る。
+    (spectreshell--apply-update
+     term '(:styles-reset t :styles ((0 . (:fg 2))) :cursor (0 . 0)
+            :dirty ((0 "hi        " ((0 2 0))))))
+    (should (member (list :foreground (face-foreground 'spectreshell-color-2 nil 'default))
+                    (get-text-property (point-min) 'face)))))
 
 (ert-deftest spectreshell-test-alt-screen-redraws-identical-content ()
   "alt screen へ入った直後は、同じ内容でも改めて描き直される。"

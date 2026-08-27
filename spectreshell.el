@@ -343,7 +343,11 @@ The module sends each style once, when its ID is first used, so OBJ
 must remember them: they are what later updates' spans refer to."
   (let ((table (spectreshell-styles obj)))
     (when (plist-get update :styles-reset)
-      (clrhash table))
+      (clrhash table)
+      ;; The IDs are renumbered from scratch, so a row can come back with
+      ;; a span tuple identical to the one already drawn there while its
+      ;; ID now means a different style; the row cache would skip it.
+      (clrhash (spectreshell-row-cache obj)))
     ;; A stale generation invalidates the cached `face' values but not the
     ;; style plists themselves -- those are never re-sent, so dropping them
     ;; would leave later spans pointing at IDs this terminal cannot resolve.
