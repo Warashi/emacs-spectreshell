@@ -174,7 +174,8 @@ constructor directly outside this file."
   alt-saved
   title
   styles
-  face-generation)
+  face-generation
+  row-cache)
 
 (defvar spectreshell--face-generation 0
   "Counter bumped whenever cached `face' values may have gone stale.
@@ -230,7 +231,8 @@ Return a new `spectreshell' object to pass to the other
      ;; Style IDs are small consecutive integers assigned by the module,
      ;; so `eq' hashing is exact and cheap here.
      :styles (make-hash-table :test 'eq)
-     :face-generation spectreshell--face-generation)))
+     :face-generation spectreshell--face-generation
+     :row-cache (make-hash-table :test 'eq))))
 
 (defun spectreshell-feed (obj bytes)
   "Feed BYTES (a unibyte string) to OBJ's terminal and update its buffer.
@@ -243,6 +245,9 @@ Return the raw update plist from `spectreshell--resize'."
   (let ((update (spectreshell--resize (spectreshell-term obj) rows cols)))
     (setf (spectreshell-rows obj) rows
           (spectreshell-cols obj) cols)
+    ;; Reflow moves content between rows, and shrinking drops rows
+    ;; outright, so row numbers no longer mean what the cache recorded.
+    (clrhash (spectreshell-row-cache obj))
     (spectreshell--apply-update obj update)))
 
 (defun spectreshell-finalize (obj)
@@ -395,20 +400,34 @@ of the terminal region."
 ;; ---------------------------------------------------------------------
 
 (defun spectreshell--apply-dirty (obj dirty)
-  "Apply DIRTY (the :dirty list from an update plist) to OBJ's buffer."
-  (dolist (entry dirty)
-    (pcase-let ((`(,row ,text ,spans) entry))
-      (spectreshell--pad-rows obj row)
-      (pcase-let* ((`(,beg . ,end) (spectreshell--row-bounds obj row))
-                   (new (spectreshell--decorate-row obj text spans)))
-        ;; ghostty-vt's dirty tracking is page-granular (module-api.org), so
-        ;; a batch often marks rows dirty whose rendered content did not
-        ;; actually change; skipping the replace avoids pointless
-        ;; text-property churn (and keeps point/undo more stable) for them.
-        (unless (equal-including-properties (buffer-substring beg end) new)
-          (delete-region beg end)
-          (goto-char beg)
-          (insert new))))))
+  "Apply DIRTY (the :dirty list from an update plist) to OBJ's buffer.
+Rows whose module-side content is unchanged since they were last drawn
+are skipped: ghostty-vt's dirty tracking is page-granular
+\(module-api.org), and re-printing identical content marks rows dirty
+too, so a batch routinely reports rows that render to what is already
+on screen.
+
+The comparison is against OBJ's cache of what the module last sent for
+each row, not against the buffer text: the buffer text carries whatever
+properties other modes have since added \(`fontified' from jit-lock
+above all), which made a buffer-side comparison never match with
+font-lock on.  The cost is that a foreign modification of the terminal
+region is no longer noticed and repaired on the next dirty batch, which
+no longer happens by ordinary means -- the region is rewritten from the
+module, not edited."
+  (let ((cache (spectreshell-row-cache obj)))
+    (dolist (entry dirty)
+      (pcase-let ((`(,row ,text ,spans) entry))
+        (let ((cached (gethash row cache)))
+          (unless (and cached
+                       (equal (car cached) text)
+                       (equal (cdr cached) spans))
+            (puthash row (cons text spans) cache)
+            (spectreshell--pad-rows obj row)
+            (pcase-let ((`(,beg . ,end) (spectreshell--row-bounds obj row)))
+              (delete-region beg end)
+              (goto-char beg)
+              (insert (spectreshell--decorate-row obj text spans)))))))))
 
 (defun spectreshell--decorate-row (obj text spans)
   "Return TEXT with SPANS applied as face/button properties, using OBJ's styles.
@@ -541,6 +560,7 @@ ALT-SCREEN is the :alt-screen value from an update plist: `entered',
 (defun spectreshell--enter-alt-screen (obj)
   "Snapshot OBJ's primary-screen region and blank it for the alt screen.
 The snapshot is restored by `spectreshell--leave-alt-screen'."
+  (clrhash (spectreshell-row-cache obj))
   (setf (spectreshell-alt-saved obj)
         (buffer-substring (spectreshell-marker obj) (point-max)))
   (delete-region (spectreshell-marker obj) (point-max))
@@ -548,6 +568,10 @@ The snapshot is restored by `spectreshell--leave-alt-screen'."
 
 (defun spectreshell--leave-alt-screen (obj)
   "Discard the alt screen's contents in OBJ and restore the saved primary screen."
+  ;; Both transitions replace the whole terminal region behind the row
+  ;; cache's back, so what it remembers per row no longer describes the
+  ;; buffer.
+  (clrhash (spectreshell-row-cache obj))
   (delete-region (spectreshell-marker obj) (point-max))
   (when-let* ((saved (spectreshell-alt-saved obj)))
     (goto-char (spectreshell-marker obj))

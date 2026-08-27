@@ -149,6 +149,25 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
       (should button)
       (should (equal (button-get button 'spectreshell-hyperlink-uri) "https://example.com")))))
 
+(ert-deftest spectreshell-test-unchanged-row-is-not-rewritten ()
+  "内容が変わらない dirty 行はバッファを書き換えない (他モードのプロパティが残る)。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-feed term "hi")
+    (let ((inhibit-read-only t))
+      (put-text-property (point-min) (+ (point-min) 2) 'spectreshell-test-mark t))
+    ;; 同じ内容を書き直す (行は dirty になるが描画結果は変わらない)。
+    (spectreshell-feed term "\x1b[Hhi")
+    (should (get-text-property (point-min) 'spectreshell-test-mark))))
+
+(ert-deftest spectreshell-test-alt-screen-redraws-identical-content ()
+  "alt screen へ入った直後は、同じ内容でも改めて描き直される。"
+  (spectreshell-test--with-terminal (term 2 10)
+    (spectreshell-feed term "hi")
+    (spectreshell-feed term "\x1b[?1049h")
+    (spectreshell-feed term "\x1b[Hhi")
+    (should (string-prefix-p "hi" (buffer-substring-no-properties
+                                   (point-min) (line-end-position))))))
+
 (ert-deftest spectreshell-test-face-cache-follows-theme-change ()
   "テーマ変更後に描かれた行は、キャッシュされた古い色ではなく新しい色になる。"
   (let ((original (face-foreground 'spectreshell-color-1 nil t)))

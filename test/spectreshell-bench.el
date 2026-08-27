@@ -70,13 +70,33 @@ alternate screen 内で計測するのは、pager (less/delta) 経由の
           (dolist (s screens)
             (spectreshell--feed (spectreshell-term obj) s))))))))
 
+(defun spectreshell-bench-resend (spans)
+  "同じ画面を送り直したときの再描画を計測する。
+ghostty-vt の dirty 追跡は行単位で「書かれたか」しか見ないので、内容が
+変わらない書き直し (プログレス表示の更新やページャの再描画) でも行は
+dirty になる。この経路が短絡されているかを見る。"
+  (let ((screen (spectreshell-bench--screen 0 spans)))
+    (with-temp-buffer
+      (let ((obj (spectreshell-start (current-buffer)
+                                     spectreshell-bench-rows
+                                     spectreshell-bench-cols
+                                     (lambda (_bytes)))))
+        (spectreshell-feed obj "\e[?1049h")
+        (spectreshell-feed obj screen)
+        (spectreshell-bench--report
+         (format "%d spans/row: 同一画面の再送" spans)
+         5
+         (spectreshell-bench--min
+          (dotimes (_ 5) (spectreshell-feed obj screen))))))))
+
 (defun spectreshell-bench-run ()
   "全ベンチを実行する。"
   (message "%dx%d, 試行 %d 回の最小値"
            spectreshell-bench-rows spectreshell-bench-cols
            spectreshell-bench-trials)
   (dolist (spans '(1 10 40))
-    (spectreshell-bench-full-redraw spans)))
+    (spectreshell-bench-full-redraw spans))
+  (spectreshell-bench-resend 40))
 
 (provide 'spectreshell-bench)
 ;;; spectreshell-bench.el ends here
