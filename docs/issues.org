@@ -1189,7 +1189,7 @@ ERT: =spectreshell-explore-lifecycle-test-trailing-blank-lines-are-kept=
 と =spectreshell-explore-module-test-trailing-blank-lines-are-kept=
 (=:expected-result :failed= を外した)。
 
-** TODO P-8: emacs モードで打った行がバッファに 3 個現れる
+** DONE P-8: emacs モードで打った行がバッファに 3 個現れる
 対象: =spectreshell-eshell.el= (emacs モード中の =eshell-send-input=)
 
 =/bin/cat= の実行中に C-c C-e で emacs モードへ抜け、=hello= と打って
@@ -1205,6 +1205,24 @@ pty の echo・cat の出力・=eshell-send-input= が端末領域の外へ挿�
 
 軽微だが、emacs モードは docs が書くとおり「出力をさかのぼって閲覧・
 コピーする用途」で使っていても RET を押せば起きる。
+
+対応 (2026-09-05, 95119f4): =eshell-send-input= に around advice を付け、
+前景端末が attach されている間はコマンドラインが存在しないものとして
+扱う。eshell の「=eshell-last-output-end= から point まで」という読み
+取りは、spectreshell の filter が書いている間そのマーカーが端末領域の
+手前に置き去りにされるため、実行中の画面全体を送り返すことになる
+(実測)。端末領域の end-marker より後ろの文字だけを
+=spectreshell--encode-paste= + =return= として送り、バッファからは削除
+する (semi-char モードの RET / =spectreshell-yank= と同じ経路)。結果は
+pty のエコー + プログラムの出力の 2 個で、実端末と一致する。
+
+空 RET で領域外に入っていた空行は消えた。エコー由来の改行が領域内に
+入るのは semi-char の RET と同じで残る。打った行は eshell の入力履歴
+には入らない (元々 eshell への入力ではない)。マニュアルに書いた。
+
+ERT: =spectreshell-eshell-test.el= に 2 本追加。エコーは子の =stty=
+実行タイミングで揺れるため =stty -echo= で止め、「eshell の挿入が消え
+たこと」を決定的に検証している。実端末での 3 個 → 2 個は未確認。
 
 ** WAIT P-6: 描画の残りコストは span ごとの put-text-property
 対象: =spectreshell.el= (=spectreshell--decorate-row=)
