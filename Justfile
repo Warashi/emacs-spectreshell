@@ -42,6 +42,7 @@ nix-check:
   test -f result/share/info/spectreshell.info
   test -f result/share/doc/spectreshell/LICENSE
   test -f result/share/doc/spectreshell/THIRD-PARTY-NOTICES.org
+  test -L result/share/terminfo/g/ghostty
   emacs -Q --batch -L result/share/emacs/site-lisp --eval '(progn (require (quote spectreshell)) (require (quote spectreshell-eshell)) (with-temp-buffer (let ((term (spectreshell-start (current-buffer) 5 10 (lambda (bytes) bytes)))) (spectreshell-feed term "hello") (unless (string-prefix-p "hello" (buffer-string)) (error "nix-check: unexpected buffer contents: %S" (buffer-string))) (unless spectreshell-terminfo-directory (error "nix-check: terminfo not auto-detected")) (message "nix-check OK"))))'
 
 # 描画パスの計測 (ERT ではなく手動実行)。
