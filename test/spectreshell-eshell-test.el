@@ -5,9 +5,9 @@
 ;; 外部プロセス (printf/sleep/false/cat) を走らせ、
 ;; `spectreshell-eshell-mode' がプロセスの出力を spectreshell 経由で
 ;; 描画し、semi-char モードの出入りとプロンプトへの復帰を正しく行う
-;; ことを検証する。batch モードにはウィンドウがないため、
-;; `spectreshell-eshell--terminal-size' の 80x24 フォールバック経路が
-;; 常に使われる。
+;; ことを検証する。batch モードにも選択ウィンドウはあるため、
+;; `spectreshell-eshell--terminal-size' はフォールバックではなく
+;; ウィンドウ計測の経路を通り、23 行 79 桁になる。
 
 (require 'ert)
 (require 'cl-lib)
@@ -103,7 +103,7 @@ BODY がエラーで抜けても確実に kill する。"
 ;; ---------------------------------------------------------------------
 
 (ert-deftest spectreshell-eshell-test-output-past-rows-is-fully-committed ()
-  "端末の rows (batch では 24) を超える行数を出しても、全行バッファに残る。"
+  "端末の rows (batch では 23) を超える行数を出しても、全行バッファに残る。"
   (spectreshell-eshell-test--with-eshell buf
     (spectreshell-eshell-test--send
      buf (format "printf '%%d\\n' %s"
@@ -383,7 +383,7 @@ set-process-window-size をスタブして関数単体で検証する。"
           (let ((window (get-buffer-window buffer t)))
             (should window)
             (should (= (cdr (spectreshell-eshell--terminal-size buffer))
-                       (window-body-width window t)))))
+                       (window-body-width window 'remap)))))
       (kill-buffer buffer))))
 
 ;; ---------------------------------------------------------------------
