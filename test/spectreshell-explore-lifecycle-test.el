@@ -41,11 +41,10 @@ semi-char モードに入って打鍵が黙って捨てられる。"
 ;; ---------------------------------------------------------------------
 
 (ert-deftest spectreshell-explore-lifecycle-test-trailing-blank-lines-are-kept ()
-  "コマンドが最後に出した空行はバッファに残るべき。
-素の eshell では `printf \\n\\n\\n' が空行 3 行として残るが、
-spectreshell 経由だと端末領域の末尾の空行が畳まれて 1 行も残らない。
-途中の空行 (a\\n\\n\\nb) は残るので、失われるのは末尾だけ。"
-  :expected-result :failed
+  "コマンドが最後に出した空行はバッファに残る。
+素の eshell と同じく `printf \\n\\n\\n' は空行 3 行として残る。
+確定化はカーソルが通り過ぎた行までを残すので、描かれなかった
+行だけが畳まれる。"
   (spectreshell-eshell-test--with-eshell buf
     (spectreshell-eshell-test--send buf "printf 'MARK\\n\\n\\n\\n'")
     (should (spectreshell-eshell-test--wait-for-command buf))

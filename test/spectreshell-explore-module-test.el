@@ -105,14 +105,11 @@ RESIZES は ((バイト位置 . (ROWS COLS)) ...) で、位置ちょうどでチ
           (should (equal nil (nreverse joined))))))))
 
 (ert-deftest spectreshell-explore-module-test-trailing-blank-lines-are-kept ()
-  "出力の末尾の空行が `spectreshell-finalize' で全部消える。
-実端末の F-lifecycle-8 と同じ現象だが、eshell 統合 (spectreshell-eshell.el)
+  "出力の末尾の空行は `spectreshell-finalize' でも残る。
+実端末の F-lifecycle-8 と同じことを、eshell 統合 (spectreshell-eshell.el)
 を通さず `spectreshell-start' / `spectreshell-feed' / `spectreshell-finalize'
-だけでも起きる。つまり層は spectreshell.el 側で、eshell 統合ではない。
-消しているのは `spectreshell--trim-frozen-region' の末尾の
-`skip-chars-backward' と見られる (コード読解による推測)。
-途中の空行 (\"x\\r\\n\\r\\n\\r\\ny\\r\\n\") は正しく残る。"
-  :expected-result :failed
+だけで確かめる。`spectreshell--trim-frozen-region' が畳むのは
+カーソルが通り過ぎていない行だけで、空行を出したぶんは残る。"
   (cl-flet ((frozen (bytes)
               (with-temp-buffer
                 (let ((obj (spectreshell-start (current-buffer) 21 80

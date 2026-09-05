@@ -191,7 +191,13 @@ constructor directly outside this file."
   compact
   ;; Buffer position where the last update left the terminal cursor; see
   ;; `spectreshell--cursor-followed-p'.
-  cursor-pos)
+  cursor-pos
+  ;; The same cursor as a terminal (ROW . COL) cons, which is what says
+  ;; how far down the terminal has been used (`spectreshell--used-rows').
+  ;; The buffer position cannot answer that: a row the terminal never
+  ;; dirtied has no line in the region, so the position clamps to the
+  ;; region's end and the row number is lost.
+  cursor-rowcol)
 
 (defvar spectreshell--face-generation 0
   "Counter bumped whenever cached `face' values may have gone stale.
@@ -257,7 +263,8 @@ Return a new `spectreshell' object to pass to the other
      :face-generation spectreshell--face-generation
      :row-cache (make-hash-table :test 'eq)
      :compact compact
-     :cursor-pos (point))))
+     :cursor-pos (point)
+     :cursor-rowcol (cons 0 0))))
 
 (defun spectreshell-feed (obj bytes)
   "Feed BYTES (a unibyte string) to OBJ's terminal and update its buffer.
@@ -321,9 +328,14 @@ pre-TUI screen content is not silently lost."
 Removes each line's trailing run of property-less spaces (the module
 pads rows to the full terminal width; see
 `spectreshell--trim-trailing-blanks' for why styled spaces survive),
-then the all-blank tail rows below the last real output, so eshell's
-next prompt lands right under the output instead of a screenful of
-blank lines further down."
+then the rows below the last one the terminal used, so eshell's next
+prompt lands right under the output instead of a screenful of blank
+lines further down.
+
+The used rows are the last row holding output *and* every row above the
+cursor (`spectreshell--used-rows'): a command ending in
+\"printf \\n\\n\\n\" draws nothing but leaves the cursor on row 3, and
+those three blank rows are its output just as much as text would be."
   (let ((marker (spectreshell-marker obj)))
     (goto-char marker)
     (while (< (point) (spectreshell--region-end obj))
@@ -342,6 +354,27 @@ blank lines further down."
     ;; a row down as the job exits.
     (when (> (point) marker)
       (insert "\n")
+      (spectreshell--set-region-end obj))
+    (spectreshell--restore-used-rows obj)))
+
+(defun spectreshell--used-rows (obj)
+  "Return how many rows of OBJ the terminal had used when it last drew.
+Every row above the cursor's has been passed through, and the cursor's
+own row counts as used once the cursor has left column 0.  Zero when no
+cursor is on record (`spectreshell--leave-alt-screen')."
+  (pcase (spectreshell-cursor-rowcol obj)
+    (`(,row . ,col) (if (> col 0) (1+ row) row))
+    (_ 0)))
+
+(defun spectreshell--restore-used-rows (obj)
+  "Give OBJ's frozen region back the blank rows its cursor had passed.
+Called after the all-blank tail rows were cut: the rows a command left
+blank on purpose are indistinguishable from the never-drawn padding
+below them by their content alone, and the cut takes both."
+  (let ((missing (- (spectreshell--used-rows obj) (spectreshell--row-count obj))))
+    (when (> missing 0)
+      (goto-char (spectreshell--region-end obj))
+      (insert (make-string missing ?\n))
       (spectreshell--set-region-end obj))))
 
 ;; ---------------------------------------------------------------------
@@ -696,7 +729,13 @@ The snapshot is restored by `spectreshell--leave-alt-screen'."
     (goto-char (spectreshell-marker obj))
     (insert saved)
     (spectreshell--set-region-end obj))
-  (setf (spectreshell-alt-saved obj) nil))
+  ;; The recorded cursor names a row of the screen just discarded, so it
+  ;; says nothing about how far the restored one is used.  A live
+  ;; transition has the same update's :cursor put a fresh one back right
+  ;; after; a process that died in the alt screen leaves none, and
+  ;; `spectreshell--used-rows' must fall back to the visible output.
+  (setf (spectreshell-alt-saved obj) nil
+        (spectreshell-cursor-rowcol obj) nil))
 
 ;; ---------------------------------------------------------------------
 ;; Cursor tracking
@@ -743,7 +782,8 @@ as they rewrite rows."
       (set-marker saved-point nil)
       (dolist (window follow-windows)
         (set-window-point window pos))
-      (setf (spectreshell-cursor-pos obj) pos))))
+      (setf (spectreshell-cursor-pos obj) pos
+            (spectreshell-cursor-rowcol obj) cursor))))
 
 (defun spectreshell--row-col-pos (obj row col)
   "Return the buffer position of (ROW . COL) in OBJ's terminal region.
