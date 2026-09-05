@@ -2,6 +2,22 @@ const std = @import("std");
 const emacs = @import("emacs.zig");
 const module = @import("module.zig");
 
+/// ghostty-vt は未実装のシーケンスを `std.log` で報告する。zig 既定の
+/// logFn は fd 2 へ直接書くが、Emacs にとって fd 2 は `emacs -nw` では
+/// 端末そのものなので、書かれた文字列が Emacs の画面表現を通らずに
+/// tty へ出て以後の増分再描画を壊す。ルートモジュール (このファイル)
+/// の `std_options` だけが全依存に効くので、ここで捨てる。
+/// `log_level` を下げるだけにしないのは、Debug ビルドでも err/warn が
+/// 残ってしまい同じ経路で漏れるため。
+pub const std_options: std.Options = .{ .logFn = discardLog };
+
+fn discardLog(
+    comptime _: std.log.Level,
+    comptime _: @Type(.enum_literal),
+    comptime _: []const u8,
+    _: anytype,
+) void {}
+
 /// Emacs はこのシンボルの存在をもって GPL 互換モジュールと判定する。
 /// 値は参照されないため 0 でよい。
 export var plugin_is_GPL_compatible: c_int = 0;

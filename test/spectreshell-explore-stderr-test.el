@@ -47,25 +47,21 @@ ghostty-vt は XTWINOPS の 22/23 をタイトル (第 2 引数 0 か 2) しか
 実装しておらず、アイコン (1) を `log.warn' で捨てる。その警告は
 zig 既定の logFn で fd 2 へ直接書かれるため、emacs -nw では端末に
 そのまま現れて画面表現とずれる。"
-  :expected-result :failed
   (should (equal (spectreshell-explore-stderr-test--feed-in-subprocess "\e[22;1t") "")))
 
 (ert-deftest spectreshell-explore-stderr-test-zero-width-leading-is-silent ()
   "行頭のゼロ幅文字 (U+200B) が stderr へ何も書かない (F-geometry-2)。"
-  :expected-result :failed
   (should (equal (spectreshell-explore-stderr-test--feed-in-subprocess "​") "")))
 
 (ert-deftest spectreshell-explore-stderr-test-unimplemented-mode-is-silent ()
   "未実装のプライベートモード (ESC [ ? 9999 h) が stderr へ何も書かない。
 1..2031 のうち 1996 個がこの経路で警告を出す。"
-  :expected-result :failed
   (should (equal (spectreshell-explore-stderr-test--feed-in-subprocess "\e[?9999h") "")))
 
 (ert-deftest spectreshell-explore-stderr-test-info-level-also-leaks ()
   "info レベルのログ (未知の DCS hook) も stderr へ出る。
 nix ビルドは --release=safe なので zig の既定 log_level は info であり、
 `log.warn' だけでなく `log.info' も端末へ漏れる (F-stderr-1)。"
-  :expected-result :failed
   (should (equal (spectreshell-explore-stderr-test--feed-in-subprocess "\ePxfoo\e\\") "")))
 
 (provide 'spectreshell-explore-stderr-test)
