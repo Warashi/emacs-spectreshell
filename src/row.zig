@@ -17,6 +17,28 @@ pub const Extracted = struct {
     }
 };
 
+/// セル列 X に対応する、その行の text 内のコードポイント index を返す。
+///
+/// Emacs 側でセル列から文字位置を求めるには char-width の和を使うしか
+/// なかったが、国旗 (regional indicator) のように ghostty が 2 セル・
+/// Emacs が 1 桁と数える文字ではずれる。数え方は extractRow の文字の
+/// 積み方と 1 対 1 に対応させる。
+pub fn cellToIndex(pin: ghostty_vt.Pin, x: usize) usize {
+    const cells = pin.cells(.all);
+    var index: usize = 0;
+    for (cells[0..@min(x, cells.len)]) |*cell| {
+        switch (cell.wide) {
+            .spacer_tail, .spacer_head => continue,
+            .narrow, .wide => {},
+        }
+        index += 1;
+        if (cell.codepoint() != 0 and cell.hasGrapheme()) {
+            if (pin.grapheme(cell)) |extra| index += extra.len;
+        }
+    }
+    return index;
+}
+
 /// C1 制御 (U+0080-U+009F) を幅 1 の代替文字に差し替える。
 ///
 /// ghostty は UTF-8 端末として C1 を CSI 等に解釈せず 1 セルに格納する
@@ -204,4 +226,34 @@ test "extractRow は C1 制御を幅 1 の代替文字に置き換える" {
     defer row.deinit(alloc);
 
     try std.testing.expectEqualStrings("\u{fffd}\u{fffd}a", row.text);
+}
+
+test "cellToIndex は extractRow の文字数と一致する" {
+    const alloc = std.testing.allocator;
+    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 10, .rows = 1 });
+    defer t.deinit(alloc);
+    var table: style.Table = .init(alloc);
+    defer table.deinit();
+
+    // 国旗は RI 1 つが 2 セル。セル 4 (= "a") は 3 文字目 (index 2)。
+    t.setCursorPos(1, 1);
+    try t.printString("\u{1F1EF}\u{1F1F5}ab");
+    const pin = t.screens.active.pages.pin(.{ .viewport = .{ .y = 0 } }).?;
+    try std.testing.expectEqual(@as(usize, 0), cellToIndex(pin, 0));
+    try std.testing.expectEqual(@as(usize, 1), cellToIndex(pin, 2));
+    try std.testing.expectEqual(@as(usize, 2), cellToIndex(pin, 4));
+    try std.testing.expectEqual(@as(usize, 3), cellToIndex(pin, 5));
+}
+
+test "cellToIndex は結合文字ぶんも数える" {
+    const alloc = std.testing.allocator;
+    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 10, .rows = 1 });
+    defer t.deinit(alloc);
+
+    // DECSET 2027 有効時、肌色修飾は 1 セルに 2 コードポイントで入る。
+    t.modes.set(.grapheme_cluster, true);
+    t.setCursorPos(1, 1);
+    try t.printString("\u{1F44D}\u{1F3FD}a");
+    const pin = t.screens.active.pages.pin(.{ .viewport = .{ .y = 0 } }).?;
+    try std.testing.expectEqual(@as(usize, 2), cellToIndex(pin, 2));
 }

@@ -65,6 +65,16 @@ Emacs の `invisible\' text property はレイアウトごと文字を潰して
     (let ((face (get-text-property (point-min) 'face)))
       (should (member '(:foreground "red3" :background "red3") face)))))
 
+(ert-deftest spectreshell-test-cursor-lands-after-regional-indicator ()
+  "国旗の後ろに置かれたカーソルが、桁ではなく文字の位置で解決される。
+ghostty は regional indicator 1 つを 2 セルと数えるが Emacs の
+`char-width' は 1 なので、セル列を `move-to-column' で解くと
+2 桁ぶん手前の文字に着く。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-feed term (encode-coding-string
+                             "\N{U+1F1EF}\N{U+1F1F5}ab\e[5G" 'utf-8))
+    (should (equal ?a (char-after (spectreshell-cursor-pos term))))))
+
 (ert-deftest spectreshell-test-split-escape-sequence-across-feeds ()
   "feed 境界で分割された SGR シーケンスと UTF-8 文字も正しく描画される。
 PTY の read はエスケープシーケンスや多バイト文字を任意の位置で切る。"

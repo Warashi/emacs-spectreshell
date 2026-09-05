@@ -67,6 +67,11 @@ pub const DirtyRow = struct {
 pub const Cursor = struct {
     row: usize,
     col: usize,
+    /// col に対応する、その行の text 内のコードポイント index。
+    /// Emacs 側が char-width の和でセル列を解決すると、ghostty と
+    /// Emacs で幅の数え方が違う文字 (国旗など) でずれるため、モジュール
+    /// 側で数えた値を一緒に渡す。
+    index: usize,
     visible: bool,
 };
 
@@ -416,9 +421,11 @@ pub const Term = struct {
             row_dirty[y] = false;
         }
 
+        const screen_cursor = &self.terminal.screens.active.cursor;
         const cursor: Cursor = .{
             .row = self.render.cursor.active.y,
             .col = self.render.cursor.active.x,
+            .index = row_mod.cellToIndex(screen_cursor.page_pin.*, screen_cursor.x),
             .visible = self.render.cursor.visible,
         };
 

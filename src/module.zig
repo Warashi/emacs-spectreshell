@@ -239,6 +239,9 @@ fn buildUpdatePlist(env: *emacs.Env, arena: std.mem.Allocator, update: *const co
         emacs.makeInteger(env, @intCast(update.cursor.col)),
     ));
 
+    try items.append(arena, emacs.intern(env, ":cursor-index"));
+    try items.append(arena, emacs.makeInteger(env, @intCast(update.cursor.index)));
+
     try items.append(arena, emacs.intern(env, ":cursor-visible"));
     try items.append(arena, if (update.cursor.visible) emacs.t(env) else emacs.nilv(env));
 

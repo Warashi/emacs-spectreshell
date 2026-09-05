@@ -37,6 +37,7 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
  :styles ((ID . STYLE-PLIST) ...)
  :styles-reset t-or-omitted
  :cursor (ROW . COL)
+ :cursor-index INDEX
  :cursor-visible t-or-nil
  :responses "raw-bytes-or-omitted"
  :alt-screen entered-or-left-or-omitted
@@ -56,11 +57,14 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
   (モジュールがテーブルを振り直した)。同じ update に画面全行が
   ~:dirty~ として載るので、捨てた直後に描き直せる。ID の種類が上限を
   超えたときだけ起きる。
-- *~:cursor~* / *~:cursor-visible~*: 常に含まれる。ROW/COL はどちらも
-  0-origin で、COL は *端末セル列* である点に注意 (SPANS の START/END
-  と違いコードポイントオフセットではない)。全角文字は 1 文字で 2 セル
-  を占めるため、TEXT 内の文字位置へ変換するには文字数ではなく表示桁
-  (Emacs では ~move-to-column~ / ~current-column~) を使うこと。
+- *~:cursor~* / *~:cursor-index~* / *~:cursor-visible~*: 常に含まれる。
+  ROW/COL はどちらも 0-origin で、COL は *端末セル列* である点に注意
+  (SPANS の START/END と違いコードポイントオフセットではない)。
+  ~:cursor-index~ は同じ位置を「その行の TEXT 内のコードポイント
+  オフセット」で表したもの。表示桁 (~move-to-column~) で解くと、
+  ghostty が 2 セルと数えて Emacs の ~char-width~ が 1 を返す文字
+  (国旗 = regional indicator など) でずれるので、カーソル位置は
+  ~:cursor-index~ で解くこと。
 - *~:responses~*: PTY に送り返すべき応答バイト列 (DA / DSR / DECRQM /
   kitty keyboard の問い合わせ等)。
   何もなければキーごと省略される。

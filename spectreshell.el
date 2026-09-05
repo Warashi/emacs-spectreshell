@@ -440,6 +440,7 @@ Return UPDATE unchanged, for callers that want to inspect it further."
         (when (spectreshell-compact obj)
           (spectreshell--trim-blank-tail obj))
         (spectreshell--move-point obj (plist-get update :cursor)
+                                  (plist-get update :cursor-index)
                                   follow-point follow-windows saved-point)
         (spectreshell--restore-window-views obj saved-views)
         (spectreshell--align-windows obj)
@@ -902,16 +903,18 @@ content it was reading."
         (set-window-start window start-pos t)
         (set-window-point window point-pos)))))
 
-(defun spectreshell--move-point (obj cursor follow-point follow-windows saved-point)
+(defun spectreshell--move-point (obj cursor index follow-point follow-windows
+                                    saved-point)
   "Place point and `window-point' after an update drew CURSOR in OBJ.
-CURSOR is the :cursor (ROW . COL) cons from an update plist.
+CURSOR is the :cursor (ROW . COL) cons from an update plist and INDEX its
+:cursor-index, the character offset within the row that COL corresponds to.
 FOLLOW-POINT and FOLLOW-WINDOWS are what
 `spectreshell--cursor-followed-p\=' answered before the update, and
 SAVED-POINT is `spectreshell--save-line\=''s record of where point stood
 then: point is restored from it rather than simply left alone, because
 the redraw helpers move point as they rewrite rows."
   (pcase-let ((`(,row . ,col) cursor))
-    (let ((pos (spectreshell--row-col-pos obj row col))
+    (let ((pos (spectreshell--row-col-pos obj row col index))
           (restored (spectreshell--restore-line obj saved-point)))
       (goto-char (if follow-point pos restored))
       (dolist (window follow-windows)
@@ -919,13 +922,16 @@ the redraw helpers move point as they rewrite rows."
       (setf (spectreshell-cursor-pos obj) pos
             (spectreshell-cursor-rowcol obj) cursor))))
 
-(defun spectreshell--row-col-pos (obj row col)
+(defun spectreshell--row-col-pos (obj row col &optional index)
   "Return the buffer position of (ROW . COL) in OBJ's terminal region.
 COL is a terminal *cell* column (docs/module-api.org), not a character
-offset: a double-width character occupies two cells but only one buffer
-position, so the mapping goes through display columns
-\(`move-to-column', which counts each character's `char-width') rather
-than character counting.  A COL past the end of a short row clamps to
+offset.  INDEX, when given, is the module's :cursor-index for COL: the
+character offset within the row, which is what this walks.  Without it
+the mapping falls back to display columns
+\(`move-to-column', which counts each character's `char-width'), which
+is only right for characters whose Emacs display width equals their cell
+count: a regional indicator is 2 cells for ghostty but 1 column for
+Emacs.  A COL past the end of a short row clamps to
 the end of that line, and a ROW past the region's last line to
 `spectreshell--region-end': a bare cursor-positioning sequence does not
 dirty the rows it jumps over, so the region can legitimately be shorter
@@ -937,7 +943,9 @@ position on eshell's command line."
       (forward-line row)
       (if (>= (point) end)
           end
-        (move-to-column col)
+        (if index
+            (forward-char (min index (- (line-end-position) (point))))
+          (move-to-column col))
         (min (point) end)))))
 
 ;; ---------------------------------------------------------------------
