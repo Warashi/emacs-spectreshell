@@ -68,10 +68,10 @@ meta 併用の大文字 (=M-A=) は meta ビットにより =characterp= の外�
 対象: =spectreshell-eshell.el= (=--wrap-command-for-pty=)
 
 pty を Emacs が開いた直後の既定は =-onlcr= で、そのままだと LF が改行
-にならず出力が階段状になる。これを避ける =stty= ラッパを =term-exec-1=
-から写していたが、写し元と違って spectreshell が pty 化するのは出力側
-だけ (=--force-pty-output=) であり、パイプの最終段では標準入力が eshell
-の plain pipe になる。=stty= が ENOTTY で失敗し (stderr は =null-device=
+にならず出力が階段状になる。これを避ける =stty= ラッパは当初 =term.el=
+の =term-exec-1= と同じく標準入力に対して =stty= していたが、
+spectreshell が pty 化するのは出力側だけ (=--force-pty-output=)
+であり、パイプの最終段では標準入力が eshell の plain pipe になる。=stty= が ENOTTY で失敗し (stderr は =null-device=
 送りで無言)、=ls | cat= のような日常的なパイプの出力がすべて階段状に
 崩れていた。
 
