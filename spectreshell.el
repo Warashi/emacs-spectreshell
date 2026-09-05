@@ -702,7 +702,7 @@ The snapshot is restored by `spectreshell--leave-alt-screen'."
 
 (defun spectreshell--cursor-followed-p (obj position)
   "Return non-nil if POSITION should follow OBJ\='s cursor on this update.
-POSITION is a point or window-point read before the update touched the
+POSITION is a point or `window-point' read before the update touched the
 buffer, so comparing it against the position the previous update left
 the cursor at is what tells a point sitting at the cursor apart from one
 left behind in the scrollback.  In semi-char mode every position follows
@@ -725,7 +725,7 @@ output."
     windows))
 
 (defun spectreshell--move-point (obj cursor follow-point follow-windows saved-point)
-  "Place point and window-point after an update drew CURSOR in OBJ.
+  "Place point and `window-point' after an update drew CURSOR in OBJ.
 CURSOR is the :cursor (ROW . COL) cons from an update plist.
 FOLLOW-POINT and FOLLOW-WINDOWS are what
 `spectreshell--cursor-followed-p\=' answered before the update, and
