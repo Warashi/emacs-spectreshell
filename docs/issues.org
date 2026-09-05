@@ -1045,7 +1045,7 @@ libghostty-vt のビルドに足りるかは未確認 (推測)。
 
 * 性能・UX (設計判断を要する改善)
 
-** TODO P-7: コマンドが最後に出した空行が確定時に消える
+** DONE P-7: コマンドが最後に出した空行が確定時に消える
 対象: =spectreshell.el= (=spectreshell--trim-frozen-region=)
 
 出力の末尾にある空行が確定時に全部消える (F-lifecycle-8、3/3 回)。
@@ -1083,6 +1083,29 @@ eshell を通らない層で同じことを主張する
 =spectreshell-explore-module-test-trailing-blank-lines-are-kept=
 (どちらも =:expected-result :failed=)。判定が保留なので「直すべき」では
 なく「現状をこう固定した」テストとして読むこと。
+
+対応 (2026-09-05, eb9e63d): 「末尾の空行を残す」と M-3 追補「何も描か
+れなかった領域が空行を残さない」を、=spectreshell--trim-frozen-region=
+が「最後に出力のある行」と「端末のカーソルが通り過ぎた行」の下のほう
+までを残す規則で両立させた。カーソルは =spectreshell-cursor-rowcol=
+slot に (ROW . COL) で保持する。カーソル行だけを見ると =\r= や
+カーソル上移動で戻った進捗表示の出力を切り、出力のある行だけを見ると
+=printf "\n\n\n"= の空行が消えるため、両者の max を採った。alt screen
+のまま死んだプロセスはカーソルの記録を nil にして出力のある行までへ
+フォールバックする。
+
+表の訂正: 有効時の結果は =printf "\n"= が空行 1 行、=printf "\n\n\n"= が
+空行 3 行で素の eshell と一致する。=printf "   "= は「何も残らない」
+から空行 1 行に変わる (カーソルが (0,3) なので row 0 は使われた行。
+L-17 の行末空白除去で中身は空になる)。=printf 'x\e[5;1H'= のように
+描かずにカーソルだけ下げた場合は =x= + 空行 3 行になり、実端末で次の
+プロンプトが出る位置と同じ。
+
+docs/design.org と docs/spectreshell.org に規則を書いた。
+
+ERT: =spectreshell-explore-lifecycle-test-trailing-blank-lines-are-kept=
+と =spectreshell-explore-module-test-trailing-blank-lines-are-kept=
+(=:expected-result :failed= を外した)。
 
 ** TODO P-8: emacs モードで打った行がバッファに 3 個現れる
 対象: =spectreshell-eshell.el= (emacs モード中の =eshell-send-input=)
