@@ -175,7 +175,10 @@ constructor directly outside this file."
   title
   styles
   face-generation
-  row-cache)
+  row-cache
+  ;; Buffer position where the last update left the terminal cursor; see
+  ;; `spectreshell--cursor-followed-p'.
+  cursor-pos)
 
 (defvar spectreshell--face-generation 0
   "Counter bumped whenever cached `face' values may have gone stale.
@@ -232,7 +235,8 @@ Return a new `spectreshell' object to pass to the other
      ;; so `eq' hashing is exact and cheap here.
      :styles (make-hash-table :test 'eq)
      :face-generation spectreshell--face-generation
-     :row-cache (make-hash-table :test 'eq))))
+     :row-cache (make-hash-table :test 'eq)
+     :cursor-pos (point))))
 
 (defun spectreshell-feed (obj bytes)
   "Feed BYTES (a unibyte string) to OBJ's terminal and update its buffer.
@@ -316,8 +320,16 @@ Return UPDATE unchanged, for callers that want to inspect it further."
       ;; would otherwise accumulate unbounded undo entries (eshell buffers
       ;; have undo enabled), and undoing a redraw after the job exits
       ;; would corrupt confirmed scrollback text.
+      ;; Who follows the cursor is decided here, before any helper below
+      ;; touches the buffer: the redraw moves point around (and rewrites
+      ;; the very rows the comparison is about), so after it there is no
+      ;; way left to tell "was sitting at the cursor" from "was reading
+      ;; the scrollback".
       (let ((inhibit-read-only t)
-            (buffer-undo-list t))
+            (buffer-undo-list t)
+            (follow-point (spectreshell--cursor-followed-p obj (point)))
+            (follow-windows (spectreshell--following-windows obj))
+            (saved-point (point-marker)))
         ;; Styles first: the rows below are drawn from style IDs that this
         ;; call is what teaches OBJ about.
         (spectreshell--apply-styles obj update)
@@ -325,7 +337,8 @@ Return UPDATE unchanged, for callers that want to inspect it further."
         (spectreshell--apply-scrolled-off obj (plist-get update :scrolled-off))
         (spectreshell--apply-dirty obj (plist-get update :dirty))
         (spectreshell--trim-rows obj)
-        (spectreshell--move-point obj (plist-get update :cursor))
+        (spectreshell--move-point obj (plist-get update :cursor)
+                                  follow-point follow-windows saved-point)
         (when-let* ((title (plist-get update :title)))
           (setf (spectreshell-title obj) title)
           (run-hook-with-args 'spectreshell-title-functions obj title)))))
@@ -594,14 +607,45 @@ The snapshot is restored by `spectreshell--leave-alt-screen'."
 ;; Cursor tracking
 ;; ---------------------------------------------------------------------
 
-(defun spectreshell--move-point (obj cursor)
-  "Move point (and window-point, if displayed) to CURSOR in OBJ.
-CURSOR is the :cursor (ROW . COL) cons from an update plist."
+(defvar spectreshell-semi-char-mode)
+
+(defun spectreshell--cursor-followed-p (obj position)
+  "Return non-nil if POSITION should follow OBJ\='s cursor on this update.
+POSITION is a point or window-point read before the update touched the
+buffer, so comparing it against the position the previous update left
+the cursor at is what tells a point sitting at the cursor apart from one
+left behind in the scrollback.  In semi-char mode every position follows
+unconditionally: keys go straight to the terminal there, so point has
+nowhere to be but at the cursor."
+  (or spectreshell-semi-char-mode
+      (eql position (spectreshell-cursor-pos obj))))
+
+(defun spectreshell--following-windows (obj)
+  "Return the windows showing OBJ\='s buffer whose point follows the cursor.
+Judged per window (`spectreshell--cursor-followed-p\='), so one window
+can stay parked in the scrollback while another keeps tracking the
+output."
+  (let (windows)
+    (dolist (window (get-buffer-window-list (spectreshell-buffer obj) nil t))
+      (when (spectreshell--cursor-followed-p obj (window-point window))
+        (push window windows)))
+    windows))
+
+(defun spectreshell--move-point (obj cursor follow-point follow-windows saved-point)
+  "Place point and window-point after an update drew CURSOR in OBJ.
+CURSOR is the :cursor (ROW . COL) cons from an update plist.
+FOLLOW-POINT and FOLLOW-WINDOWS are what
+`spectreshell--cursor-followed-p\=' answered before the update, and
+SAVED-POINT is a marker at where point stood then: point is restored to
+it rather than simply left alone, because the redraw helpers move point
+as they rewrite rows."
   (pcase-let ((`(,row . ,col) cursor))
     (let ((pos (spectreshell--row-col-pos obj row col)))
-      (goto-char pos)
-      (dolist (window (get-buffer-window-list (spectreshell-buffer obj) nil t))
-        (set-window-point window pos)))))
+      (goto-char (if follow-point pos saved-point))
+      (set-marker saved-point nil)
+      (dolist (window follow-windows)
+        (set-window-point window pos))
+      (setf (spectreshell-cursor-pos obj) pos))))
 
 (defun spectreshell--row-col-pos (obj row col)
   "Return the buffer position of (ROW . COL) in OBJ's terminal region.

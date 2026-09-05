@@ -96,6 +96,55 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
     ;; 2行目 ("cd") の2文字目まで書いた直後なのでカーソルは row 1 col 2。
     (should (= (point) (spectreshell--row-col-pos term 1 2)))))
 
+(ert-deftest spectreshell-test-semi-char-mode-always-follows-cursor ()
+  "semi-char モード中は point がどこにあっても新カーソル位置へ追従する。
+キー入力は端末へ直送されるので、point は常にカーソルに居るべき。"
+  (spectreshell-test--with-terminal (term 5 10)
+    (spectreshell-semi-char-mode 1)
+    (spectreshell-feed term "ab\r\ncd")
+    (goto-char (point-min))
+    (spectreshell-feed term "ef")
+    (should (= (point) (spectreshell--row-col-pos term 1 4)))))
+
+(ert-deftest spectreshell-test-emacs-mode-follows-cursor-when-point-is-there ()
+  "emacs モードでも、point がカーソル位置にあるうちは追従する。"
+  (spectreshell-test--with-terminal (term 5 10)
+    (spectreshell-feed term "ab\r\ncd")
+    (spectreshell-feed term "ef")
+    (should (= (point) (spectreshell--row-col-pos term 1 4)))))
+
+(ert-deftest spectreshell-test-emacs-mode-keeps-point-in-scrollback ()
+  "emacs モードで point を確定済みスクロールバックへ動かしていたら、
+スクロールを伴う出力があっても point は動かない。
+毎 update で引き戻されるとスクロールバックの閲覧・コピーができない。"
+  (spectreshell-test--with-terminal (term 2 10)
+    (spectreshell-feed term "l1\r\nl2\r\nl3\r\n")
+    ;; "l1" は端末領域から流れ出て marker より前の確定テキストになっている。
+    (should (< (point-min) (spectreshell-marker term)))
+    (goto-char (1+ (point-min)))
+    (spectreshell-feed term "l4\r\nl5")
+    (should (= (point) (1+ (point-min))))))
+
+(ert-deftest spectreshell-test-window-point-follows-cursor-per-window ()
+  "追従判定はウィンドウごとに行う。
+カーソル位置にあるウィンドウだけが追従し、履歴を表示している
+ウィンドウの window-point は据え置かれる。"
+  (spectreshell-test--with-terminal (term 5 10)
+    (spectreshell-feed term "ab\r\ncd")
+    (let* ((buffer (current-buffer))
+           (window (selected-window))
+           (other (split-window window)))
+      (unwind-protect
+          (progn
+            (set-window-buffer window buffer)
+            (set-window-buffer other buffer)
+            (set-window-point other (1+ (spectreshell-marker term)))
+            (goto-char (spectreshell--row-col-pos term 1 2))
+            (spectreshell-feed term "ef")
+            (should (= (window-point window) (spectreshell--row-col-pos term 1 4)))
+            (should (= (window-point other) (1+ (spectreshell-marker term)))))
+        (delete-window other)))))
+
 (ert-deftest spectreshell-test-feed-does-not-record-undo ()
   "undo が有効なバッファでも feed の再描画は undo エントリを積まない。
 積んでしまうと大量出力で undo リストが際限なく肥大化し、ジョブ終了後
