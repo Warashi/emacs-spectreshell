@@ -127,6 +127,23 @@ shift を残すことで kitty/CSIu 有効時も shift ビットが立つ
       (spectreshell-yank)
       (should (equal (car responses) "\x1b[200~hi\x1b[201~")))))
 
+(ert-deftest spectreshell-key-test-xterm-paste-sends-event-text ()
+  "端末側の paste (xterm-paste イベント) はその文字列を子へ送る。
+bracketed paste 無効時は囲みが付かず改行が CR に変わり、有効時は
+囲みが付いて改行はそのまま渡る。"
+  (spectreshell-test--with-terminal (term 5 10 responses)
+    (let ((spectreshell--current term))
+      (spectreshell-xterm-paste '(xterm-paste "p1\np2"))
+      (should (equal (car responses) "p1\rp2"))
+      (spectreshell-feed term "\x1b[?2004h")
+      (spectreshell-xterm-paste '(xterm-paste "p1\np2"))
+      (should (equal (car responses) "\x1b[200~p1\np2\x1b[201~")))))
+
+(ert-deftest spectreshell-key-test-xterm-paste-noop-without-current-terminal ()
+  "spectreshell--current が nil のときは送信されず、エラーにもならない。"
+  (with-temp-buffer
+    (should (null (spectreshell-xterm-paste '(xterm-paste "x"))))))
+
 ;; ---------------------------------------------------------------------
 ;; モード切替
 ;; ---------------------------------------------------------------------
