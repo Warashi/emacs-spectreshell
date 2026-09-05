@@ -9,6 +9,8 @@
 いるため維持する。詳細な指摘本文と検証記録は当時のファイル
 (=docs/code-review-issues.org=) の git 履歴を参照。
 
+レビュー後に見つかった課題は同じ体系の続き番号 (L-21 以降など) を振る。
+
 * 機能・堅牢性
 
 ** TODO M-3: 同一バッファでの並行ジョブで端末領域が交錯する
@@ -61,6 +63,21 @@ meta 併用の大文字 (=M-A=) は meta ビットにより =characterp= の外�
 ので、a-z 全字の束縛を足して対応 (a031601、
 =test/spectreshell-key-table-test.el= の =C-M-a= 行)。docs/design.org の例外は =C-c= / =C-x= プレフィックス・
 =M-x=・=C-y= で、どれも =C-M-= 版とは別イベントのため除外は設けていない。
+
+** DONE L-21: パイプ最終段で pty の termios が正されない
+対象: =spectreshell-eshell.el= (=--wrap-command-for-pty=)
+
+pty を Emacs が開いた直後の既定は =-onlcr= で、そのままだと LF が改行
+にならず出力が階段状になる。これを避ける =stty= ラッパを =term-exec-1=
+から写していたが、写し元と違って spectreshell が pty 化するのは出力側
+だけ (=--force-pty-output=) であり、パイプの最終段では標準入力が eshell
+の plain pipe になる。=stty= が ENOTTY で失敗し (stderr は =null-device=
+送りで無言)、=ls | cat= のような日常的なパイプの出力がすべて階段状に
+崩れていた。
+
+=stty= の対象を子プロセスの制御端末 =/dev/tty= (= Emacs が開いた pty)
+に変えて対応 (0f650de、=test/spectreshell-eshell-test.el= の
+=spectreshell-eshell-test-piped-output-lines-start-at-column-zero=)。
 
 * ビルド・パッケージング
 
