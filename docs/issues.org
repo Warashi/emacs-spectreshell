@@ -589,7 +589,7 @@ ERT: =spectreshell-explore-recheck-test-point-inside-region-survives-scroll=
 batch では記録値の読み返しまでしか確認できず、M-v の実際の見え方は
 未確認 (tmux 無し)。
 
-** TODO L-31: 外部コマンドを一度走らせると spectreshell-mode が解除されない
+** DONE L-31: 外部コマンドを一度走らせると spectreshell-mode が解除されない
 対象: =spectreshell-eshell.el= (=--detach=)
 
 =sh -c 'echo hi'= を 1 回実行してプロンプトへ戻ると、端末オブジェクトも
@@ -608,6 +608,16 @@ batch では記録値の読み返しまでしか確認できず、M-v の実際�
 ERT: =test/spectreshell-explore-lifecycle-test.el= の
 =spectreshell-explore-lifecycle-test-mode-is-off-after-command=
 (=:expected-result :failed=)。
+
+対応 (2026-09-05, 9d7c5b6): =spectreshell-eshell--detach= で attach 済み
+一覧 (=spectreshell-eshell--terminals=) が空になった時点で
+=spectreshell-mode -1= を呼ぶ。前景ジョブ単位ではなくバッファの端末
+0 個を条件にしたのは、背景ジョブが残っている間は C-c C-j の入口を
+残す必要があるため (M-3 の設計)。
+
+ERT: =spectreshell-explore-lifecycle-test-mode-is-off-after-command=
+(=:expected-result :failed= を外した)。モードラインの見た目は本環境
+(tmux 無し) では未確認。
 
 ** TODO L-32: 同一バッファを 2 ウィンドウに表示すると端末サイズが最後のウィンドウのものになる
 対象: =spectreshell-eshell.el= (=--window-size-change=)
