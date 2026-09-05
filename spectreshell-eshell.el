@@ -113,13 +113,25 @@ even when a database was in fact auto-detected."
 ;; Per-buffer terminal/process bookkeeping
 ;; ---------------------------------------------------------------------
 
+(defvar-local spectreshell-eshell--terminals nil
+  "Alist of (PROCESS . TERMINAL) for every job rendering into this buffer.
+A buffer can host several at once: a job started with an `&' leaves a
+background job drawing into a terminal region of its own while eshell
+goes back to reading the command line, and the next foreground job then
+gets a second region below it.  Each entry is added by
+`spectreshell-eshell--attach' and removed by
+`spectreshell-eshell--detach'; the pairing is what
+`spectreshell-eshell--window-size-change' needs, since
+`spectreshell-resize' takes the `spectreshell' struct while
+`set-process-window-size' takes the process object and neither one
+holds a reference to the other.")
+
 (defvar-local spectreshell-eshell--process nil
   "The process `spectreshell--current' (if any) in this buffer is attached to.
-Kept in lockstep with `spectreshell--current' by
-`spectreshell-eshell--attach'/`spectreshell-eshell--detach':
-`spectreshell-resize' needs the `spectreshell' struct but
-`set-process-window-size' needs the process object, and neither one
-holds a reference to the other.")
+That is the *foreground* job's process: `spectreshell--current' names
+the terminal keys go to, and only a foreground job has a claim on the
+keyboard.  Kept in lockstep with `spectreshell--current' by
+`spectreshell-eshell--attach'/`spectreshell-eshell--detach'.")
 
 ;; ---------------------------------------------------------------------
 ;; Terminal geometry
@@ -141,37 +153,50 @@ frame dimensions do not correspond to anything a user could see."
       (cons (frame-height) (frame-width)))))
 
 (defun spectreshell-eshell--window-size-change (window)
-  "Resize this buffer's running spectreshell terminal to fit WINDOW.
+  "Resize every spectreshell terminal running in this buffer to fit WINDOW.
+All of them share WINDOW, so a background job left at the old size
+would keep wrapping its output at a width nothing on screen has.
 Buffer-local member of `window-size-change-functions' and
 `window-buffer-change-functions' (the latter covers a buffer being
 \(re)displayed in an existing window without any size change -- e.g. a
 job attached while the buffer was buried, then brought back with
 `switch-to-buffer'), both added by `spectreshell-eshell--attach'.  Left
-in place after the terminal it was added for finalizes
-\(`spectreshell-eshell--detach' does not remove it):
-`spectreshell--current' being nil then makes every subsequent call of
+in place after the last terminal it was added for finalizes
+\(`spectreshell-eshell--detach' does not remove it): an empty
+`spectreshell-eshell--terminals' then makes every subsequent call of
 this a no-op, which is cheaper than tracking add/remove state across
 however many jobs run in this buffer over its lifetime."
-  (when-let* ((obj spectreshell--current)
-              (proc spectreshell-eshell--process)
-              (rows (window-body-height window))
+  (when-let* ((rows (window-body-height window))
               (cols (window-max-chars-per-line window)))
-    (unless (and (= rows (spectreshell-rows obj)) (= cols (spectreshell-cols obj)))
-      (spectreshell-resize obj rows cols)
-      (set-process-window-size proc rows cols))))
+    (pcase-dolist (`(,proc . ,obj) spectreshell-eshell--terminals)
+      (unless (and (= rows (spectreshell-rows obj)) (= cols (spectreshell-cols obj)))
+        (spectreshell-resize obj rows cols)
+        (set-process-window-size proc rows cols)))))
 
 ;; ---------------------------------------------------------------------
 ;; Attach / detach
 ;; ---------------------------------------------------------------------
 
-(defun spectreshell-eshell--attach (proc size)
+(defun spectreshell-eshell--attach (proc size background)
   "Start a spectreshell terminal for PROC and take over its buffer I/O.
 Called right after `eshell-gather-process-output' creates PROC, when
 `eshell-interactive-output-p' said PROC is the pipeline stage whose
 output is headed for interactive display.  Replaces PROC's filter and
 sentinel (installed for the plain, non-terminal-emulating case by
-`eshell-gather-process-output' itself) and switches PROC's buffer into
-`spectreshell-semi-char-mode' for the job's duration.  SIZE is the
+`eshell-gather-process-output' itself).
+
+BACKGROUND is `eshell-current-subjob-p' as it stood at that call, i.e.
+non-nil for a job started with `&'.  Such a job gets a terminal region
+and a redraw of its own but nothing else: it does not become
+`spectreshell--current' and does not turn on
+`spectreshell-semi-char-mode', so eshell keeps the keyboard and the
+command line stays usable while it runs.  Its terminal is also started
+COMPACT, so that its region does not push eshell's prompt a screenful
+down the moment it prints its first line.  (Interactive input to a
+background job is out of scope; a real shell would stop it on SIGTTIN
+instead.)  A foreground job takes both, for as long as it runs.
+
+SIZE is the
 \(ROWS . COLS) `spectreshell-eshell--gather-process-output-advice' already
 computed and had `spectreshell-eshell--wrap-command-for-pty' give PROC's
 pty via `stty' before exec'ing the real command, reused here (rather
@@ -195,7 +220,8 @@ matches the size the child's very first ioctl already saw."
                          ;; inside the process filter.
                          (lambda (bytes)
                            (when (process-live-p proc)
-                             (process-send-string proc bytes))))))
+                             (process-send-string proc bytes)))
+                         background)))
         (process-put proc 'spectreshell-eshell-terminal obj)
         ;; PROC's output must reach `spectreshell-feed' as exact raw bytes
         ;; (docs/module-api.org) and PROC's input (encode-key/encode-paste/
@@ -206,37 +232,52 @@ matches the size the child's very first ioctl already saw."
         (set-process-filter proc #'spectreshell-eshell--filter)
         (set-process-sentinel proc #'spectreshell-eshell--sentinel)
         (set-process-window-size proc rows cols)
-        (setq spectreshell--current obj
-              spectreshell-eshell--process proc)
+        (push (cons proc obj) spectreshell-eshell--terminals)
         (add-hook 'window-size-change-functions
                    #'spectreshell-eshell--window-size-change nil t)
         (add-hook 'window-buffer-change-functions
                    #'spectreshell-eshell--window-size-change nil t)
-        (spectreshell-semi-char-mode 1)))))
+        (unless background
+          (setq spectreshell--current obj
+                spectreshell-eshell--process proc)
+          (spectreshell-semi-char-mode 1))))))
 
 (defun spectreshell-eshell--detach (proc)
-  "Finalize PROC's spectreshell terminal and leave semi-char mode.
+  "Finalize PROC's spectreshell terminal and, for a foreground job, leave semi-char.
 Called from `spectreshell-eshell--sentinel' once PROC is no longer
 live.  Idempotent (PROC's `spectreshell-eshell-terminal' property is
 cleared on first use) because a process sentinel can run more than
-once for the same process."
+once for the same process.
+
+A background job's exit touches neither `spectreshell--current' nor
+`spectreshell-semi-char-mode' nor `eshell-last-output-end': all three
+belong to whatever eshell is doing in the foreground, which is either a
+running job whose keyboard must not be taken away mid-command, or a
+command line whose half-typed input the next `eshell-send-input' still
+has to read back."
   (when-let* ((obj (process-get proc 'spectreshell-eshell-terminal)))
     (process-put proc 'spectreshell-eshell-terminal nil)
     (if (buffer-live-p (spectreshell-buffer obj))
         (with-current-buffer (spectreshell-buffer obj)
-          (spectreshell-finalize obj)
-          ;; `spectreshell-eshell--filter' bypasses eshell's own output
-          ;; path entirely (`eshell-insertion-filter'/
-          ;; `eshell-interactive-process-filter'), the only code that
-          ;; normally advances `eshell-last-output-end'; without this,
-          ;; `eshell-sentinel''s prompt (run right after this function
-          ;; returns) would land wherever that marker was last left --
-          ;; i.e. right before the terminal region, not after it.
-          (set-marker eshell-last-output-end (point-max))
-          (when (eq spectreshell--current obj)
-            (setq spectreshell--current nil
-                  spectreshell-eshell--process nil))
-          (spectreshell-semi-char-mode -1))
+          (setq spectreshell-eshell--terminals
+                (assq-delete-all proc spectreshell-eshell--terminals))
+          (let ((foreground (eq spectreshell--current obj))
+                (end (spectreshell-finalize obj)))
+            (when foreground
+              ;; `spectreshell-eshell--filter' bypasses eshell's own
+              ;; output path entirely (`eshell-insertion-filter'/
+              ;; `eshell-interactive-process-filter'), the only code that
+              ;; normally advances `eshell-last-output-end'; without this,
+              ;; `eshell-sentinel''s prompt (run right after this function
+              ;; returns) would land wherever that marker was last left --
+              ;; i.e. right before the terminal region, not after it.
+              ;; Repinned right here, while END is still current: a
+              ;; background job writing into its own region above would
+              ;; otherwise shift the text END names out from under it.
+              (set-marker eshell-last-output-end end)
+              (setq spectreshell--current nil
+                    spectreshell-eshell--process nil)
+              (spectreshell-semi-char-mode -1))))
       ;; The buffer was killed while PROC was still running: there is
       ;; nothing left to finalize *into*, so just release the module
       ;; terminal directly instead of leaving it for the GC finalizer.
@@ -437,9 +478,15 @@ at all.  When attaching, ORIG's own `make-process' call is arranged to
 get a pty sized and sanitized for `spectreshell-eshell--terminal-size''s
 ROWS/COLS (via `spectreshell-eshell--want-pty'/`spectreshell-eshell--pty-size'),
 and the resulting process is attached to a new spectreshell terminal of
-that same size (`spectreshell-eshell--attach')."
+that same size (`spectreshell-eshell--attach').
+
+`eshell-current-subjob-p' is read here rather than left for
+`spectreshell-eshell--attach' to read itself: `eshell-do-subjob' binds
+it around evaluating a `&'-terminated command, and that binding is only
+in effect for as long as ORIG is on the stack."
   (let* ((attach (and (eshell-interactive-output-p)
                        (not (file-remote-p default-directory))))
+         (background eshell-current-subjob-p)
          (size (and attach (spectreshell-eshell--terminal-size (current-buffer))))
          (spectreshell-eshell--want-pty attach)
          (spectreshell-eshell--pty-size size)
@@ -450,7 +497,7 @@ that same size (`spectreshell-eshell--attach')."
             eshell-variable-aliases-list))
          (proc (funcall orig command args)))
     (when (and attach (processp proc))
-      (spectreshell-eshell--attach proc size))
+      (spectreshell-eshell--attach proc size background))
     proc))
 
 ;; ---------------------------------------------------------------------

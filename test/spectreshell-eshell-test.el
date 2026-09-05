@@ -343,8 +343,7 @@ set-process-window-size をスタブして関数単体で検証する。"
   (with-temp-buffer
     (let ((obj (spectreshell-start (current-buffer) 24 80 #'ignore))
           (pty-size nil))
-      (setq spectreshell--current obj
-            spectreshell-eshell--process 'fake-proc)
+      (setq spectreshell-eshell--terminals (list (cons 'fake-proc obj)))
       (cl-letf (((symbol-function 'window-body-height) (lambda (_w) 30))
                 ((symbol-function 'window-max-chars-per-line) (lambda (_w) 100))
                 ((symbol-function 'set-process-window-size)
@@ -358,19 +357,102 @@ set-process-window-size をスタブして関数単体で検証する。"
         (spectreshell-eshell--window-size-change 'fake-window)
         (should (null pty-size))))))
 
+(ert-deftest spectreshell-eshell-test-window-size-change-resizes-every-attached-terminal ()
+  "ウィンドウサイズ変化は attach 済みの全端末に及ぶ。
+背景ジョブは前景ジョブと同じウィンドウを共有するので、前景の分だけ
+リサイズすると背景ジョブの画面幅だけが古いままになる。"
+  (with-temp-buffer
+    (let* ((background (spectreshell-start (current-buffer) 24 80 #'ignore))
+           (foreground (spectreshell-start (current-buffer) 24 80 #'ignore))
+           (pty-sizes nil))
+      (setq spectreshell-eshell--terminals
+            (list (cons 'fake-bg-proc background) (cons 'fake-fg-proc foreground))
+            spectreshell--current foreground)
+      (cl-letf (((symbol-function 'window-body-height) (lambda (_w) 30))
+                ((symbol-function 'window-max-chars-per-line) (lambda (_w) 100))
+                ((symbol-function 'set-process-window-size)
+                 (lambda (proc rows cols) (push (list proc rows cols) pty-sizes))))
+        (spectreshell-eshell--window-size-change 'fake-window)
+        (should (= (spectreshell-rows background) 30))
+        (should (= (spectreshell-cols background) 100))
+        (should (member '(fake-bg-proc 30 100) pty-sizes))
+        (should (member '(fake-fg-proc 30 100) pty-sizes))))))
+
+(defun spectreshell-eshell-test--wait-for-attach (buffer)
+  "BUFFER で新しい端末が attach されるまで待ち、そのプロセスを返す。"
+  (spectreshell-eshell-test--wait-until
+   (lambda () (car (car (buffer-local-value
+                         'spectreshell-eshell--terminals buffer))))))
+
 (ert-deftest spectreshell-eshell-test-background-job-leaves-command-line-usable ()
   "背景ジョブ実行中もコマンドラインに文字を打てる。
 `cmd &' の間バッファ全体が semi-char モードになると、打った文字は
 背景ジョブの pty へ送られてコマンドラインに入らず、RET も
-`eshell-send-input\' に届かないので入力が黙って捨てられる。"
-  :expected-result :failed
+`eshell-send-input' に届かないので入力が黙って捨てられる。"
   (spectreshell-eshell-test--with-eshell buf
     (spectreshell-eshell-test--send buf "sleep 5 &")
-    (should (spectreshell-eshell-test--wait-until
-             (lambda () (with-current-buffer buf spectreshell--current))))
+    (should (spectreshell-eshell-test--wait-for-attach buf))
     (with-current-buffer buf
+      ;; 背景ジョブは端末領域と描画だけを持ち、キーボードは奪わない。
+      (should-not spectreshell-semi-char-mode)
+      (should (null spectreshell--current))
       (goto-char (point-max))
       (should (eq (key-binding "e") 'self-insert-command)))))
+
+(ert-deftest spectreshell-eshell-test-foreground-command-runs-during-background-job ()
+  "背景ジョブ実行中でも前景コマンドが実行され、出力がバッファに現れる。"
+  (spectreshell-eshell-test--with-eshell buf
+    (spectreshell-eshell-test--send buf "sleep 5 &")
+    (should (spectreshell-eshell-test--wait-for-attach buf))
+    (spectreshell-eshell-test--send buf "printf 'FG-OUTPUT\\n'")
+    (should (spectreshell-eshell-test--wait-for-command buf))
+    (with-current-buffer buf
+      (should (member "FG-OUTPUT"
+                      (mapcar #'string-trim-right
+                              (split-string (buffer-string) "\n")))))))
+
+(ert-deftest spectreshell-eshell-test-background-and-foreground-regions-do-not-interleave ()
+  "背景ジョブが出力し続けていても前景の出力行は連続したまま残る。
+領域が交錯すると、前景の出力の途中に背景ジョブの行が割り込んだり
+上書きされたりする。"
+  (spectreshell-eshell-test--with-eshell buf
+    (spectreshell-eshell-test--send
+     buf (concat "sh -c 'i=0; while [ $i -lt 12 ]; do echo BG-$i; "
+                  "sleep 0.1; i=$((i+1)); done' &"))
+    (let ((bg-proc (spectreshell-eshell-test--wait-for-attach buf)))
+      (should bg-proc)
+      (spectreshell-eshell-test--send buf "printf 'FG-0\\nFG-1\\nFG-2\\n'")
+      (should (spectreshell-eshell-test--wait-for-command buf))
+      (should (spectreshell-eshell-test--wait-until
+               (lambda () (not (process-live-p bg-proc)))))
+      (with-current-buffer buf
+        (let* ((lines (mapcar #'string-trim-right
+                              (split-string (buffer-string) "\n")))
+               (at (seq-position lines "FG-0")))
+          ;; 前景の 3 行は割り込まれずに並んでいる。
+          (should at)
+          (should (equal (seq-subseq lines at (+ at 3)) '("FG-0" "FG-1" "FG-2")))
+          ;; 背景ジョブの出力も 1 行も欠けていない。
+          (dolist (n (number-sequence 0 11))
+            (should (member (format "BG-%d" n) lines))))))))
+
+(ert-deftest spectreshell-eshell-test-background-job-exit-keeps-foreground-semi-char ()
+  "前景ジョブ実行中に背景ジョブが終わっても semi-char モードは解除されない。
+解除されると、前景ジョブへのキー入力がそこで途切れる。"
+  (spectreshell-eshell-test--with-eshell buf
+    (spectreshell-eshell-test--send buf "sleep 0.3 &")
+    (let ((bg-proc (spectreshell-eshell-test--wait-for-attach buf)))
+      (should bg-proc)
+      (spectreshell-eshell-test--send buf "sleep 2")
+      (should (spectreshell-eshell-test--wait-until
+               (lambda () (with-current-buffer buf spectreshell-semi-char-mode))))
+      (should (spectreshell-eshell-test--wait-until
+               (lambda () (not (process-live-p bg-proc)))))
+      (with-current-buffer buf
+        (should spectreshell-semi-char-mode)
+        (should spectreshell--current)
+        (kill-process spectreshell-eshell--process))
+      (should (spectreshell-eshell-test--wait-for-command buf)))))
 
 (ert-deftest spectreshell-eshell-test-attached-child-has-no-columns-lines ()
   "attach した子プロセスの環境に COLUMNS/LINES が無い。
