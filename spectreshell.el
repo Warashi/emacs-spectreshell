@@ -892,16 +892,34 @@ terminal, or if the event or the encoder has no bytes to send for it."
                                                 (car key+mods) (cdr key+mods))))
     (funcall (spectreshell-send-fn obj) bytes)))
 
+(defun spectreshell--send-paste (string)
+  "Send STRING to `spectreshell--current' as one paste.
+One `spectreshell--encode-paste' call (bracketed paste, if the terminal
+has that mode on) rather than a `spectreshell-send-key' call per
+character.  Silently does nothing without a current terminal, like the
+other input commands."
+  (when-let* ((obj spectreshell--current))
+    (funcall (spectreshell-send-fn obj)
+             (spectreshell--encode-paste (spectreshell-term obj) string))))
+
 (defun spectreshell-yank ()
   "Send the front of the kill ring to `spectreshell--current' as a paste.
 Bound to `C-y' in `spectreshell-semi-char-mode-map' instead of ordinary
-`yank': pasted text is one `spectreshell--encode-paste' call (bracketed
-paste, if the terminal has that mode on) rather than a `spectreshell-send-key'
-call per character."
+`yank'."
   (interactive)
-  (when-let* ((obj spectreshell--current))
-    (funcall (spectreshell-send-fn obj)
-             (spectreshell--encode-paste (spectreshell-term obj) (current-kill 0)))))
+  (spectreshell--send-paste (current-kill 0)))
+
+(defun spectreshell-xterm-paste (event)
+  "Send EVENT's pasted text to `spectreshell--current' as one paste.
+EVENT is an `xterm-paste' event, which is how a terminal frame's Emacs
+reports a bracketed paste from the terminal itself (a middle click, or
+the terminal emulator's own paste command).  Bound to `xterm-paste' in
+`spectreshell-semi-char-mode-map' instead of the global `xterm-paste',
+which would insert the text into the buffer -- editing the terminal
+region as if it were ordinary text -- without the process ever seeing
+it."
+  (interactive "e")
+  (spectreshell--send-paste (nth 1 event)))
 
 ;; ---------------------------------------------------------------------
 ;; Mouse input
@@ -1133,6 +1151,7 @@ disable mouse-wheel scrolling entirely between jobs that want it."
     (dolist (letter (number-sequence ?a ?z))
       (define-key map (kbd (format "C-M-%c" letter)) #'spectreshell-send-key))
     (define-key map (kbd "C-y") #'spectreshell-yank)
+    (define-key map [xterm-paste] #'spectreshell-xterm-paste)
     (define-key map (kbd "C-c C-e") #'spectreshell-emacs-mode)
     map)
   "Keymap active while `spectreshell-semi-char-mode' is on.

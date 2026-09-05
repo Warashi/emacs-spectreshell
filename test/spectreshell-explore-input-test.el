@@ -44,7 +44,6 @@ tmux+terminfo 環境の `input-decode-map' は ESC [ 2 ~ / ESC [ 3 ~ を
   "端末側 bracketed paste は `xterm-paste' イベントで来るので束縛が要る。
 束縛が無いとグローバルの `xterm-paste' がバッファへ直接挿入してしまい、
 プロセスには何も届かない。"
-  :expected-result :failed
   (should (lookup-key spectreshell-semi-char-mode-map [xterm-paste])))
 
 ;; ---------------------------------------------------------------------
