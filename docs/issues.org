@@ -375,7 +375,7 @@ ERT: =test/spectreshell-explore-input-test.el= の
 (=:expected-result :failed=)。2 の ESC 単体は tty の入力経路を batch で
 再現できないため手順の記録のみ。
 
-** TODO L-27: Insert / Delete と非英字の制御キーが未束縛でバッファを壊す
+** DONE L-27: Insert / Delete と非英字の制御キーが未束縛でバッファを壊す
 対象: =spectreshell.el= (semi-char keymap)
 
 tty フレームの Emacs は =ESC [ 2 ~= / =ESC [ 3 ~= を =insertchar= /
@@ -413,6 +413,21 @@ ERT: =test/spectreshell-explore-input-test.el= の
 =spectreshell-explore-input-test-insertchar-deletechar-are-bound= /
 =--non-letter-control-keys-are-bound= / =--meta-del-is-bound= (いずれも
 =:expected-result :failed=)。
+
+対応 (2026-09-05, 07e21d0): tty が decode する =insertchar= /
+=deletechar= を =spectreshell--aliased-key-symbols= で =insert= /
+=delete= に読み替える (モジュールの KEY 名には後者しか無いため)。修飾
+付きの 8 通りも束縛した。=C-@ C-\ C-] C-^ C-_= と =M-DEL= は
+semi-char マップに直接束縛し、エンコーダが =00 1c 1d 1e 1f= / =1b 7f=
+を返すことを確かめて key-table に行として固定した。
+
+C-g は =quit-char= で、変えると利用者の脱出口が無くなるため Emacs 側に
+残す (L-36 で文書化)。
+
+ERT: =spectreshell-explore-input-test-insertchar-deletechar-are-bound=
+/ =--non-letter-control-keys-are-bound= / =--meta-del-is-bound=
+(=:expected-result :failed= を外した)、および
+=spectreshell-key-test-csi-delete-is-re-encoded= (39915f5)。
 
 ** DONE L-28: 端末側の paste がプロセスへ届かずバッファに入る
 対象: =spectreshell.el= (semi-char keymap の =[xterm-paste]=)
