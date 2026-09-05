@@ -196,6 +196,12 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
     (spectreshell-feed term "\x1b[?25$p")
     (should (equal responses '("\x1b[?25;1$y")))))
 
+(ert-deftest spectreshell-test-kitty-keyboard-query-is-sent-via-send-fn ()
+  "kitty keyboard query (ESC[?u) の応答バイト列が SEND-FN に渡る。"
+  (spectreshell-test--with-terminal (term 5 10 responses)
+    (spectreshell-feed term "\x1b[?u")
+    (should (equal responses '("\x1b[?0u")))))
+
 (ert-deftest spectreshell-test-osc8-hyperlink-becomes-clickable-button ()
   "OSC 8 のリンク区間が text-property ベースの button になる。"
   (spectreshell-test--with-terminal (term 1 10)

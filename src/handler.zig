@@ -39,6 +39,7 @@ pub const Handler = struct {
             .device_attributes => try self.deviceAttributes(value),
             .request_mode => try self.requestMode(value.mode),
             .request_mode_unknown => try self.requestModeUnknown(value.mode, value.ansi),
+            .kitty_keyboard_query => try self.queryKittyKeyboard(),
             .window_title => try self.setTitle(value.title),
             else => try self.inner.vt(action, value),
         }
@@ -100,6 +101,18 @@ pub const Handler = struct {
         const resp = try std.fmt.bufPrint(&buf, "\x1b[{s}{d};0$y", .{
             if (ansi) "" else "?",
             mode_raw,
+        });
+        try self.responses.appendSlice(self.alloc, resp);
+    }
+
+    /// kitty keyboard protocol の問い合わせ (CSI ? u) には、アクティブ
+    /// 画面のフラグスタック先頭を CSI ? flags u で返す
+    /// (ghostty 本体 queryKittyKeyboard と同じ)。push/pop/set 自体は
+    /// ReadonlyHandler が Terminal に反映しているので、ここは読むだけ。
+    fn queryKittyKeyboard(self: *Handler) !void {
+        var buf: [16]u8 = undefined;
+        const resp = try std.fmt.bufPrint(&buf, "\x1b[?{d}u", .{
+            self.inner.terminal.screens.active.kitty_keyboard.current().int(),
         });
         try self.responses.appendSlice(self.alloc, resp);
     }

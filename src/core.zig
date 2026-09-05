@@ -676,6 +676,17 @@ test "DECRQM は未知のモードに 0 (認識せず) で応答する" {
     try testing.expectEqualStrings("\x1b[?9999;0$y", update.responses);
 }
 
+test "kitty keyboard query (CSI ? u) は現在の flags で応答する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    // 既定はフラグなしの 0、push (CSI > 1 u) 後はスタック先頭の 1。
+    var update = try t.feed(alloc, "\x1b[?u\x1b[>1u\x1b[?u");
+    defer update.deinit();
+    try testing.expectEqualStrings("\x1b[?0u\x1b[?1u", update.responses);
+}
+
 test "OSC 2 はタイトル変更を通知する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);
