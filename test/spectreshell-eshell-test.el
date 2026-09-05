@@ -236,14 +236,17 @@ eshell 自身の挿入が残ると、pty のエコーとプログラムの出力
 同じ行が 3 個目として並び、しかも領域の外に入るので時系列が崩れる。
 pty のエコーは `stty -echo' で止めてあるので、ZZTOP が 2 個見えたら
 それは eshell の挿入である。attach 直後ではなく READY を待ってから
-打つのは、`stty' が走るより前に届いた入力にはまだエコーが効くため。"
+打つのは、`stty' が走るより前に届いた入力にはまだエコーが効くため。
+待つのは行頭の READY に限る。コマンドライン自体にも READY の文字が
+あり、そちらで待機が抜けると子が `stty' を走らせる前に入力が届いて
+エコーが残る。"
   (spectreshell-eshell-test--with-eshell buf
     (spectreshell-eshell-test--send
      buf "*sh -c 'stty -echo; echo READY; read -r x; echo GOT=$x'")
     (should (spectreshell-eshell-test--wait-for-foreground buf))
     (should (spectreshell-eshell-test--wait-until
              (lambda () (with-current-buffer buf
-                          (string-match-p "READY" (buffer-string))))))
+                          (string-match-p "^READY" (buffer-string))))))
     (with-current-buffer buf
       (spectreshell-semi-char-mode -1)
       (goto-char (point-max))
@@ -262,7 +265,8 @@ pty のエコーは `stty -echo' で止めてあるので、ZZTOP が 2 個見�
 入力を読まないプロセスの実行中でも RET は押せてしまうので、押した分だけ
 端末領域の外に空行が積まれてはいけない。エコーが有効なままだと RET が
 領域内に改行として現れる (semi-char モードの RET と同じ) ので、
-`stty -echo' が済んだ印である READY を待ってから押す。"
+`stty -echo' が済んだ印である READY を待ってから押す。コマンドラインの
+READY で待機が抜けないよう、行頭の READY に限る。"
   (spectreshell-eshell-test--with-eshell buf
     (spectreshell-eshell-test--send
      buf "*sh -c 'stty -echo; echo READY; sleep 30'")
@@ -270,7 +274,7 @@ pty のエコーは `stty -echo' で止めてあるので、ZZTOP が 2 個見�
       (should proc)
       (should (spectreshell-eshell-test--wait-until
                (lambda () (with-current-buffer buf
-                            (string-match-p "READY" (buffer-string))))))
+                            (string-match-p "^READY" (buffer-string))))))
       (with-current-buffer buf
         (spectreshell-semi-char-mode -1)
         (goto-char (point-max))
