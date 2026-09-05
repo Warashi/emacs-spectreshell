@@ -416,6 +416,7 @@ Return UPDATE unchanged, for callers that want to inspect it further."
           (spectreshell--trim-blank-tail obj))
         (spectreshell--move-point obj (plist-get update :cursor)
                                   follow-point follow-windows saved-point)
+        (spectreshell--align-windows obj)
         (when-let* ((title (plist-get update :title)))
           (setf (spectreshell-title obj) title)
           (run-hook-with-args 'spectreshell-title-functions obj title)))))
@@ -767,6 +768,27 @@ output."
       (when (spectreshell--cursor-followed-p obj (window-point window))
         (push window windows)))
     windows))
+
+(defun spectreshell--align-windows (obj)
+  "Put OBJ\='s region at the top of every window it exactly fills.
+A region as tall as a window\='s body is a full-screen application\='s
+whole screen, and Emacs scrolls only as far as it takes to bring point
+-- the terminal\='s cursor -- into view, so a TUI that keeps its cursor
+near the top (nvim right after opening a file) has everything below the
+cursor row pushed off the window.
+
+Only for the terminal that keys are reaching in semi-char mode, which
+is `spectreshell--cursor-followed-p\=''s condition as well: aligning
+while the user reads the scrollback outside semi-char mode would
+scroll the view away on every batch of output.  A compact region is a background
+job\='s, deliberately shorter than the screen and sharing the window
+with the prompt below it."
+  (when (and spectreshell-semi-char-mode
+             (eq obj spectreshell--current)
+             (not (spectreshell-compact obj)))
+    (dolist (window (get-buffer-window-list (spectreshell-buffer obj) nil t))
+      (when (= (window-body-height window) (spectreshell-rows obj))
+        (set-window-start window (marker-position (spectreshell-marker obj)))))))
 
 (defun spectreshell--save-point (obj)
   "Record where point stands, for `spectreshell--restore-point' to undo OBJ\='s redraw.

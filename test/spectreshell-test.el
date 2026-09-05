@@ -159,6 +159,45 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
             (should (= (window-point other) (1+ (spectreshell-marker term)))))
         (delete-window other)))))
 
+(defmacro spectreshell-test--with-displayed-buffer (window &rest body)
+  "選択ウィンドウへ出した一時バッファをカレントにして BODY を実行する。
+WINDOW にはそのウィンドウを束縛する。`with-temp-buffer' のバッファは
+どのウィンドウにも出ていないので、window-start を見るテストは
+こちらを使う。"
+  (declare (indent 1))
+  `(let ((buffer (generate-new-buffer " *spectreshell-test-window*")))
+     (unwind-protect
+         (let ((,window (selected-window)))
+           (set-window-buffer ,window buffer)
+           (with-current-buffer buffer ,@body))
+       (kill-buffer buffer))))
+
+(ert-deftest spectreshell-test-full-screen-region-is-aligned-to-window-start ()
+  "端末の高さがウィンドウ本文と同じなら、領域の先頭が窓の先頭に来る。
+全画面 TUI (nvim 等) はカーソルを上端に置くことがあり、Emacs は
+point が見える最小しかスクロールしないので、そのままだと領域の
+下側が画面の外に落ちる。"
+  (spectreshell-test--with-displayed-buffer window
+    (insert (make-string 10 ?\n))
+    (let ((term (spectreshell-start buffer (window-body-height window) 10 #'ignore)))
+      (spectreshell-semi-char-mode 1)
+      (setq spectreshell--current term)
+      ;; 上端にカーソルを置く全画面アプリ相当。
+      (spectreshell-feed term "top\x1b[H")
+      (should (= (window-start window) (marker-position (spectreshell-marker term)))))))
+
+(ert-deftest spectreshell-test-scrollback-view-keeps-window-start ()
+  "emacs モードでスクロールバックを見ている間は window-start を動かさない。
+全画面の整列がここまで効くと、閲覧中の画面が出力のたびに端末領域へ
+引き戻されて実質スクロールバックを読めない (P-1)。"
+  (spectreshell-test--with-displayed-buffer window
+    (insert (make-string 10 ?\n))
+    (let ((term (spectreshell-start buffer (window-body-height window) 10 #'ignore)))
+      (spectreshell-feed term "top")
+      (set-window-start window (point-min))
+      (spectreshell-feed term "\r\nmore")
+      (should (= (window-start window) (point-min))))))
+
 (ert-deftest spectreshell-test-feed-does-not-record-undo ()
   "undo が有効なバッファでも feed の再描画は undo エントリを積まない。
 積んでしまうと大量出力で undo リストが際限なく肥大化し、ジョブ終了後
