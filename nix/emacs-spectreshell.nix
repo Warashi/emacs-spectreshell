@@ -4,6 +4,7 @@
   zig,
   ncurses,
   texinfo,
+  util-linux,
   callPackage,
   runCommand,
   writeShellScriptBin,
@@ -63,11 +64,16 @@ stdenv.mkDerivation (finalAttrs: {
   # ncurses は build.zig の terminfo install step が呼ぶ `tic` のために、
   # texinfo は Info マニュアル生成 step が呼ぶ `makeinfo` のために要る
   # (docs/design.org の「TERM=xterm-ghostty + terminfo 同梱」)。
+  # util-linux は checkPhase の ERT が `setsid` で「制御端末を持たない
+  # 子」を作って pty ラッパを検査する (docs/issues.org の L-23) ために
+  # 要る。無ければテストは skip されるだけだが、それでは macOS でしか
+  # 落ちない回帰になる。darwin には setsid(1) が無いので Linux のみ。
   nativeBuildInputs = [
     zig
     ncurses
     texinfo
   ]
+  ++ lib.optionals stdenv.hostPlatform.isLinux [ util-linux ]
   ++ lib.optionals stdenv.hostPlatform.isDarwin [ xcodeShim ];
 
   deps = callPackage ../build.zig.zon.nix {
