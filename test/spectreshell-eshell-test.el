@@ -786,8 +786,8 @@ child and relays its exit status, like `setsid -w'."
    (list "perl" "-MPOSIX" "-e"
          (concat "my $pid = fork; defined $pid or die \"fork: $!\"; "
                  "if ($pid) { waitpid $pid, 0; exit $? >> 8 } "
-                 "POSIX::setsid() != -1 or die \"setsid: $!\"; "
-                 "exec @ARGV or die \"exec: $!\"")
+                 "defined POSIX::setsid() or die \"setsid: $!\"; "
+                 "exec { $ARGV[0] } @ARGV or die \"exec: $!\"")
          "--")
    command))
 
