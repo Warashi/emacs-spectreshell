@@ -385,6 +385,23 @@ spectreshell の端末幅は `window-max-chars-per-line' (tty では継続グリ
                            (split-string (buffer-string) "\n"))))
         (should (member "COLUMNS=unset LINES=unset" lines))))))
 
+(ert-deftest spectreshell-eshell-test-attached-child-drops-inherited-columns ()
+  "Emacs が親から継いだ COLUMNS/LINES も attach した子には渡らない。
+eshell の alias 経由の export を止めるだけでは、Emacs 自身の環境に
+COLUMNS が入っていた場合 (それを export するシェルから起動したとき) に
+古い値がそのまま子へ流れる。値の出所によらず pty のサイズだけが子に
+見えることを検査する。"
+  (spectreshell-eshell-test--with-eshell buf
+    (let ((process-environment
+           (append '("COLUMNS=100" "LINES=50") process-environment)))
+      (spectreshell-eshell-test--send
+       buf "sh -c 'echo COLUMNS=${COLUMNS-unset} LINES=${LINES-unset}'"))
+    (should (spectreshell-eshell-test--wait-for-command buf))
+    (with-current-buffer buf
+      (let ((lines (mapcar #'string-trim-right
+                           (split-string (buffer-string) "\n"))))
+        (should (member "COLUMNS=unset LINES=unset" lines))))))
+
 (ert-deftest spectreshell-eshell-test-unattached-child-keeps-eshell-columns ()
   "attach しない段では eshell 本体の COLUMNS/LINES export が残る。
 パイプの最終段以外は pty を持たず TIOCGWINSZ で幅を知れないので、
