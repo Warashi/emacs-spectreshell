@@ -1105,7 +1105,13 @@ aarch64-linux での再現は試みたが、この理由で不可能 (=nix flake
 - =less= が無くて skip されていた visual command のテストは、nix の
   sandbox に =less= が無いので Linux でも darwin でも一度も走って
   いなかった。=less= を check 入力に入れて =skip-unless= を外した
-  (e8ad0fa・691f92c)。
+  (e8ad0fa・691f92c)。初回の実走が空回りでないことは手元で確かめた:
+  =less= は起動 0.5 秒後も生きていて、 =j= では生き続け =q= で exit 0
+  になる。単独コマンドは eshell が stdin も pty にするので
+  (=process-tty-name= が stdin/stdout/stderr とも同じ pts)、 =q= は
+  pty 経由で届く。less 704 の =open_tty= は =ttyname(2)= の pty を
+  開いてキー入力を読むため、制御端末の有無に関わらず macOS でも同じ
+  経路になる。
 - =setsid(1)= が無くて darwin では skip されていた pty ラッパのテスト
   (L-23) は、macOS の状況を守るためのものなのに macOS で走っていな
   かった。perl の =POSIX::setsid= をフォーク後に呼ぶ 1 経路に置き換え
