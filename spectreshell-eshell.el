@@ -380,11 +380,15 @@ whose stated premise -- TIOCSCTTY already ran -- does not hold for the
 fails with ENXIO.
 
 The redirection of standard error to the null device comes first in the
-list, because POSIX evaluates redirections left to right: putting it
-last is what let that ENXIO message reach the pty and land in the
-user\'s buffer.  Keeping it first also swallows the ENOTTY from the
-`allocate_pty' failure that silently downgrades a pty to a pipe behind
-Lisp\'s back.
+list, because POSIX evaluates redirections left to right and a
+redirection that fails to open reports it on whatever standard error is
+at that point: putting it last is what let the ENXIO above reach the pty
+and land in the user\'s buffer.  (`stty\'s own diagnostics -- ENOTTY if
+Emacs quietly downgraded the pty to a pipe, or not-found if there is no
+`stty' at all -- go to the null device whatever the order, since both
+redirections are in place before it runs.  Both merely leave the
+staircase unfixed, silently, which is what a shell wrapper can do about
+them.)
 
 COMMAND is appended after the script so that `sh' binds PROGRAM to $0
 and ARGS to $@; `exec \"$0\" \"$@\"' then reassembles them exactly.  Passing
