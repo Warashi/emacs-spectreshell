@@ -274,6 +274,19 @@ position (a marker is resolved to its integer position, since
     (should (null (spectreshell--posn-terminal-coords
                     term (spectreshell-key-test--posn nil (point-min)))))))
 
+(ert-deftest spectreshell-key-test-mouse-posn-coords-after-terminal-region-is-nil ()
+  "端末領域より後ろ (プロンプト・コマンドライン) の POSN は nil になる。
+背景ジョブの領域の下には eshell の編集領域が来るので、そこへの
+クリックが端末座標に化けて実行中プロセスへ報告されてはならない。"
+  (spectreshell-test--with-terminal (term 3 10)
+    (goto-char (point-max))
+    (insert "$ typing")
+    (spectreshell-feed term "0123456789")
+    (should (< (spectreshell--region-end term) (point-max)))
+    (should (null (spectreshell--posn-terminal-coords
+                    term (spectreshell-key-test--posn
+                          nil (spectreshell--region-end term)))))))
+
 ;; ---------------------------------------------------------------------
 ;; マウス: エンコード送信
 ;; ---------------------------------------------------------------------

@@ -436,6 +436,26 @@ set-process-window-size をスタブして関数単体で検証する。"
           (dolist (n (number-sequence 0 11))
             (should (member (format "BG-%d" n) lines))))))))
 
+(ert-deftest spectreshell-eshell-test-background-output-keeps-command-line-point ()
+  "背景ジョブが出力しても、コマンドライン上の point は引きずられない。
+point がカーソルへ引き戻されると、打ち込んだ文字の途中にカーソルが
+飛んで入力が壊れる。"
+  (spectreshell-eshell-test--with-eshell buf
+    (spectreshell-eshell-test--send
+     buf (concat "sh -c \'i=0; while [ $i -lt 12 ]; do echo BG-$i; "
+                  "sleep 0.1; i=$((i+1)); done\' &"))
+    (should (spectreshell-eshell-test--wait-for-attach buf))
+    (with-current-buffer buf
+      (goto-char (point-max))
+      (insert "abc"))
+    ;; 入力後に少なくとも 1 行、背景ジョブの出力が届くまで待つ。
+    (should (spectreshell-eshell-test--wait-until
+             (lambda () (with-current-buffer buf
+                          (string-match-p "BG-4" (buffer-string))))))
+    (with-current-buffer buf
+      (should (= (point) (point-max)))
+      (should (string-suffix-p "abc" (buffer-string))))))
+
 (ert-deftest spectreshell-eshell-test-background-job-exit-keeps-foreground-semi-char ()
   "前景ジョブ実行中に背景ジョブが終わっても semi-char モードは解除されない。
 解除されると、前景ジョブへのキー入力がそこで途切れる。"
