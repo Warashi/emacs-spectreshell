@@ -355,6 +355,23 @@ set-process-window-size をスタブして関数単体で検証する。"
         (spectreshell-eshell--window-size-change 'fake-window)
         (should (null pty-size))))))
 
+(ert-deftest spectreshell-eshell-test-terminal-cols-match-eshell-columns ()
+  "端末の桁数と eshell が export する COLUMNS が一致する。
+子プロセスは幅を ioctl (端末の桁数) と環境変数 COLUMNS の両方から
+知るので、食い違うと COLUMNS を信じるアプリだけが 1 桁はみ出して
+折り返す。eshell 本体 (esh-var.el) は COLUMNS を
+`window-body-width' で定義しているため、期待値はその値で書く。"
+  :expected-result :failed
+  (let ((buffer (get-buffer-create "*spectreshell-cols-test*")))
+    (unwind-protect
+        (progn
+          (set-window-buffer (selected-window) buffer)
+          (let ((window (get-buffer-window buffer t)))
+            (should window)
+            (should (= (cdr (spectreshell-eshell--terminal-size buffer))
+                       (window-body-width window t)))))
+      (kill-buffer buffer))))
+
 ;; ---------------------------------------------------------------------
 ;; 同梱 terminfo の自動検出
 ;; ---------------------------------------------------------------------
