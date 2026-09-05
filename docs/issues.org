@@ -195,13 +195,16 @@ ghostty の pkg/apple-sdk (または zig std) が xcrun を介さず SDKROOT
 「行あたりの区間数を減らす」か「Emacs の再描画側」の話になる。
 体感で足りなくなったら再測してから考える。
 
-** TODO P-1: point の強制移動でスクロールバック閲覧が実質不能
+** DONE P-1: point の強制移動でスクロールバック閲覧が実質不能
 対象: =spectreshell.el= (=spectreshell--move-point=)
 
 毎 update で point と全ウィンドウの window-point をカーソル位置へ移す
-ため、emacs モードで履歴閲覧中も出力のたびに引き戻される。eat/term
-同様「point がカーソル位置にあったときだけ追従」方式を検討する。
-追従条件 (semi-char モード中は常に追従すべきか等) の仕様決めが必要。
+ため、emacs モードで履歴閲覧中も出力のたびに引き戻されていた。
+
+term.el と同様に、更新前の point が前回のカーソル位置だったときだけ
+追従させるようにして解決した。判定は再描画の前に済ませ、バッファの
+point と各ウィンドウの window-point で個別に行う。semi-char モード中は
+常に追従する (d8699ff)。
 
 ** DONE P-2: font-lock 有効時に dirty 行スキップ最適化が無効化される
 対象: =spectreshell.el= (=spectreshell--apply-dirty=)
