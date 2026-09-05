@@ -82,7 +82,6 @@ RESIZES は ((バイト位置 . (ROWS COLS)) ...) で、位置ちょうどでチ
 実端末の F-concurrency-12 を eshell も redisplay も介さずに再現したもの。
 折り返した行が旧幅ぶんの空白で埋められたうえ、次の出力行が同じバッファ行に
 続いてしまう。"
-  :expected-result :failed
   (let* ((body (mapconcat #'number-to-string (number-sequence 1 40) " "))
          (data (string-to-unibyte
                 (mapconcat (lambda (i) (format "L%03d %s\r\n" i body))
