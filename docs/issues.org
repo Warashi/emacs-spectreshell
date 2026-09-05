@@ -65,8 +65,16 @@ COLUMNS=80
 
 =tput cols= は COLUMNS を優先するため 80 を返す。79 桁の行は 1 行に
 収まるが 80 桁ちょうどの行は 2 行に折り返るので、COLUMNS を信じて
-描くアプリは 1 行ごとに 1 行余分に消費する。リサイズ後も同じずれが
-残る (100 桁にすると COLUMNS=100 / ioctl 99)。
+描くアプリは 1 行ごとに 1 行余分に消費する。ncurses は setupterm で
+COLUMNS を ioctl より優先するため、全画面を使う TUI が該当する。
+リサイズ後も同じずれが残る (100 桁にすると COLUMNS=100 / ioctl 99)。
+
+対象は COLUMNS を読むアプリに限る。COLUMNS を読まないコマンド
+(=git log --oneline= など) の出力が 80 桁で折り返すのは、tty の Emacs
+ウィンドウが元々 79 桁ぶんしか文字を表示できない (80 桁目が継続グリフ用)
+ことによるもので、この課題とは別。実測では 80 桁ちょうどの subject を
+持つコミット 30 件を出しても欠落は無く、各行が 79 桁と 1 桁に割れて
+1 画面に見えるコミットが半減するだけだった。
 
 =test/spectreshell-eshell-test.el= の
 =spectreshell-eshell-test-terminal-cols-match-eshell-columns= が
