@@ -126,6 +126,19 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
     (spectreshell-feed term "l4\r\nl5")
     (should (= (point) (1+ (point-min))))))
 
+(ert-deftest spectreshell-test-point-in-region-keeps-its-row-on-scroll ()
+  "端末領域の中の point は、行がスクロールしても同じ内容の行を指し続ける。
+確定化は領域の先頭へ挿入するので、バッファ位置のままだと point の
+上に新しい内容が流れ込み、見ている場所が更新のたびに入れ替わる。"
+  (spectreshell-test--with-terminal (term 5 10)
+    (spectreshell-feed term "l1\r\nl2\r\nl3\r\nl4\r\nl5")
+    (goto-char (spectreshell--row-col-pos term 3 0))
+    ;; 2 行スクロールさせる。point の行 ("l4") はまだ領域の中に残る。
+    (spectreshell-feed term "\r\nl6\r\nl7")
+    (should (>= (point) (spectreshell-marker term)))
+    (should (string-prefix-p "l4" (buffer-substring-no-properties
+                                   (point) (line-end-position))))))
+
 (ert-deftest spectreshell-test-window-point-follows-cursor-per-window ()
   "追従判定はウィンドウごとに行う。
 カーソル位置にあるウィンドウだけが追従し、履歴を表示している
