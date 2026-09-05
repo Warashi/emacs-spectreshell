@@ -221,6 +221,67 @@ sentinel 内で escape したエラーが Emacs ごと落とすため、実プ�
     (should (spectreshell-eshell-test--wait-for-command buf))))
 
 ;; ---------------------------------------------------------------------
+;; emacs モード中の RET (eshell-send-input)
+;; ---------------------------------------------------------------------
+
+(defun spectreshell-eshell-test--wait-for-foreground (buffer)
+  "BUFFER で前景ジョブが attach されるまで待ち、そのプロセスを返す。"
+  (spectreshell-eshell-test--wait-until
+   (lambda () (let ((proc (buffer-local-value 'spectreshell-eshell--process buffer)))
+                (and proc (process-live-p proc) proc)))))
+
+(ert-deftest spectreshell-eshell-test-emacs-mode-input-is-not-inserted ()
+  "emacs モードで打った行はプロセスへ届き、バッファには二重に残らない。
+eshell 自身の挿入が残ると、pty のエコーとプログラムの出力に加えて
+同じ行が 3 個目として並び、しかも領域の外に入るので時系列が崩れる。
+pty のエコーは `stty -echo' で止めてあるので、ZZTOP が 2 個見えたら
+それは eshell の挿入である。attach 直後ではなく READY を待ってから
+打つのは、`stty' が走るより前に届いた入力にはまだエコーが効くため。"
+  (spectreshell-eshell-test--with-eshell buf
+    (spectreshell-eshell-test--send
+     buf "*sh -c 'stty -echo; echo READY; read -r x; echo GOT=$x'")
+    (should (spectreshell-eshell-test--wait-for-foreground buf))
+    (should (spectreshell-eshell-test--wait-until
+             (lambda () (with-current-buffer buf
+                          (string-match-p "READY" (buffer-string))))))
+    (with-current-buffer buf
+      (spectreshell-semi-char-mode -1)
+      (goto-char (point-max))
+      (insert "ZZTOP")
+      (eshell-send-input))
+    (should (spectreshell-eshell-test--wait-until
+             (lambda () (with-current-buffer buf
+                          (string-match-p "GOT=ZZTOP" (buffer-string))))))
+    (should (spectreshell-eshell-test--wait-for-command buf))
+    (with-current-buffer buf
+      (should (= 1 (cl-count "ZZTOP" (split-string (buffer-string) "\n")
+                             :test (lambda (needle line) (string-search needle line))))))))
+
+(ert-deftest spectreshell-eshell-test-emacs-mode-empty-input-adds-no-line ()
+  "emacs モードでの空の RET はバッファに行を足さない。
+入力を読まないプロセスの実行中でも RET は押せてしまうので、押した分だけ
+端末領域の外に空行が積まれてはいけない。エコーが有効なままだと RET が
+領域内に改行として現れる (semi-char モードの RET と同じ) ので、
+`stty -echo' が済んだ印である READY を待ってから押す。"
+  (spectreshell-eshell-test--with-eshell buf
+    (spectreshell-eshell-test--send
+     buf "*sh -c 'stty -echo; echo READY; sleep 30'")
+    (let ((proc (spectreshell-eshell-test--wait-for-foreground buf)))
+      (should proc)
+      (should (spectreshell-eshell-test--wait-until
+               (lambda () (with-current-buffer buf
+                            (string-match-p "READY" (buffer-string))))))
+      (with-current-buffer buf
+        (spectreshell-semi-char-mode -1)
+        (goto-char (point-max))
+        (let ((before (buffer-string)))
+          (eshell-send-input)
+          (eshell-send-input)
+          (should (equal before (buffer-string)))))
+      (kill-process proc)
+      (should (spectreshell-eshell-test--wait-for-command buf)))))
+
+;; ---------------------------------------------------------------------
 ;; 異常系: シグナル死・実行中のバッファ kill
 ;; ---------------------------------------------------------------------
 

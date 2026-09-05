@@ -467,6 +467,40 @@ both fixed at OS-level creation time and cannot be changed afterwards."
                     (cdr spectreshell-eshell--pty-size))))
     (apply orig args)))
 
+(defun spectreshell-eshell--send-input-advice (orig &rest args)
+  "Type this buffer\='s pending text at the foreground job instead of at eshell.
+Around-advice for `eshell-send-input' (ORIG ARGS), which only takes
+over while a foreground job owns the buffer -- there is no command line
+to submit then, so eshell\='s own reading of the text between
+`eshell-last-output-end' and point does not describe anything the user
+can have meant.  At the prompt, and for a buffer whose only jobs are
+background ones, ORIG runs untouched.
+
+What the user typed goes to the process as a paste followed by RET,
+exactly as `spectreshell-yank' and a RET in
+`spectreshell-semi-char-mode' would have sent it, and is deleted from
+the buffer: the pty echoes it back into the terminal region on its own,
+so leaving it would show the same line a second time, outside the
+region and out of chronological order with the output it produced.
+
+Only the text *after* the terminal region is sent.  The region\='s own
+contents lie between `eshell-last-output-end' and point too -- nothing
+advances that marker while spectreshell\='s filter is the one writing
+\(`spectreshell-eshell--detach') -- so ORIG would send the running
+job\='s entire screen back to it."
+  (if-let* ((obj spectreshell--current)
+            ((process-live-p spectreshell-eshell--process)))
+      (let ((start (marker-position (spectreshell-end-marker obj)))
+            (send (spectreshell-send-fn obj)))
+        (when (< start (point-max))
+          (let ((text (buffer-substring-no-properties start (point-max))))
+            (delete-region start (point-max))
+            (funcall send (spectreshell--encode-paste (spectreshell-term obj) text))))
+        (when-let* ((bytes (spectreshell--encode-key
+                            (spectreshell-term obj) 'return nil)))
+          (funcall send bytes)))
+    (apply orig args)))
+
 (defun spectreshell-eshell--effective-term-name ()
   "Return the TERM value to export for eshell's external processes.
 Applies `spectreshell-term-name''s documented xterm-ghostty ->
@@ -588,13 +622,17 @@ output filter for as long as it runs."
         (advice-add 'make-process :around
                     #'spectreshell-eshell--make-process-advice)
         (advice-add 'eshell-visual-command-p :around
-                    #'spectreshell-eshell--visual-command-p-advice))
+                    #'spectreshell-eshell--visual-command-p-advice)
+        (advice-add 'eshell-send-input :around
+                    #'spectreshell-eshell--send-input-advice))
     (advice-remove 'eshell-gather-process-output
                     #'spectreshell-eshell--gather-process-output-advice)
     (advice-remove 'make-process
                     #'spectreshell-eshell--make-process-advice)
     (advice-remove 'eshell-visual-command-p
-                    #'spectreshell-eshell--visual-command-p-advice)))
+                    #'spectreshell-eshell--visual-command-p-advice)
+    (advice-remove 'eshell-send-input
+                    #'spectreshell-eshell--send-input-advice)))
 
 ;; Defined after `spectreshell-eshell-mode' itself (rather than up with the
 ;; other advice functions) purely so this can refer to that variable
