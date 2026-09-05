@@ -515,8 +515,9 @@ TAB / S-TAB が =^I= / =^[[Z= として、C-Up / C-Down が =^[[1;5A= /
    =dabbrev-expand= になり、後ろ 2 つは端末領域を編集する。これは
    L-27 と同根。
 
-エンコーダ側は正しい (=--encode-key term "a" '(alt)= の 16 進は
-=1b 61= 、 =--encode-key term 'escape nil= は =1b= )。
+エンコーダ側は Linux では正しい (=--encode-key term "a" '(alt)= の
+16 進は =1b 61= 、 =--encode-key term 'escape nil= は =1b= )。macOS
+ビルドでは alt が落ちることが後で分かった (L-38)。
 
 推測 (H-input-1、コード読解のみ): 1 と 2 と L-24 は「tty では ESC が
 メタプレフィックスとして先に食われる」1 点に集約でき、
@@ -1062,6 +1063,61 @@ ERT: =test/spectreshell-explore-geometry-test.el= の
 =spectreshell-explore-geometry-test-regional-indicator-width=
 (=:expected-result :failed=)。この Probe は =current-column= (表示幅)
 を測っており、L-33 の範囲 (位置の正しさ) ではなくこの項目の Probe。
+
+** DONE L-38: macOS ビルドでは alt 付きの文字が ESC 前置なしでエンコードされる
+対象: =src/core.zig= (=encodeKey=) / 同梱の ghostty-vt (=key_encode.zig=)
+
+macos-26 の CI で L-26 の回帰テスト
+=spectreshell-explore-input-test-esc-prefixed-meta-letter-keeps-esc= が
+=(equal "a" "\33a")= で落ちた (2026-09-05、ubuntu の 2 ジョブは緑)。
+Elisp 側の ESC 前置の判定 (=spectreshell--esc-prefixed-key-p=) は
+Emacs の =keyboard.c= に OS 分岐が無く、原因はモジュール側にある。
+
+- =encodeKey= は ghostty の =KeyEncodeOptions= に
+  =macos_option_as_alt = .false= を渡していた (a892144 以来)。
+- ghostty の =key_encode.zig= は =comptime builtin.os.tag == .macos= の
+  分岐でこの値を見る。=.false= なら legacy エンコードで
+  =mods_binding.alt = false= にし (Option を文字合成に回す macOS の
+  慣習)、=legacyAltPrefix= も =null= を返すので、alt+a は =utf8= の
+  "a" がそのまま出る。Linux ビルドにはこの分岐が存在しない。ghostty
+  自身のテスト =legacy: alt+x macos= (=.true= で =\x1Bc=) と
+  =legacy: alt+digit ... macos-option-as-alt = false= (=[= のまま) が
+  両方向を示している。
+- spectreshell に届く alt は Emacs が meta と解決済みのもので、物理
+  キーが Option かどうかは既に問題にならない。よって =.true= が正しい。
+
+L-26 で「エンコーダ側は正しい」と確認したのは Linux だけだった。
+また key-table の ERT (M- 前置の行を含む) は 8a839f0 で Justfile に
+だけ足され、nix の checkPhase から漏れていたため、macOS の CI で alt
+の経路が走ったのは L-26 の ERT が初めてだった。
+
+対応 (2026-09-05): =macos_option_as_alt= を =.true= にした (7df9305)。
+Zig テスト =encodeKey は alt 付きの文字を ESC 前置でエンコードする= を
+=src/core.zig= に足した (ed32daf) が、分岐は対象 OS の comptime なので
+Linux では最初から緑で、Red は macOS ビルドでしか観測できない。
+aarch64-linux での再現は試みたが、この理由で不可能 (=nix flake check=
+と単体実行の両方が緑)。darwin 向けのクロスコンパイルも C 依存
+(simdutf 等) で止まるため断念した。最終確認は macos-26 の CI。
+
+あわせて CI の抜け穴を塞いだ:
+
+- key-table の ERT を checkPhase に足した (e8ad0fa)。
+- =less= が無くて skip されていた visual command のテストは、nix の
+  sandbox に =less= が無いので Linux でも darwin でも一度も走って
+  いなかった。=less= を check 入力に入れて =skip-unless= を外した
+  (e8ad0fa・691f92c)。
+- =setsid(1)= が無くて darwin では skip されていた pty ラッパのテスト
+  (L-23) は、macOS の状況を守るためのものなのに macOS で走っていな
+  かった。perl の =POSIX::setsid= をフォーク後に呼ぶ 1 経路に置き換え
+  て全プラットフォームで実走させ、その起動形で本当に制御端末が落ちる
+  (=/dev/tty= が ENXIO) ことを確かめるテストも足した (71b2435・
+  576eed6)。Linux でヘルパー無しなら =ctty=、有りなら =noctty= になる
+  ことを手元で確認している。
+
+残る darwin 固有の差 (未対応、記録のみ): 同じ =key_encode.zig= は
+macOS ビルドで =super= 付きの文字を一切エンコードしない
+(=legacy= 末尾の =all_mods.super= の分岐、設定で変えられない)。
+Linux では "b" が出る。key-table に super の行は無く、実害は未確認。
 
 ** DONE M-3: 同一バッファでの並行ジョブで端末領域が交錯する
 対象: =spectreshell.el= (端末領域) / =spectreshell-eshell.el=
