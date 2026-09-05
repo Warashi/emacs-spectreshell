@@ -26,6 +26,38 @@
 領域管理) が必要で、docs/design.org の「最後のパイプラインステージ
 のみ」簡略化の見直しを含む。別途設計してから対応する。
 
+** TODO L-22: 子プロセスから見える端末幅が COLUMNS と ioctl で 1 桁ずれる
+対象: =spectreshell-eshell.el= (=--terminal-size= / =--window-size-change=)
+
+=spectreshell-eshell--terminal-size= は桁数に
+=window-max-chars-per-line= を使う。この値は tty フレームでは折り返しの
+継続グリフ =\\= のぶん最終桁が予約されるため =window-body-width= より
+1 小さい。一方 eshell 本体 (=esh-var.el=) は子プロセスへ export する
+=COLUMNS= を =window-body-width= で定義しているので、子から見た幅が
+環境変数では 80、=TIOCGWINSZ= では 79 になる。
+
+80x24 の実端末で確認した実測値:
+
+#+begin_example
+$ sh -c "echo COLUMNS=$COLUMNS; stty size < /dev/tty"
+COLUMNS=80
+21 79
+#+end_example
+
+=tput cols= は COLUMNS を優先するため 80 を返す。79 桁の行は 1 行に
+収まるが 80 桁ちょうどの行は 2 行に折り返るので、COLUMNS を信じて
+描くアプリは 1 行ごとに 1 行余分に消費する。リサイズ後も同じずれが
+残る (100 桁にすると COLUMNS=100 / ioctl 99)。
+
+=test/spectreshell-eshell-test.el= の
+=spectreshell-eshell-test-terminal-cols-match-eshell-columns= が
+=:expected-result :failed= で穴を固定してある。
+
+どちらに揃えるかは設計判断が要る。=window-body-width= に合わせると
+継続グリフの桁と端末の最終桁が衝突する恐れがあり、逆に eshell の
+COLUMNS 定義を spectreshell 側で 79 に上書きする案もある。GUI
+フレームでは両者が一致する可能性があり、tty 固有かどうかも未確認。
+
 ** DONE L-2: キーマップの穴 (backtab / 修飾付き TAB・RET・DEL)
 対象: =spectreshell.el= (semi-char keymap, =spectreshell--event-to-key=)
 
