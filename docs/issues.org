@@ -529,7 +529,7 @@ ERT: 既存の =spectreshell-key-test-mouse-drag-sends-motion-and-release=
 実際の motion / release、および GUI フレームでの挙動変化は本環境では
 未検証。
 
-** TODO L-30: 端末領域の中に置いた point が確定化の挿入で前へ滑る
+** DONE L-30: 端末領域の中に置いた point が確定化の挿入で前へ滑る
 対象: =spectreshell.el= (確定化の挿入位置)
 
 出力中に C-c C-e で emacs モードへ抜けて M-v を 1 回打つと、着地点は
@@ -555,6 +555,25 @@ ERT: =test/spectreshell-explore-recheck-test.el= の
 =spectreshell-explore-recheck-test-point-inside-region-survives-scroll=
 (=:expected-result :failed=)。5 行 x 10 桁の端末で領域の 3 行目に point
 を置き 3 行スクロールさせると、point が "l3" から "l6" へ滑る。
+
+対応 (2026-09-05, cbbbaab / daaa22b / 93029a3): 領域内の point を
+バッファ位置ではなく「更新前の領域先頭からの行数 + 桁」で保存・復元
+する (=spectreshell--save-line= / =--restore-line=)。旧行 R はスクロール
+アウトすれば確定行の R 行目、残れば領域の R-N 行目で、更新前の領域先頭
+に置いた marker から数えればどちらも R 行目になるので写像は 1 つで済む。
+追従していないウィンドウの window-start / window-point も同じ写像で
+保つ (daaa22b)。point だけ直しても画面が滑るので M-v で同じ内容を見
+続けられない。復元の =set-window-start= は NOFORCE (93029a3): 背景
+ジョブの領域を映す窓で point がその下のコマンドラインにあるとき、
+強制すると redisplay が point を奪う。
+
+マニュアルと design.org に追従の規則を書いた (ef3f471)。
+
+ERT: =spectreshell-explore-recheck-test-point-inside-region-survives-scroll=
+(=:expected-result :failed= を外した) と =spectreshell-test.el= の追従
+テスト (8a40c84 / daaa22b)。=set-window-start= は次の再表示で効くため
+batch では記録値の読み返しまでしか確認できず、M-v の実際の見え方は
+未確認 (tmux 無し)。
 
 ** TODO L-31: 外部コマンドを一度走らせると spectreshell-mode が解除されない
 対象: =spectreshell-eshell.el= (=--detach=)
