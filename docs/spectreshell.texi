@@ -234,13 +234,12 @@ semi-char モードでプロセスへ送られず、通常の Emacs のキーと
 コマンド実行のために残してある。同じ理由で @code{M-x} 自体は
 送れない
 @item @code{C-u}
-@code{universal-argument} 。プレフィックス引数を端末バッファでも
-使えるように残してあり、送れない
+@code{universal-argument} として Emacs に残してあり、送れない
 @item @code{C-g}
 Emacs の @code{quit-char} 。semi-char のキーマップでは送信に束縛
-してあるが、端末フレームでは quit として扱われ、子プロセスには届か
-ない。 @code{quit-char} を変えると利用者の脱出口が無くなるためこの扱いの
-ままにしている (vim ・ less の @code{C-g} は使えない)
+してあるが、実端末では子プロセスに届かないことが実測されている
+(原因は未確定)。 @code{quit-char} を変えると利用者の脱出口が無くなるため
+この扱いのままにしている (vim ・ less の @code{C-g} は使えない)
 @item @code{M-O} ・ @code{M-[}
 端末は矢印・F1〜F4・Home/End を @code{ESC O …} (SS3) や
 @code{ESC [ …} (CSI) として送ってくる。Emacs の @code{input-decode-map} が

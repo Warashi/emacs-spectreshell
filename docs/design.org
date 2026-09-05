@@ -185,15 +185,15 @@ underline (スタイル種別含む)・strikethrough・inverse・faint・
 
 - *semi-char モード* (実行中のデフォルト): 印字可能キー・矢印・
   C-a 等ほとんどのキーを PTY に送信。例外は次のとおり。
-  - ~C-c~ / ~C-x~ プレフィックス・ ~M-x~ ・ ~C-u~
-    (~universal-argument~) は Emacs に残す。 ~C-x o~ ・ ~C-x b~ 等の
-    ウィンドウ・バッファ操作とプレフィックス引数を、端末バッファから
-    そのまま使えるようにするため。
+  - ~C-c~ / ~C-x~ プレフィックス・ ~M-x~ は Emacs に残す
+    (~C-x o~ ・ ~C-x b~ 等のウィンドウ・バッファ操作を端末バッファから
+    そのまま使えるようにするため)。 ~C-u~ (~universal-argument~) も
+    最初の実装から Emacs 側にあり、そのまま残している。
   - ~C-y~ は kill-ring の内容を ~spectreshell--encode-paste~ 経由
     (bracketed paste) で送信。押したキー自体は送らない。
-  - ~C-g~ は Emacs の ~quit-char~ 。キーマップでは送信に束縛するが
-    端末フレームでは quit になり子に届かない。 ~quit-char~ を変えると
-    利用者の脱出口が無くなるので、届かないまま受け入れる。
+  - ~C-g~ は Emacs の ~quit-char~ 。キーマップでは送信に束縛している
+    が、実端末では子に届かない (実測。原因は未確定)。 ~quit-char~ を
+    変えると利用者の脱出口が無くなるので、届かないまま受け入れる。
   - ~M-O~ / ~M-[~ は束縛しない。端末が矢印・F1〜F4・Home/End を送る
     ~ESC O …~ (SS3) / ~ESC [ …~ (CSI) の前置そのもので、
     ~input-decode-map~ の変換はそこまでのキー列が未束縛のときしか
