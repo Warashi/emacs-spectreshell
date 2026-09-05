@@ -73,9 +73,7 @@ fn installInfoManual(b: *std.Build) void {
 /// 下げる。ghostty 自身の src/build/GhosttyResources.zig の terminfo
 /// セクションと同じやり方 (生成 exe の標準出力を `tic -x -o` に渡す)
 /// だが、xterm-ghostty 用の1エントリだけで十分なので termcap 変換等は
-/// 持ち込まない。`cp -R` を使うのは、`tic` が複数名 (xterm-ghostty /
-/// ghostty / Ghostty) をシンボリックリンクで表現するため
-/// (`std.Build.Step.InstallDir` はシンボリックリンクを保存できない)。
+/// 持ち込まない。
 fn installTerminfo(b: *std.Build, ghostty_dep: *std.Build.Dependency) void {
     const gen_mod = b.createModule(.{
         .root_source_file = b.path("src/terminfo_gen.zig"),
@@ -97,14 +95,132 @@ fn installTerminfo(b: *std.Build, ghostty_dep: *std.Build.Dependency) void {
     const terminfo_dir = tic.addOutputFileArg("terminfo");
     tic.addFileArg(terminfo_source);
 
-    const mkdir = b.addSystemCommand(&.{"mkdir"});
-    mkdir.addArgs(&.{"-p"});
-    mkdir.addArg(b.fmt("{s}/share", .{b.install_path}));
-
-    const cp = b.addSystemCommand(&.{ "cp", "-R" });
-    cp.addFileArg(terminfo_dir);
-    cp.addArg(b.fmt("{s}/share", .{b.install_path}));
-    cp.step.dependOn(&mkdir.step);
-
-    b.getInstallStep().dependOn(&cp.step);
+    const install = InstallTerminfo.create(b, terminfo_dir, "share/terminfo");
+    b.getInstallStep().dependOn(&install.step);
 }
+
+/// `tic` が生成した terminfo データベースのディレクトリを install
+/// prefix へ複製するステップ。`std.Build.Step.InstallDir` を使わないの
+/// は、tic が別名 `ghostty` を `x/xterm-ghostty` へのシンボリックリンク
+/// として出力するのに対し、InstallDir の make はディレクトリと通常ファ
+/// イル以外のエントリを読み飛ばす (zig 0.15.2) ため、リンクが install
+/// されず TERM=ghostty を引けなくなるから。
+const InstallTerminfo = struct {
+    step: std.Build.Step,
+    source_dir: std.Build.LazyPath,
+    install_subdir: []const u8,
+
+    fn create(
+        b: *std.Build,
+        source_dir: std.Build.LazyPath,
+        install_subdir: []const u8,
+    ) *InstallTerminfo {
+        const install = b.allocator.create(InstallTerminfo) catch @panic("OOM");
+        install.* = .{
+            .step = .init(.{
+                .id = .custom,
+                .name = b.fmt("install terminfo to {s}", .{install_subdir}),
+                .owner = b,
+                .makeFn = make,
+            }),
+            .source_dir = source_dir.dupe(b),
+            .install_subdir = b.dupePath(install_subdir),
+        };
+        source_dir.addStepDependencies(&install.step);
+        return install;
+    }
+
+    fn make(step: *std.Build.Step, options: std.Build.Step.MakeOptions) !void {
+        _ = options;
+        const b = step.owner;
+        const install: *InstallTerminfo = @fieldParentPtr("step", step);
+        step.clearWatchInputs();
+        _ = try step.addDirectoryWatchInput(install.source_dir);
+
+        const dest_prefix = b.getInstallPath(.prefix, install.install_subdir);
+        const src_dir_path = install.source_dir.getPath3(b, step);
+        var src_dir = src_dir_path.root_dir.handle.openDir(
+            src_dir_path.subPathOrDot(),
+            .{ .iterate = true },
+        ) catch |err| {
+            return step.fail("unable to open terminfo directory '{f}': {s}", .{
+                src_dir_path, @errorName(err),
+            });
+        };
+        defer src_dir.close();
+
+        var all_cached = true;
+        var entry_count: usize = 0;
+        var it = try src_dir.walk(b.allocator);
+        while (try it.next()) |entry| {
+            const dest_path = b.pathJoin(&.{ dest_prefix, entry.path });
+            switch (entry.kind) {
+                .directory => {
+                    const prev = try step.installDir(dest_path);
+                    all_cached = all_cached and prev == .existed;
+                },
+                .file => {
+                    const src_path = try install.source_dir.join(b.allocator, entry.path);
+                    const prev = try step.installFile(src_path, dest_path);
+                    all_cached = all_cached and prev == .fresh;
+                    entry_count += 1;
+                },
+                .sym_link => {
+                    var buf: [std.fs.max_path_bytes]u8 = undefined;
+                    const target = src_dir.readLink(entry.path, &buf) catch |err| {
+                        return step.fail("unable to read symlink '{f}/{s}': {s}", .{
+                            src_dir_path, entry.path, @errorName(err),
+                        });
+                    };
+                    // `and` は短絡するので、リンクの作成を先に済ませて
+                    // から結果を畳み込む。
+                    const cached = try installSymLink(step, target, dest_path);
+                    all_cached = all_cached and cached;
+                    entry_count += 1;
+                },
+                else => continue,
+            }
+        }
+
+        // tic は terminfo ソースの解析に失敗しても終了コード 0 を返し、
+        // 空の出力ディレクトリを残す。ここで気付かないと terminfo 抜きの
+        // 成果物が黙って出来上がるので、install するものが無ければ失敗
+        // させる。
+        if (entry_count == 0) {
+            return step.fail("terminfo database '{f}' is empty", .{src_dir_path});
+        }
+
+        step.result_cached = all_cached;
+    }
+
+    /// 既に同じ内容のリンクがあれば true (キャッシュ済み) を返す。リンク
+    /// 先を解決せずそのまま複製するのは、tic が出す
+    /// `.././x/xterm-ghostty` が相対リンクで、install prefix 内で自己完結
+    /// させたいため。
+    fn installSymLink(
+        step: *std.Build.Step,
+        target: []const u8,
+        dest_path: []const u8,
+    ) !bool {
+        const cwd = std.fs.cwd();
+
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        if (cwd.readLink(dest_path, &buf)) |existing| {
+            if (std.mem.eql(u8, existing, target)) return true;
+        } else |_| {}
+
+        _ = try step.installDir(std.fs.path.dirname(dest_path) orelse ".");
+        cwd.deleteFile(dest_path) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => return step.fail("unable to remove '{s}': {s}", .{
+                dest_path, @errorName(err),
+            }),
+        };
+        cwd.symLink(target, dest_path, .{}) catch |err| {
+            return step.fail("unable to create symlink '{s}' -> '{s}': {s}", .{
+                dest_path, target, @errorName(err),
+            });
+        };
+        return false;
+    }
+};
