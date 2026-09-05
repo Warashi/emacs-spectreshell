@@ -373,7 +373,12 @@ it to describe."
       "xterm-256color"
     spectreshell-term-name))
 
-(defun spectreshell-eshell--process-environment ()
+(defconst spectreshell-eshell--pty-unset-variables '("COLUMNS" "LINES")
+  "Environment variables removed from a child spectreshell gives a pty.
+Both are entries without a \"=VALUE\" part, which is how
+`process-environment' spells \"unset this for the subprocess\".")
+
+(defun spectreshell-eshell--process-environment (attach)
   "Return `process-environment' plus spectreshell's TERM/TERMINFO exports.
 `eshell-gather-process-output' rebuilds `process-environment' for the
 child from whatever `process-environment' *dynamically* is at the
@@ -381,18 +386,45 @@ moment it calls `eshell-environment-variables' (which copies the
 special variable's then-current value), so let-binding this function's
 result around a call to it is enough to reach the child even though
 eshell never asks anyone else for extra variables directly.  Prepended
-\(rather than appended) so these two values win over any same-named
-variable already inherited from Emacs's own environment."
+\(rather than appended) so these values win over any same-named
+variable already inherited from Emacs's own environment.
+
+When ATTACH is non-nil the child gets a pty, and
+`spectreshell-eshell--pty-unset-variables' are unset on top of that, so
+that the pty\'s TIOCGWINSZ is the child\'s single source of truth for
+its size (docs/design.org).  Unsetting rather than correcting the
+values is what keeps them from going stale: a resize updates the pty
+but can never update an already-exec\'d child\'s environment."
   (append (list (concat "TERM=" (spectreshell-eshell--effective-term-name)))
           (when spectreshell-terminfo-directory
             (list (concat "TERMINFO=" spectreshell-terminfo-directory)))
+          (when attach spectreshell-eshell--pty-unset-variables)
           process-environment))
+
+(defun spectreshell-eshell--variable-aliases-list ()
+  "Return `eshell-variable-aliases-list' with COLUMNS/LINES not exported.
+Clearing only each entry\'s COPY-TO-ENVIRONMENT flag (its third element)
+keeps `$COLUMNS'/`$LINES' working as eshell variables while stopping
+`eshell-environment-variables' from `setenv'-ing them over the unset
+entries `spectreshell-eshell--process-environment' put in
+`process-environment' -- which it would otherwise do, since it rebuilds
+the child\'s environment from this list after copying that one."
+  (mapcar (lambda (alias)
+            (if (member (car alias) spectreshell-eshell--pty-unset-variables)
+                (append (list (car alias) (cadr alias) nil) (nthcdr 3 alias))
+              alias))
+          eshell-variable-aliases-list))
 
 (defun spectreshell-eshell--gather-process-output-advice (orig command args)
   "Run ORIG (`eshell-gather-process-output' COMMAND ARGS) under spectreshell.
 Always exports `spectreshell-term-name'/`spectreshell-terminfo-directory'
 into the child's environment (real shells export TERM unconditionally,
-not only for the foreground job).
+not only for the foreground job).  When attaching, COLUMNS/LINES are
+additionally unset for the child (see
+`spectreshell-eshell--process-environment'); the `let' of
+`eshell-variable-aliases-list' takes effect even though `em-dirs.el'
+makes that variable buffer-local, because ORIG runs with this same
+eshell buffer current.
 
 Additionally attaches spectreshell when both of these hold: (1)
 `eshell-interactive-output-p' says this call's output is headed for
@@ -411,7 +443,11 @@ that same size (`spectreshell-eshell--attach')."
          (size (and attach (spectreshell-eshell--terminal-size (current-buffer))))
          (spectreshell-eshell--want-pty attach)
          (spectreshell-eshell--pty-size size)
-         (process-environment (spectreshell-eshell--process-environment))
+         (process-environment (spectreshell-eshell--process-environment attach))
+         (eshell-variable-aliases-list
+          (if attach
+              (spectreshell-eshell--variable-aliases-list)
+            eshell-variable-aliases-list))
          (proc (funcall orig command args)))
     (when (and attach (processp proc))
       (spectreshell-eshell--attach proc size))
@@ -428,7 +464,8 @@ A global minor mode: while on, `eshell-gather-process-output' (and
 therefore every eshell buffer's external commands, present and future)
 is advised to attach spectreshell to whichever pipeline stage would
 otherwise write straight to the buffer (docs/design.org).  That process
-gets a pty, TERM/TERMINFO in its environment, and drives the buffer
+gets a pty, TERM/TERMINFO in its environment (and COLUMNS/LINES
+unset, so the pty\'s size is the only size it sees), and drives the buffer
 through spectreshell's VT emulation instead of eshell's own plain-text
 output filter for as long as it runs."
   :global t

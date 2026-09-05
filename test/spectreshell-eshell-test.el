@@ -369,22 +369,38 @@ set-process-window-size をスタブして関数単体で検証する。"
       (goto-char (point-max))
       (should (eq (key-binding "e") 'self-insert-command)))))
 
-(ert-deftest spectreshell-eshell-test-terminal-cols-match-eshell-columns ()
-  "端末の桁数と eshell が export する COLUMNS が一致する。
-子プロセスは幅を ioctl (端末の桁数) と環境変数 COLUMNS の両方から
-知るので、食い違うと COLUMNS を信じるアプリだけが 1 桁はみ出して
-折り返す。eshell 本体 (esh-var.el) は COLUMNS を
-`window-body-width' で定義しているため、期待値はその値で書く。"
-  :expected-result :failed
-  (let ((buffer (get-buffer-create "*spectreshell-cols-test*")))
-    (unwind-protect
-        (progn
-          (set-window-buffer (selected-window) buffer)
-          (let ((window (get-buffer-window buffer t)))
-            (should window)
-            (should (= (cdr (spectreshell-eshell--terminal-size buffer))
-                       (window-body-width window 'remap)))))
-      (kill-buffer buffer))))
+(ert-deftest spectreshell-eshell-test-attached-child-has-no-columns-lines ()
+  "attach した子プロセスの環境に COLUMNS/LINES が無い。
+spectreshell の端末幅は `window-max-chars-per-line' (tty では継続グリフ
+のぶん `window-body-width' より 1 小さい) なので、eshell 本体が
+`window-body-width' で export する COLUMNS を残すと子から見た幅が
+環境変数と TIOCGWINSZ で食い違う。pty を付けた実行では TIOCGWINSZ を
+唯一の情報源にするため、両方とも子へ渡らないことを検査する。"
+  (spectreshell-eshell-test--with-eshell buf
+    (spectreshell-eshell-test--send
+     buf "sh -c 'echo COLUMNS=${COLUMNS-unset} LINES=${LINES-unset}'")
+    (should (spectreshell-eshell-test--wait-for-command buf))
+    (with-current-buffer buf
+      (let ((lines (mapcar #'string-trim-right
+                           (split-string (buffer-string) "\n"))))
+        (should (member "COLUMNS=unset LINES=unset" lines))))))
+
+(ert-deftest spectreshell-eshell-test-unattached-child-keeps-eshell-columns ()
+  "attach しない段では eshell 本体の COLUMNS/LINES export が残る。
+パイプの最終段以外は pty を持たず TIOCGWINSZ で幅を知れないので、
+eshell が渡す値を取り上げてしまうと幅の手掛かりが無くなる。値そのもの
+ではなく数値が渡っていることを検査する (幅は実行環境依存のため)。"
+  (spectreshell-eshell-test--with-eshell buf
+    (spectreshell-eshell-test--send
+     buf "sh -c 'echo COLUMNS=${COLUMNS-unset} LINES=${LINES-unset}' | cat")
+    (should (spectreshell-eshell-test--wait-for-command buf))
+    (with-current-buffer buf
+      (let ((lines (mapcar #'string-trim-right
+                           (split-string (buffer-string) "\n"))))
+        (should (seq-find (lambda (line)
+                            (string-match-p
+                             "\\`COLUMNS=[0-9]+ LINES=[0-9]+\\'" line))
+                          lines))))))
 
 ;; ---------------------------------------------------------------------
 ;; 同梱 terminfo の自動検出
