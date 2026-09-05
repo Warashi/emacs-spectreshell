@@ -101,6 +101,7 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
 キー入力は端末へ直送されるので、point は常にカーソルに居るべき。"
   (spectreshell-test--with-terminal (term 5 10)
     (spectreshell-semi-char-mode 1)
+    (setq spectreshell--current term)
     (spectreshell-feed term "ab\r\ncd")
     (goto-char (point-min))
     (spectreshell-feed term "ef")
@@ -327,6 +328,107 @@ spectreshell-title-functions がバッファをカレントにして呼ばれる
       (spectreshell-finalize term)
       (should-error (spectreshell--feed term-ptr "x")
                     :type 'spectreshell-terminal-released))))
+
+;; ---------------------------------------------------------------------
+;; 端末領域の終端 (領域より後ろのテキストの保護)
+;; ---------------------------------------------------------------------
+
+(defmacro spectreshell-test--with-trailing-text (spec text &rest body)
+  "SPEC の端末を作り、その領域の直後に TEXT を置いてから BODY を実行する.
+SPEC は `spectreshell-test--with-terminal' と同じ。TEXT は eshell が
+背景ジョブの領域より後ろに書くプロンプトやコマンドラインに相当する。"
+  (declare (indent 2))
+  `(spectreshell-test--with-terminal ,spec
+     (save-excursion (goto-char (point-max)) (insert ,text))
+     ,@body))
+
+(defun spectreshell-test--region-string (obj)
+  "OBJ の端末領域のテキストを返す。"
+  (buffer-substring-no-properties (spectreshell-marker obj)
+                                  (spectreshell--region-end obj)))
+
+(ert-deftest spectreshell-test-update-keeps-text-after-region ()
+  "領域より後ろのテキストは feed の再描画で消えず、行数計算にも入らない。
+背景ジョブの領域の後ろには eshell のプロンプトと編集中のコマンド
+ラインが並ぶので、そこを端末領域とみなして削除・上書きしてはならない。"
+  (spectreshell-test--with-trailing-text (term 5 10) "$ typing"
+    (spectreshell-feed term "ab\r\ncd")
+    (should (= 5 (spectreshell--row-count term)))
+    (should (string-prefix-p "ab        \ncd        \n"
+                             (spectreshell-test--region-string term)))
+    (should-not (string-match-p "\\$ typing"
+                                (spectreshell-test--region-string term)))
+    (should (string-suffix-p "$ typing" (buffer-string)))))
+
+(ert-deftest spectreshell-test-scrolled-off-keeps-text-after-region ()
+  "スクロールアウト行の確定化でも領域より後ろのテキストは動かない。
+確定化は領域の先頭に挿入するので、空の領域では終端マーカーも一緒に
+押し出さないと領域の前後が入れ替わる。"
+  (spectreshell-test--with-trailing-text (term 2 5) "$ typing"
+    (spectreshell-feed term "1\r\n2\r\n3\r\n")
+    (should (<= (spectreshell-marker term) (spectreshell--region-end term)))
+    (should (= 2 (spectreshell--row-count term)))
+    (should (string-suffix-p "$ typing" (buffer-string)))))
+
+(ert-deftest spectreshell-test-resize-shrink-keeps-text-after-region ()
+  "行数を縮める resize の余剰行削除は領域の終端までしか消さない。"
+  (spectreshell-test--with-trailing-text (term 4 5) "$ typing"
+    (spectreshell-feed term "a\r\nb\r\nc\r\nd")
+    (spectreshell-resize term 2 5)
+    (should (= 2 (spectreshell--row-count term)))
+    (should (string-suffix-p "$ typing" (buffer-string)))))
+
+(ert-deftest spectreshell-test-alt-screen-keeps-text-after-region ()
+  "alt screen の出入りで領域を丸ごと入れ替えても後ろのテキストは残る。"
+  (spectreshell-test--with-trailing-text (term 3 10) "$ typing"
+    (spectreshell-feed term "hello")
+    (spectreshell-feed term "\x1b[?1049h")
+    (should (string-suffix-p "$ typing" (buffer-string)))
+    (spectreshell-feed term "\x1b[?1049l")
+    (should (string-prefix-p "hello" (spectreshell-test--region-string term)))
+    (should (string-suffix-p "$ typing" (buffer-string)))))
+
+(ert-deftest spectreshell-test-finalize-keeps-text-after-region ()
+  "finalize の確定化 (パディング除去) も領域の外へはみ出さない。"
+  (spectreshell-test--with-trailing-text (term 5 10) "$ typing"
+    (spectreshell-feed term "hi")
+    (let ((start (marker-position (spectreshell-marker term))))
+      (should (= (spectreshell-finalize term) (+ start 3)))
+      (should (equal "hi\n$ typing" (buffer-substring-no-properties
+                                     start (point-max)))))))
+
+(ert-deftest spectreshell-test-cursor-position-stays-inside-region ()
+  "描かれていない行へのカーソル移動でも、カーソル位置は領域内に収まる。
+CUP は行を dirty にしないので領域はまだ短く、素直に行送りすると
+領域の後ろのプロンプトの上にカーソル位置を記録してしまう。"
+  (spectreshell-test--with-trailing-text (term 5 10) "$ typing"
+    (spectreshell-feed term "\x1b[4;1H")
+    (should (<= (spectreshell-cursor-pos term) (spectreshell--region-end term)))))
+
+(ert-deftest spectreshell-test-finalize-keeps-point-outside-region ()
+  "領域の外に point があるまま finalize しても point は動かない。
+背景ジョブの終了でコマンドライン編集中の point を奪ってはならない。"
+  (spectreshell-test--with-trailing-text (term 5 10) "$ typing"
+    (spectreshell-feed term "hi")
+    (goto-char (point-max))
+    (spectreshell-finalize term)
+    ;; 確定化で領域は縮むので、位置ではなく「後ろのテキストの末尾に
+    ;; いる」ことで据え置きを検査する。
+    (should (= (point) (point-max)))))
+
+(ert-deftest spectreshell-test-other-terminal-update-keeps-point ()
+  "semi-char モード中でも、キー入力の宛先でない端末の更新は point を動かさない。
+背景ジョブの出力のたびに前景のコマンドライン上の point が
+背景ジョブのカーソルへ引きずられると、入力が成立しない。"
+  (spectreshell-test--with-terminal (background 5 10)
+    (goto-char (point-max))
+    (insert "$ ")
+    (let ((foreground (spectreshell-start (current-buffer) 5 10 #'ignore))
+          (saved (point-marker)))
+      (spectreshell-semi-char-mode 1)
+      (setq spectreshell--current foreground)
+      (spectreshell-feed background "bg output")
+      (should (= (point) (marker-position saved))))))
 
 ;; ---------------------------------------------------------------------
 ;; libspectreshell モジュールの自動検出・自動ロード

@@ -168,6 +168,16 @@ constructor directly outside this file."
   term
   buffer
   marker
+  ;; End of the terminal region, as a marker so that text inserted
+  ;; before it (this terminal's own output, or another terminal's in the
+  ;; same buffer) keeps it pinned to the region's end.  Its insertion
+  ;; type is the default nil, and every helper that grows the region
+  ;; repins it explicitly (`spectreshell--set-region-end'): type t would
+  ;; make an insertion *at* the end position pull the marker along, and
+  ;; that is exactly what eshell does when it writes the prompt and the
+  ;; next command line right after a background job's still-empty
+  ;; region -- which would swallow them into the region.
+  end-marker
   rows
   cols
   send-fn
@@ -211,10 +221,12 @@ to own); displaying the title anywhere is entirely up to these hooks.")
 (defun spectreshell-start (buffer rows cols send-fn)
   "Start a ROWS x COLS spectreshell terminal rendering into BUFFER.
 
-The terminal region begins at BUFFER's point at call time and always
-extends to the end of the buffer afterwards; callers must therefore
+The terminal region begins at BUFFER's point at call time and ends at a
+marker that grows with the terminal's own output; callers must therefore
 invoke this right after a newline (mid-line start positions are not
-supported).  SEND-FN is called with a single unibyte string argument
+supported).  Text written after that end marker -- eshell's next prompt
+and command line, or another concurrently running job's region -- is
+left alone, so one buffer can host several terminals at once.  SEND-FN is called with a single unibyte string argument
 whenever `spectreshell-feed' or `spectreshell-resize' produces PTY
 response bytes (e.g. a DSR cursor-position reply) that must be written
 back to the child process.
@@ -227,6 +239,7 @@ Return a new `spectreshell' object to pass to the other
      :term (spectreshell--create rows cols)
      :buffer buffer
      :marker (point-marker)
+     :end-marker (point-marker)
      :rows rows
      :cols cols
      :send-fn send-fn
@@ -259,25 +272,41 @@ Return the raw update plist from `spectreshell--resize'."
 Call this once when the backing process has exited; OBJ (and the
 module terminal it wraps) must not be used again afterwards.  The
 terminal region is already rendered as real buffer text throughout, so
-there is nothing left to convert here beyond detaching the marker and
+there is nothing left to convert here beyond detaching the markers and
 releasing the module's terminal object.
+
+Return the buffer position just past the frozen region, which callers
+need in order to place whatever they write next (eshell's prompt) right
+below the output; the markers are gone by the time this returns, so it
+is the only way left to name that position.
+
+Point is moved there only if it was inside the region: a background job
+finishing while the user edits the command line further down must not
+drag point away from what is being typed.
 
 If the process died while the alternate screen was still active (a
 clean exit would have sent ?1049l first), the saved primary screen is
 restored just as leaving the alt screen would have, so the user's
 pre-TUI screen content is not silently lost."
-  (with-current-buffer (spectreshell-buffer obj)
-    (save-restriction
-      (widen)
-      (let ((inhibit-read-only t)
-            (buffer-undo-list t))
-        (when (spectreshell-alt-saved obj)
-          (spectreshell--leave-alt-screen obj))
-        (spectreshell--trim-frozen-region obj)))
-    (goto-char (point-max)))
-  (set-marker (spectreshell-marker obj) nil)
-  (spectreshell--release (spectreshell-term obj))
-  nil)
+  (let (end)
+    (with-current-buffer (spectreshell-buffer obj)
+      (save-restriction
+        (widen)
+        (let ((inhibit-read-only t)
+              (buffer-undo-list t)
+              (inside (and (>= (point) (spectreshell-marker obj))
+                           (<= (point) (spectreshell--region-end obj))))
+              (saved-point (point-marker)))
+          (when (spectreshell-alt-saved obj)
+            (spectreshell--leave-alt-screen obj))
+          (spectreshell--trim-frozen-region obj)
+          (setq end (spectreshell--region-end obj))
+          (goto-char (if inside end saved-point))
+          (set-marker saved-point nil))))
+    (set-marker (spectreshell-marker obj) nil)
+    (set-marker (spectreshell-end-marker obj) nil)
+    (spectreshell--release (spectreshell-term obj))
+    end))
 
 (defun spectreshell--trim-frozen-region (obj)
   "Strip OBJ's terminal-region padding before it freezes into plain text.
@@ -289,17 +318,18 @@ next prompt lands right under the output instead of a screenful of
 blank lines further down."
   (let ((marker (spectreshell-marker obj)))
     (goto-char marker)
-    (while (< (point) (point-max))
+    (while (< (point) (spectreshell--region-end obj))
       (end-of-line)
       (while (and (> (point) (line-beginning-position))
                   (eq (char-before) ?\s)
                   (null (text-properties-at (1- (point)))))
         (delete-char -1))
       (forward-line 1))
-    (goto-char (point-max))
+    (goto-char (spectreshell--region-end obj))
     (skip-chars-backward "\n" marker)
-    (delete-region (point) (point-max))
-    (insert "\n")))
+    (delete-region (point) (spectreshell--region-end obj))
+    (insert "\n")
+    (spectreshell--set-region-end obj)))
 
 ;; ---------------------------------------------------------------------
 ;; Update plist application
@@ -310,10 +340,9 @@ blank lines further down."
 Return UPDATE unchanged, for callers that want to inspect it further."
   (with-current-buffer (spectreshell-buffer obj)
     ;; This runs from a process filter at arbitrary times, so the user may
-    ;; have narrowed the buffer meanwhile; every helper below treats
-    ;; `point-max' as the terminal region's end, which a narrowed
-    ;; `point-max' would silently corrupt (e.g. `spectreshell--trim-rows'
-    ;; deleting up to the wrong "end of buffer").
+    ;; have narrowed the buffer meanwhile; the terminal region (its end
+    ;; marker above all) can well sit outside the accessible portion,
+    ;; and every helper below edits it by buffer position.
     (save-restriction
       (widen)
       ;; `buffer-undo-list' is bound to t because terminal redraw churn
@@ -383,9 +412,20 @@ attributes (a span carrying only a hyperlink)."
 ;; Terminal-region geometry helpers
 ;; ---------------------------------------------------------------------
 
+(defun spectreshell--region-end (obj)
+  "Return the buffer position where OBJ's terminal region ends.
+Everything from there on belongs to whoever else writes into the buffer
+\(eshell's prompt and command line, another job's terminal region) and
+must be left untouched by the redraw helpers."
+  (marker-position (spectreshell-end-marker obj)))
+
+(defun spectreshell--set-region-end (obj)
+  "Repin OBJ's end marker to point, after point extended the region."
+  (set-marker (spectreshell-end-marker obj) (point)))
+
 (defun spectreshell--row-count (obj)
   "Return how many newline-terminated lines OBJ's terminal region has."
-  (count-lines (spectreshell-marker obj) (point-max)))
+  (count-lines (spectreshell-marker obj) (spectreshell--region-end obj)))
 
 (defun spectreshell--pad-rows (obj upto)
   "Append blank lines to OBJ's terminal region until row UPTO exists.
@@ -396,8 +436,9 @@ built up from nothing."
   (let ((missing (- (1+ upto) (spectreshell--row-count obj))))
     (when (> missing 0)
       (let ((blank (concat (make-string (spectreshell-cols obj) ?\s) "\n")))
-        (goto-char (point-max))
-        (insert (mapconcat #'identity (make-list missing blank)))))))
+        (goto-char (spectreshell--region-end obj))
+        (insert (mapconcat #'identity (make-list missing blank)))
+        (spectreshell--set-region-end obj)))))
 
 (defun spectreshell--trim-rows (obj)
   "Delete trailing buffer lines beyond OBJ's current row count.
@@ -408,7 +449,9 @@ of the terminal region."
     (when (> excess 0)
       (goto-char (spectreshell-marker obj))
       (forward-line (spectreshell-rows obj))
-      (delete-region (point) (point-max)))))
+      ;; Deleting up to the end marker leaves it collapsed onto point,
+      ;; i.e. already repinned to the region's new end.
+      (delete-region (point) (spectreshell--region-end obj)))))
 
 ;; ---------------------------------------------------------------------
 ;; Dirty row diff application
@@ -567,8 +610,13 @@ real terminal content and are kept."
       ;; inserted at its own position, i.e. still pointing at the
       ;; scrollback we just confirmed instead of the terminal region that
       ;; now starts after it; `point' (left at the insertion end by
-      ;; `insert') is exactly the position we want it repinned to.
-      (set-marker marker (point)))))
+      ;; `insert') is exactly the position we want it repinned to.  The
+      ;; end marker needs the same treatment while the region is still
+      ;; empty (nothing padded yet): it sits at that very position too,
+      ;; and would otherwise end up *before* the region's start.
+      (set-marker marker (point))
+      (when (< (spectreshell--region-end obj) (point))
+        (spectreshell--set-region-end obj)))))
 
 ;; ---------------------------------------------------------------------
 ;; Alternate screen
@@ -587,8 +635,8 @@ ALT-SCREEN is the :alt-screen value from an update plist: `entered',
 The snapshot is restored by `spectreshell--leave-alt-screen'."
   (clrhash (spectreshell-row-cache obj))
   (setf (spectreshell-alt-saved obj)
-        (buffer-substring (spectreshell-marker obj) (point-max)))
-  (delete-region (spectreshell-marker obj) (point-max))
+        (buffer-substring (spectreshell-marker obj) (spectreshell--region-end obj)))
+  (delete-region (spectreshell-marker obj) (spectreshell--region-end obj))
   (spectreshell--pad-rows obj (1- (spectreshell-rows obj))))
 
 (defun spectreshell--leave-alt-screen (obj)
@@ -597,10 +645,11 @@ The snapshot is restored by `spectreshell--leave-alt-screen'."
   ;; cache's back, so what it remembers per row no longer describes the
   ;; buffer.
   (clrhash (spectreshell-row-cache obj))
-  (delete-region (spectreshell-marker obj) (point-max))
+  (delete-region (spectreshell-marker obj) (spectreshell--region-end obj))
   (when-let* ((saved (spectreshell-alt-saved obj)))
     (goto-char (spectreshell-marker obj))
-    (insert saved))
+    (insert saved)
+    (spectreshell--set-region-end obj))
   (setf (spectreshell-alt-saved obj) nil))
 
 ;; ---------------------------------------------------------------------
@@ -608,6 +657,7 @@ The snapshot is restored by `spectreshell--leave-alt-screen'."
 ;; ---------------------------------------------------------------------
 
 (defvar spectreshell-semi-char-mode)
+(defvar spectreshell--current)
 
 (defun spectreshell--cursor-followed-p (obj position)
   "Return non-nil if POSITION should follow OBJ\='s cursor on this update.
@@ -615,9 +665,11 @@ POSITION is a point or window-point read before the update touched the
 buffer, so comparing it against the position the previous update left
 the cursor at is what tells a point sitting at the cursor apart from one
 left behind in the scrollback.  In semi-char mode every position follows
-unconditionally: keys go straight to the terminal there, so point has
-nowhere to be but at the cursor."
-  (or spectreshell-semi-char-mode
+unconditionally -- keys go straight to the terminal there, so point has
+nowhere to be but at the cursor -- but only for the terminal those keys
+actually reach (`spectreshell--current'): a background job redrawing its
+own region must not drag point off the command line being typed on."
+  (or (and spectreshell-semi-char-mode (eq obj spectreshell--current))
       (eql position (spectreshell-cursor-pos obj))))
 
 (defun spectreshell--following-windows (obj)
@@ -654,12 +706,19 @@ offset: a double-width character occupies two cells but only one buffer
 position, so the mapping goes through display columns
 \(`move-to-column', which counts each character's `char-width') rather
 than character counting.  A COL past the end of a short row clamps to
-the end of that line."
+the end of that line, and a ROW past the region's last line to
+`spectreshell--region-end': a bare cursor-positioning sequence does not
+dirty the rows it jumps over, so the region can legitimately be shorter
+than ROW, and walking on into the text after it would record a cursor
+position on eshell's command line."
   (save-excursion
-    (goto-char (spectreshell-marker obj))
-    (forward-line row)
-    (move-to-column col)
-    (point)))
+    (let ((end (spectreshell--region-end obj)))
+      (goto-char (spectreshell-marker obj))
+      (forward-line row)
+      (if (>= (point) end)
+          end
+        (move-to-column col)
+        (min (point) end)))))
 
 ;; ---------------------------------------------------------------------
 ;; Key event normalization
@@ -762,10 +821,13 @@ mapped to something misleading."
 
 (defvar-local spectreshell--current nil
   "The `spectreshell' object this buffer's key commands send input to.
-`spectreshell-eshell.el' (Phase 5) sets this when a process starts;
-nil means there is currently nothing to send input to, in which case
-the semi-char mode commands below are silent no-ops rather than errors
-\(matching a plain terminal buffer that just hasn't started a job yet).")
+Only ever one terminal, even when several render into this buffer at
+once: `spectreshell-eshell.el' points this at the *foreground* job,
+since a background job has a region and a redraw of its own but no
+claim on the keyboard.  Nil means there is currently nothing to send
+input to, in which case the semi-char mode commands below are silent
+no-ops rather than errors (matching a plain terminal buffer that just
+hasn't started a job yet).")
 
 ;; ---------------------------------------------------------------------
 ;; Input commands
@@ -813,11 +875,13 @@ not a window, e.g. a click below the last line)."
   "Return OBJ's 0-origin (ROW . COL) terminal coordinates for POSN.
 POSN is an `event-start'/`event-end' position object.  Return nil when
 POSN has no buffer position at all (e.g. a click in the fringe) or
-falls before OBJ's terminal-region marker (a click on already-confirmed
-scrollback text, which is not part of the live terminal grid)."
+falls outside OBJ's terminal region -- a click on already-confirmed
+scrollback text above it, or on the prompt/command line below it,
+neither of which is part of the live terminal grid."
   (when-let* ((pt (posn-point posn))
               (marker-pos (marker-position (spectreshell-marker obj)))
-              ((>= pt marker-pos)))
+              ((>= pt marker-pos))
+              ((< pt (spectreshell--region-end obj))))
     (with-current-buffer (spectreshell-buffer obj)
       (save-excursion
         (goto-char pt)
