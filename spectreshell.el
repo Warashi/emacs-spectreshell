@@ -186,6 +186,9 @@ constructor directly outside this file."
   styles
   face-generation
   row-cache
+  ;; Non-nil to keep the region only as tall as its output; see
+  ;; `spectreshell--trim-blank-tail'.
+  compact
   ;; Buffer position where the last update left the terminal cursor; see
   ;; `spectreshell--cursor-followed-p'.
   cursor-pos)
@@ -218,7 +221,7 @@ break eshell's buffer bookkeeping, a frame title is not this layer's
 to own); displaying the title anywhere is entirely up to these hooks.")
 
 ;;;###autoload
-(defun spectreshell-start (buffer rows cols send-fn)
+(defun spectreshell-start (buffer rows cols send-fn &optional compact)
   "Start a ROWS x COLS spectreshell terminal rendering into BUFFER.
 
 The terminal region begins at BUFFER's point at call time and ends at a
@@ -230,6 +233,10 @@ left alone, so one buffer can host several terminals at once.  SEND-FN is called
 whenever `spectreshell-feed' or `spectreshell-resize' produces PTY
 response bytes (e.g. a DSR cursor-position reply) that must be written
 back to the child process.
+
+With COMPACT non-nil the region is kept only as tall as the output
+drawn into it so far, instead of the full ROWS
+\(`spectreshell--trim-blank-tail').
 
 Return a new `spectreshell' object to pass to the other
 `spectreshell-*' functions."
@@ -249,6 +256,7 @@ Return a new `spectreshell' object to pass to the other
      :styles (make-hash-table :test 'eq)
      :face-generation spectreshell--face-generation
      :row-cache (make-hash-table :test 'eq)
+     :compact compact
      :cursor-pos (point))))
 
 (defun spectreshell-feed (obj bytes)
@@ -366,6 +374,8 @@ Return UPDATE unchanged, for callers that want to inspect it further."
         (spectreshell--apply-scrolled-off obj (plist-get update :scrolled-off))
         (spectreshell--apply-dirty obj (plist-get update :dirty))
         (spectreshell--trim-rows obj)
+        (when (spectreshell-compact obj)
+          (spectreshell--trim-blank-tail obj))
         (spectreshell--move-point obj (plist-get update :cursor)
                                   follow-point follow-windows saved-point)
         (when-let* ((title (plist-get update :title)))
@@ -452,6 +462,37 @@ of the terminal region."
       ;; Deleting up to the end marker leaves it collapsed onto point,
       ;; i.e. already repinned to the region's new end.
       (delete-region (point) (spectreshell--region-end obj)))))
+
+(defun spectreshell--blank-row-p (beg end)
+  "Return non-nil if BEG..END in the current buffer is nothing but padding.
+Padding is the run of property-less spaces the module pads every row
+out to the full terminal width with; a space carrying a text property
+\(a colored background, say) is real terminal content, exactly as in
+`spectreshell--trim-trailing-blanks', which decides it here too."
+  (equal "" (spectreshell--trim-trailing-blanks (buffer-substring beg end))))
+
+(defun spectreshell--trim-blank-tail (obj)
+  "Shrink OBJ's terminal region to the last row that holds any output.
+Only done for a terminal started with COMPACT (`spectreshell-start'),
+i.e. a background job, whose region sits above eshell's prompt and the
+command line being typed: padding it out to the full screen height
+would push both a screenful down for as long as the job runs, even
+after a single line of output.  A foreground job has nothing below it
+and keeps the full screen, which is what a terminal-sized region is.
+The rows come straight back from `spectreshell--pad-rows' as soon as
+the job draws that far down again."
+  (let* ((marker (marker-position (spectreshell-marker obj)))
+         (end (spectreshell--region-end obj))
+         (new-end end))
+    (goto-char end)
+    (while (and (> (point) marker)
+                (progn (forward-line -1)
+                       (spectreshell--blank-row-p (point) (line-end-position))))
+      (setq new-end (point)))
+    (when (< new-end end)
+      ;; The end marker sits inside the deleted range and so collapses
+      ;; onto NEW-END, i.e. is repinned to the region's new end.
+      (delete-region new-end end))))
 
 ;; ---------------------------------------------------------------------
 ;; Dirty row diff application

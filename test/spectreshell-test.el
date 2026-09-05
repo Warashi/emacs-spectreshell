@@ -430,6 +430,45 @@ CUP は行を dirty にしないので領域はまだ短く、素直に行送り
       (spectreshell-feed background "bg output")
       (should (= (point) (marker-position saved))))))
 
+(ert-deftest spectreshell-test-compact-region-drops-trailing-blank-rows ()
+  "COMPACT の端末領域は出力のある行までしか占めない。
+背景ジョブの領域は eshell のプロンプトの上に居座るので、1 行の出力で
+画面いっぱいにパディングするとプロンプトが 1 画面ぶん下へ落ちる。"
+  (with-temp-buffer
+    (let ((term (spectreshell-start (current-buffer) 5 10 #'ignore t)))
+      (goto-char (point-max))
+      (insert "$ typing")
+      (spectreshell-feed term "hi")
+      (should (= 1 (spectreshell--row-count term)))
+      (should (equal "hi        \n" (buffer-substring-no-properties
+                                     (spectreshell-marker term)
+                                     (spectreshell--region-end term))))
+      (should (string-suffix-p "$ typing" (buffer-string))))))
+
+(ert-deftest spectreshell-test-compact-region-regrows-for-lower-rows ()
+  "COMPACT でも、下の行に描き直せば領域はそこまで伸び直す。"
+  (with-temp-buffer
+    (let ((term (spectreshell-start (current-buffer) 5 10 #'ignore t)))
+      (spectreshell-feed term "hi")
+      (should (= 1 (spectreshell--row-count term)))
+      (spectreshell-feed term "\x1b[3;1Hlow")
+      (should (= 3 (spectreshell--row-count term)))
+      (should (string-match-p "low" (buffer-string))))))
+
+(ert-deftest spectreshell-test-compact-region-keeps-styled-blank-rows ()
+  "背景色の付いた空白だけの行は端末の実内容なので畳まれない。"
+  (with-temp-buffer
+    (let ((term (spectreshell-start (current-buffer) 5 10 #'ignore t)))
+      (spectreshell-feed term "hi\r\n\x1b[41m          \x1b[0m")
+      (should (= 2 (spectreshell--row-count term))))))
+
+(ert-deftest spectreshell-test-non-compact-region-keeps-full-screen ()
+  "既定 (前景ジョブ) の端末領域は出力が 1 行でも rows 行を保つ。
+端末サイズの領域であること自体が全画面 TUI の前提になる。"
+  (spectreshell-test--with-terminal (term 5 10)
+    (spectreshell-feed term "hi")
+    (should (= 5 (spectreshell--row-count term)))))
+
 ;; ---------------------------------------------------------------------
 ;; libspectreshell モジュールの自動検出・自動ロード
 ;; ---------------------------------------------------------------------
