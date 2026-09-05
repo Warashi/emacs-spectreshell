@@ -37,6 +37,8 @@ pub const Handler = struct {
         switch (action) {
             .device_status => try self.deviceStatus(value.request),
             .device_attributes => try self.deviceAttributes(value),
+            .request_mode => try self.requestMode(value.mode),
+            .request_mode_unknown => try self.requestModeUnknown(value.mode, value.ansi),
             .window_title => try self.setTitle(value.title),
             else => try self.inner.vt(action, value),
         }
@@ -76,6 +78,30 @@ pub const Handler = struct {
             .secondary => try self.responses.appendSlice(self.alloc, "\x1b[>1;10;0c"),
             .tertiary => {},
         }
+    }
+
+    /// DECRQM (CSI Ps $ p / CSI ? Ps $ p) への DECRPM 応答。ghostty 本体
+    /// と同じく 3 (permanently set) / 4 (permanently reset) は使わず、
+    /// 既知モードは現在値の 1 / 2 のみで答える。
+    fn requestMode(self: *Handler, mode: ghostty_vt.Mode) !void {
+        const tag: ghostty_vt.modes.ModeTag = @bitCast(@intFromEnum(mode));
+        const code: u8 = if (self.inner.terminal.modes.get(mode)) 1 else 2;
+        var buf: [32]u8 = undefined;
+        const resp = try std.fmt.bufPrint(&buf, "\x1b[{s}{d};{d}$y", .{
+            if (tag.ansi) "" else "?",
+            tag.value,
+            code,
+        });
+        try self.responses.appendSlice(self.alloc, resp);
+    }
+
+    fn requestModeUnknown(self: *Handler, mode_raw: u16, ansi: bool) !void {
+        var buf: [32]u8 = undefined;
+        const resp = try std.fmt.bufPrint(&buf, "\x1b[{s}{d};0$y", .{
+            if (ansi) "" else "?",
+            mode_raw,
+        });
+        try self.responses.appendSlice(self.alloc, resp);
     }
 
     fn setTitle(self: *Handler, title: []const u8) !void {

@@ -641,6 +641,41 @@ test "DSR は DECOM 有効時にスクロール領域相対のカーソル位置
     try testing.expectEqualStrings("\x1b[1;1R", update.responses);
 }
 
+test "DECRQM は既知モードの現在値で応答する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    // DECTCEM (?25) は既定で有効なので 1 (set)、synchronized output
+    // (?2026) は未設定なので 2 (reset)。
+    var update = try t.feed(alloc, "\x1b[?25$p\x1b[?2026$p");
+    defer update.deinit();
+    try testing.expectEqualStrings("\x1b[?25;1$y\x1b[?2026;2$y", update.responses);
+}
+
+test "ANSI 形式の DECRQM (CSI Ps $ p) には応答しない" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    // ghostty 1.3.1 の stream.zig は CSI p を intermediates 2 個
+    // (?$) の場合しか DECRQM として dispatch しないため、IRM (4) の
+    // ANSI 形式はハンドラまで届かない。上流が直ったらこのテストが落ちる。
+    var update = try t.feed(alloc, "\x1b[4h\x1b[4$p");
+    defer update.deinit();
+    try testing.expectEqualStrings("", update.responses);
+}
+
+test "DECRQM は未知のモードに 0 (認識せず) で応答する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[?9999$p");
+    defer update.deinit();
+    try testing.expectEqualStrings("\x1b[?9999;0$y", update.responses);
+}
+
 test "OSC 2 はタイトル変更を通知する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);

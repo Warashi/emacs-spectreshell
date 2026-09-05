@@ -190,6 +190,12 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
     (spectreshell-feed term "Hi\x1b[6n")
     (should (equal responses '("\x1b[1;3R")))))
 
+(ert-deftest spectreshell-test-decrqm-response-is-sent-via-send-fn ()
+  "DECRQM (ESC[?25$p) の応答バイト列が SEND-FN に渡る。"
+  (spectreshell-test--with-terminal (term 5 10 responses)
+    (spectreshell-feed term "\x1b[?25$p")
+    (should (equal responses '("\x1b[?25;1$y")))))
+
 (ert-deftest spectreshell-test-osc8-hyperlink-becomes-clickable-button ()
   "OSC 8 のリンク区間が text-property ベースの button になる。"
   (spectreshell-test--with-terminal (term 1 10)
