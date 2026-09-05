@@ -131,7 +131,7 @@ ERT: =test/spectreshell-explore-module-test.el= の
 =spectreshell-explore-module-test-width-change-joins-lines=
 (=:expected-result :failed=)。
 
-** TODO M-16: ghostty-vt の log が Emacs の stderr (= tty) へ直書きされ画面を壊す
+** DONE M-16: ghostty-vt の log が Emacs の stderr (= tty) へ直書きされ画面を壊す
 対象: =src/main.zig= (=std_options= / =logFn= の未指定)
 
 =emacs -nw= の stderr は端末そのものなので、モジュールが =std.log= で
@@ -188,6 +188,22 @@ ERT: =test/spectreshell-explore-stderr-test.el= の
 別ファイルに分ける。同じファイルの =--harness-is-sane= は
 =:expected-result= を付けない対照で、子が別の理由で stderr へ書いて
 いないことを担保する。
+
+対応 (2026-09-05, 55e73de): =src/main.zig= に
+=pub const std_options: std.Options = .{ .logFn = discardLog }= を置き、
+ghostty-vt を含む全依存の =std.log= 出力を捨てる。ルートモジュールの
+=std_options= だけが全依存に効く (ghostty 自身の lib_vt.zig のものは
+依存側なので無効)。=log_level= を下げるだけにしないのは Debug ビルド
+でも err / warn が残り同じ経路で漏れるため。Emacs 側へ届ける経路
+(=*Messages*= 等) を作らず捨てたのは、logFn から端末オブジェクトを
+辿れず、内容も利用者が対処できる情報ではないため。
+
+=zig build test= の実行時はテストランナーがルートモジュールになるので
+=[stream] (warn): …= は今も stderr に出るが、実運用の .so には効く
+ことを Debug の .so + 子 Emacs で走る Probe が担保している。
+
+ERT: =spectreshell-explore-stderr-test.el= の 4 本
+(=:expected-result :failed= を外した)。
 
 ** WAIT M-17: eshell パイプの最終段に入力が届かず、端末クエリの応答が stdin に混入する
 対象: =spectreshell-eshell.el= (=--force-pty-output=)
