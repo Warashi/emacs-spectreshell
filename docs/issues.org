@@ -45,46 +45,6 @@ semi-char モードも解除される)、以後のコマンドは実行できる
 =spectreshell-eshell-test-background-job-leaves-command-line-usable=
 が =:expected-result :failed= で固定してある。
 
-** TODO L-22: 子プロセスから見える端末幅が COLUMNS と ioctl で 1 桁ずれる
-対象: =spectreshell-eshell.el= (=--terminal-size= / =--window-size-change=)
-
-=spectreshell-eshell--terminal-size= は桁数に
-=window-max-chars-per-line= を使う。この値は tty フレームでは折り返しの
-継続グリフのぶん最終桁が予約されるため =window-body-width= より
-1 小さい。一方 eshell 本体 (=esh-var.el=) は子プロセスへ export する
-=COLUMNS= を =window-body-width= で定義しているので、子から見た幅が
-環境変数では 80、=TIOCGWINSZ= では 79 になる。
-
-80x24 の実端末で確認した実測値:
-
-#+begin_example
-$ sh -c "echo COLUMNS=$COLUMNS; stty size < /dev/tty"
-COLUMNS=80
-21 79
-#+end_example
-
-=tput cols= は COLUMNS を優先するため 80 を返す。79 桁の行は 1 行に
-収まるが 80 桁ちょうどの行は 2 行に折り返るので、COLUMNS を信じて
-描くアプリは 1 行ごとに 1 行余分に消費する。ncurses は setupterm で
-COLUMNS を ioctl より優先するため、全画面を使う TUI が該当する。
-リサイズ後も同じずれが残る (100 桁にすると COLUMNS=100 / ioctl 99)。
-
-対象は COLUMNS を読むアプリに限る。COLUMNS を読まないコマンド
-(=git log --oneline= など) の出力が 80 桁で折り返すのは、tty の Emacs
-ウィンドウが元々 79 桁ぶんしか文字を表示できない (80 桁目が継続グリフ用)
-ことによるもので、この課題とは別。実測では 80 桁ちょうどの subject を
-持つコミット 30 件を出しても欠落は無く、各行が 79 桁と 1 桁に割れて
-1 画面に見えるコミットが半減するだけだった。
-
-=test/spectreshell-eshell-test.el= の
-=spectreshell-eshell-test-terminal-cols-match-eshell-columns= が
-=:expected-result :failed= で穴を固定してある。
-
-どちらに揃えるかは設計判断が要る。=window-body-width= に合わせると
-継続グリフの桁と端末の最終桁が衝突する恐れがあり、逆に eshell の
-COLUMNS 定義を spectreshell 側で 79 に上書きする案もある。GUI
-フレームでは両者が一致する可能性があり、tty 固有かどうかも未確認。
-
 ** DONE L-2: キーマップの穴 (backtab / 修飾付き TAB・RET・DEL)
 対象: =spectreshell.el= (semi-char keymap, =spectreshell--event-to-key=)
 
@@ -137,6 +97,66 @@ spectreshell が pty 化するのは出力側だけ (=--force-pty-output=)
 =stty= の対象を子プロセスの制御端末 =/dev/tty= (= Emacs が開いた pty)
 に変えて対応 (0f650de、=test/spectreshell-eshell-test.el= の
 =spectreshell-eshell-test-piped-output-lines-start-at-column-zero=)。
+
+** DONE L-22: 子プロセスから見える端末幅が COLUMNS と ioctl で 1 桁ずれる
+対象: =spectreshell-eshell.el= (=--process-environment= /
+=--variable-aliases-list=)
+
+=spectreshell-eshell--terminal-size= は桁数に
+=window-max-chars-per-line= を使う。この値は tty フレームでは折り返しの
+継続グリフのぶん最終桁が予約されるため =window-body-width= より
+1 小さい。一方 eshell 本体 (=esh-var.el=) は子プロセスへ export する
+=COLUMNS= を =window-body-width= で定義していたので、子から見た幅が
+環境変数では 80、=TIOCGWINSZ= では 79 になっていた。80x24 の実端末での
+修正前の実測値 (=tput cols= は COLUMNS を優先するため 80 を返す):
+
+#+begin_example
+$ sh -c "echo COLUMNS=$COLUMNS; stty size < /dev/tty"
+COLUMNS=80
+21 79
+#+end_example
+
+端末幅の定義は変えず、pty を付ける段の子から環境変数 =COLUMNS= /
+=LINES= を外して =TIOCGWINSZ= を唯一の情報源にすることで対応
+(7b52772、=test/spectreshell-eshell-test.el= の
+=spectreshell-eshell-test-attached-child-has-no-columns-lines= と
+=spectreshell-eshell-test-unattached-child-keeps-eshell-columns=)。
+判断の根拠は docs/design.org の「端末サイズの伝え方」に記録した。
+=window-body-width= 側へ寄せる案は継続グリフの桁と端末の最終桁が
+衝突するため採らず、環境変数に正しい値を入れ直す案も exec 後には
+更新できない以上リサイズのたびにまた食い違うため採らなかった。
+
+一次情報として確認した点:
+
+- =esh-var.el= の =eshell-variable-aliases-list= では =COLUMNS= /
+  =LINES= の COPY-TO-ENVIRONMENT が =t= 。
+  =eshell-environment-variables= がこのフラグを見て =setenv= するので、
+  =esh-proc.el= 側の =process-environment= の let より後勝ちになる。
+  よって alias のフラグを落とさないと抑止できない (実験でも確認)。
+- ncurses 6.6 の =ncurses/tinfo/lib_setup.c= の
+  =_nc_get_screensize= は =TIOCGWINSZ= を読んだ後に
+  =_nc_getenv_num("LINES"/"COLUMNS")= で上書きする (=use_env= が真の
+  ときで、=lib_data.c= の既定値は =TRUE=)。SIGWINCH 経路の
+  =_nc_update_screensize= も =TINFO_GET_SIZE= 経由で同じ関数を呼ぶ
+  ため、環境変数を残すとリサイズ後もずれが残る。
+
+80x24 の tmux 上の =emacs -nw= での修正後の実測値:
+
+#+begin_example
+$ sh -c 'echo COLUMNS=${COLUMNS-unset} LINES=${LINES-unset}; stty size < /dev/tty; tput cols'
+COLUMNS=unset LINES=unset
+21 79
+79
+#+end_example
+
+=tput cols= が =TIOCGWINSZ= と一致するようになった。GUI フレームでは
+継続グリフの扱いが tty と異なる可能性があるが、この環境では GUI を
+起動できないため未確認。ただし本修正は幅の値ではなく情報源を一本化
+するものなので、GUI でもずれは生じない見込み。
+
+COLUMNS を読まないコマンドの出力が 80 桁で折り返すのは、tty の Emacs
+ウィンドウが元々 79 桁ぶんしか文字を表示できない (80 桁目が継続グリフ
+用) ことによるもので、この課題とは別。
 
 * ビルド・パッケージング
 
