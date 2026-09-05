@@ -236,6 +236,12 @@ OSC 8 ハイパーリンク (クリック可能な button として描画)
 @item
 @code{xterm-ghostty} の terminfo をビルド時生成・同梱し、 @code{TERM} /
 @code{TERMINFO} として子プロセスに自動注入
+@item
+端末サイズはウィンドウの表示桁数・行数を pty に設定して伝える。
+この段の子プロセスからは環境変数 @code{COLUMNS} / @code{LINES} を外すので、
+幅・高さの情報源は pty ( @code{TIOCGWINSZ} ) だけになり、リサイズにも
+常に追従する。パイプの最終段以外は pty を持たないため、そちらでは
+eshell 本来の @code{COLUMNS} / @code{LINES} がそのまま渡る
 @end itemize
 
 @node 既知の制限

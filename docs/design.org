@@ -191,6 +191,8 @@ eat-eshell-mode と同様の接続方式:
 - 起動時に process-filter を spectreshell のフィルタに差し替え、
   環境変数 ~TERM=xterm-ghostty~ と ~TERMINFO~ (同梱 terminfo への
   パス) を注入する。
+- pty を付ける段では、逆に環境変数 ~COLUMNS~ / ~LINES~ を子から外す
+  (詳細は後述の「端末サイズの伝え方」)。
 - プロセス実行中は semi-char モードに入り、プロセス終了で
   画面を確定化して通常の eshell 編集に戻る。
 - ウィンドウサイズ変更時は ~spectreshell--resize~ と
@@ -220,6 +222,32 @@ eat-eshell-mode と同様の接続方式:
 エミュレータの実体 (ghostty-vt) と能力宣言が一致するのが利点。
 ssh 先など terminfo が届かない環境向けに、TERM 値を変更できる
 defcustom (fallback: ~xterm-256color~) を用意する。
+
+** 端末サイズの伝え方
+
+端末の桁数は ~window-max-chars-per-line~ 、行数は
+~window-body-height~ とし、pty には ~stty~ と
+~set-process-window-size~ でこの値を渡す。tty フレームでは折り返しの
+継続グリフのぶん最終桁が予約されるため、桁数は
+~window-body-width~ より 1 小さい。
+
+一方 eshell 本体 ( ~esh-var.el~ の ~eshell-variable-aliases-list~ ) は
+子へ export する ~COLUMNS~ を ~window-body-width~ で定義するので、
+そのままでは子から見た幅が環境変数と ~TIOCGWINSZ~ で 1 桁食い違う。
+桁数の定義を ~window-body-width~ 側へ寄せる案は、継続グリフの桁と
+端末の最終桁が衝突するため採らない。代わりに pty を付ける段では
+~COLUMNS~ / ~LINES~ を子の環境から外し、 ~TIOCGWINSZ~ を唯一の
+情報源にする。環境変数は exec 後に更新できず、起動時に値を揃えても
+リサイズのたびに再び食い違うので、値を正すのではなく無くす。実端末の
+シェルもこれらを普通は export しない。
+
+ncurses ( ~ncurses/tinfo/lib_setup.c~ の ~_nc_get_screensize~ ) は
+~TIOCGWINSZ~ を読んだ後に環境変数 ~LINES~ / ~COLUMNS~ で上書きし、
+SIGWINCH 経路の ~_nc_update_screensize~ も同じ関数を通るため、
+環境変数を残すとリサイズ後もずれが残る。
+
+pty を付けない段 (パイプの最終段以外) は ~TIOCGWINSZ~ で幅を知れない
+ので、eshell 本来の ~COLUMNS~ / ~LINES~ export をそのまま残す。
 
 * テスト戦略
 

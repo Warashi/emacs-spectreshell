@@ -146,6 +146,11 @@ less や vim などの alternate screen アプリの画面は確定化されず�
 - OSC 8 ハイパーリンク (クリック可能な button として描画)
 - ~xterm-ghostty~ の terminfo をビルド時生成・同梱し、 ~TERM~ /
   ~TERMINFO~ として子プロセスに自動注入
+- 端末サイズはウィンドウの表示桁数・行数を pty に設定して伝える。
+  この段の子プロセスからは環境変数 ~COLUMNS~ / ~LINES~ を外すので、
+  幅・高さの情報源は pty ( ~TIOCGWINSZ~ ) だけになり、リサイズにも
+  常に追従する。パイプの最終段以外は pty を持たないため、そちらでは
+  eshell 本来の ~COLUMNS~ / ~LINES~ がそのまま渡る
 
 * 既知の制限
 
