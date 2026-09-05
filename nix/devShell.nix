@@ -8,6 +8,7 @@
   ncurses,
   texinfo,
   perl,
+  less,
 }:
 mkShell {
   name = "emacs-spectreshell";
@@ -24,5 +25,7 @@ mkShell {
     # ERT が POSIX::setsid で制御端末を持たない子を作るのに要る
     # (issues.org の L-23)。
     perl
+    # ERT の visual command (em-term.el 迂回) のテストが起動する。
+    less
   ];
 }

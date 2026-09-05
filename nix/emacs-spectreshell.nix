@@ -5,6 +5,7 @@
   ncurses,
   texinfo,
   perl,
+  less,
   callPackage,
   runCommand,
   writeShellScriptBin,
@@ -104,11 +105,14 @@ stdenv.mkDerivation (finalAttrs: {
   # perl は checkPhase の ERT が POSIX::setsid で「制御端末を持たない
   # 子」を作って pty ラッパを検査する (docs/issues.org の L-23) ために
   # 要る。util-linux の setsid(1) は darwin に無く、その間 macOS では
-  # このテストが skip されていた。ERT は skip せず失敗にするので、
-  # 依存を落とせば CI が気付く。
+  # このテストが skip されていた。less は em-term.el の visual command
+  # 迂回のテストが実際に起動する。sandbox には無いので、無ければ skip
+  # だった間はどのプラットフォームでも一度も走っていなかった。どちらの
+  # ERT も skip せず失敗にするので、依存を落とせば CI が気付く。
   nativeCheckInputs = [
     emacs31-nox
     perl
+    less
   ];
 
   # Zig のユニットテストと ERT (module 境界 / 描画 / キー入力 / eshell
@@ -130,6 +134,7 @@ stdenv.mkDerivation (finalAttrs: {
       -l test/spectreshell-module-test.el \
       -l test/spectreshell-test.el \
       -l test/spectreshell-key-test.el \
+      -l test/spectreshell-key-table-test.el \
       -l test/spectreshell-eshell-test.el \
       -l test/spectreshell-explore-recheck-test.el \
       -l test/spectreshell-explore-input-test.el \
