@@ -94,7 +94,10 @@ BODY がエラーで抜けても確実に kill する。"
     (with-current-buffer buf
       (save-excursion
         (goto-char (point-min))
-        (should (search-forward "AB" nil t))
+        ;; 大文字小文字を区別しないと、プロンプトに出るディレクトリ名に
+        ;; "ab" が含まれるだけで先にそちらへ一致してしまう。
+        (let ((case-fold-search nil))
+          (should (search-forward "AB" nil t)))
         ;; "B" (見つけた位置の直前の文字) に色付きの face が乗っている。
         (should (get-text-property (1- (point)) 'face))))))
 
