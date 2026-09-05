@@ -927,6 +927,28 @@ ERT: =spectreshell-explore-geometry-test-zero-column-terminal=
   イベントにならないので、使えないと受け取られる (F-apps-5)。
   spectreshell 側で自動的に有効にすべきかは設計判断。
 
+** TODO L-37: 国旗 (regional indicator) の表示幅が ghostty と Emacs で食い違い、マウスの逆写像もずれる
+対象: =spectreshell.el= (=spectreshell--decorate-row= / マウス座標の変換)
+
+L-33 から切り出した残件。ghostty は regional indicator 1 つを 2 セル
+として扱うが、Emacs の =char-width= は 1 で、国旗 1 つ (RI 2 つ) は
+Emacs 上で 2 桁、端末上では 4 セルになる。L-33 でカーソル *位置* は
+=:cursor-index= により正しく解けるようになったが、次の 2 点が残る。
+
+- 表示幅: 国旗を含む行では Emacs の描画が端末より短くなり、後続の文字
+  が左へ寄る。折り返しでは国旗のペアが行境界で割れる (L-33 の実測)。
+  DECSET 2027 有効時の ZWJ / 肌色修飾の +4 / +2 桁も同種で、こちらは
+  逆に Emacs の描画のほうが長い。直すには「ghostty のセル数と Emacs の
+  表示幅が違う文字」に =display= プロパティで幅を揃える等、描画側の
+  対処が要る。
+- 逆写像: マウス座標のバッファ位置 → セル列は今も =current-column= 系で
+  解いているので、国旗を含む行ではクリック位置が数セルずれる。
+
+ERT: =test/spectreshell-explore-geometry-test.el= の
+=spectreshell-explore-geometry-test-regional-indicator-width=
+(=:expected-result :failed=)。この Probe は =current-column= (表示幅)
+を測っており、L-33 の範囲 (位置の正しさ) ではなくこの項目の Probe。
+
 ** DONE M-3: 同一バッファでの並行ジョブで端末領域が交錯する
 対象: =spectreshell.el= (端末領域) / =spectreshell-eshell.el=
 (=--attach= / gather advice)
