@@ -209,8 +209,11 @@ L-21 で =stty= の対象にした =/dev/tty= が macOS では開けず、CI
 ではなくシェルがリダイレクトの失敗を報告している。
 
 =stty= の対象を fd 1 の複製に変え、stderr の捨て場をリダイレクト列の
-先頭へ移して対応 (ccefbbe、=test/spectreshell-eshell-test.el= の
+先頭へ移して対応 (ccefbbe、テストは 361779a の
+=test/spectreshell-eshell-test.el= の
 =spectreshell-eshell-test-wrap-command-sanitizes-pty-without-ctty=)。
+このテストは =setsid= を要するため、nix の checkPhase と devShell に
+util-linux を足した (90bd4aa・4f41e5a)。
 pty 化するのは出力側だけである以上、fd 1 はラッパが動く状況では必ず
 pty であり、制御端末の有無に依存しない。
 
