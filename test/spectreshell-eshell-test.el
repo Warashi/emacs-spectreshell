@@ -425,5 +425,27 @@ exits."
         (spectreshell-terminfo-directory nil))
     (should (equal (spectreshell-eshell--effective-term-name) "screen"))))
 
+;; ---------------------------------------------------------------------
+;; pty ラッパ
+;; ---------------------------------------------------------------------
+
+(ert-deftest spectreshell-eshell-test-wrap-command-passes-argv-through ()
+  "ラッパ越しでもプログラム名と全引数がそのまま子プロセスに届く。"
+  (let* ((wrapped (spectreshell-eshell--wrap-command-for-pty
+                   (list "printf" "%s|" "x" "y") 24 80))
+         (out (with-output-to-string
+                (with-current-buffer standard-output
+                  (apply #'call-process (car wrapped) nil (list t nil) nil (cdr wrapped))))))
+    (should (equal out "x|y|"))))
+
+(ert-deftest spectreshell-eshell-test-wrap-command-passes-dot-dot-argument ()
+  "\"..\" という引数もセンチネルとして食われずそのまま渡る。"
+  (let* ((wrapped (spectreshell-eshell--wrap-command-for-pty
+                   (list "printf" "%s|" ".." "z") 24 80))
+         (out (with-output-to-string
+                (with-current-buffer standard-output
+                  (apply #'call-process (car wrapped) nil (list t nil) nil (cdr wrapped))))))
+    (should (equal out "..|z|"))))
+
 (provide 'spectreshell-eshell-test)
 ;;; spectreshell-eshell-test.el ends here

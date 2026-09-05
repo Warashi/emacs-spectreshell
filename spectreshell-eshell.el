@@ -310,31 +310,36 @@ terminal typing on that side."
         'pty))
 
 (defun spectreshell-eshell--wrap-command-for-pty (command rows cols)
-  "Return a `make-process' :command list that sanitizes PROC's pty first.
+  "Return a `make-process' :command list that sanitizes PROC\'s pty first.
 COMMAND is the original (PROGRAM . ARGS) list.  A pty Emacs itself just
 opened for a subprocess defaults to `-echo -onlcr' (checked directly
-with `stty -a' against one), unlike a real terminal's; under correct
+with `stty -a' against one), unlike a real terminal\'s; under correct
 VT100 semantics that turns even completely ordinary newline-terminated
-output -- i.e. most Unix programs, which rely on the tty driver's
+output -- i.e. most Unix programs, which rely on the tty driver\'s
 ONLCR to turn a bare LF into a proper new line -- into a staircase.
-`term.el' (`term-exec-1') works around exactly this the same way: exec
-through a tiny `/bin/sh -c' wrapper that runs `stty ... sane' first,
-copied here (ROWS/COLS included so the child's very first ioctl
-already sees the right size, same as `term-exec-1').
+So exec through a tiny `/bin/sh -c' wrapper that runs `stty' first:
+`sane' restores the full standard mode set (ONLCR included), and
+ROWS/COLS are set in the same call so the child\'s very first ioctl
+already sees the right size.  (`term.el' addresses the same problem
+the same way; nothing here is taken from it.)
 
-The `stty' is pointed at `/dev/tty' -- the child's controlling terminal,
-which is the pty Emacs just opened -- rather than left on its standard
-input the way `term-exec-1' can afford to: only the *output* side is
-forced to a pty here (`spectreshell-eshell--force-pty-output'), so on a
-pipeline's last stage standard input is eshell's plain pipe from the
-previous stage and an `stty' on it just fails with ENOTTY, leaving the
-staircase above unfixed for every piped command."
+The `stty' is pointed at `/dev/tty' -- the child\'s controlling terminal,
+which is the pty Emacs just opened -- rather than at standard input:
+only the *output* side is forced to a pty here
+\(`spectreshell-eshell--force-pty-output\'), so on a pipeline\'s last stage
+standard input is eshell\'s plain pipe from the previous stage and an
+`stty' on it would just fail with ENOTTY, leaving the staircase above
+unfixed for every piped command.
+
+COMMAND is appended after the script so that `sh' binds PROGRAM to $0
+and ARGS to $@; `exec \"$0\" \"$@\"' then reassembles them exactly.  Passing
+PROGRAM as $0 rather than as $1 is what lets the wrapper stay free of a
+placeholder argument, so an ARG that happens to look like one is just an
+ordinary argument."
   (append
    (list "/bin/sh" "-c"
-         (format "stty -nl echo rows %d columns %d sane </dev/tty 2>%s;\
-if [ $1 = .. ]; then shift; fi; exec \"$@\""
-                 rows cols null-device)
-         "..")
+         (format "stty sane rows %d columns %d </dev/tty 2>%s; exec \"$0\" \"$@\""
+                 rows cols null-device))
    command))
 
 (defun spectreshell-eshell--make-process-advice (orig &rest args)
