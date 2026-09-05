@@ -26,6 +26,25 @@
 領域管理) が必要で、docs/design.org の「最後のパイプラインステージ
 のみ」簡略化の見直しを含む。別途設計してから対応する。
 
+実端末での再現手順 (2026-09-05, tmux 80x24):
+
+1. =sh -c 'i=0; while [ $i -lt 15 ]; do echo "BG-$i"; sleep 0.4; i=$((i+1)); done' &=
+2. 背景ジョブの出力が続いている間に前景コマンドを打って RET
+
+打った文字はコマンドラインに入らず背景ジョブの pty へ送られ、pty の
+echo で端末領域に文字列として現れるだけで、コマンドは実行されない
+(RET も =eshell-send-input= に届かない)。=spectreshell-eshell-mode=
+を無効にした素の eshell では同じ操作で前景コマンドが普通に実行される
+ので、spectreshell 固有の後退。
+
+背景ジョブが終われば状態は元に戻り (=spectreshell--current= も
+semi-char モードも解除される)、以後のコマンドは実行できる。失われるのは
+実行中に打った入力だけ。
+
+=test/spectreshell-eshell-test.el= の
+=spectreshell-eshell-test-background-job-leaves-command-line-usable=
+が =:expected-result :failed= で固定してある。
+
 ** TODO L-22: 子プロセスから見える端末幅が COLUMNS と ioctl で 1 桁ずれる
 対象: =spectreshell-eshell.el= (=--terminal-size= / =--window-size-change=)
 
