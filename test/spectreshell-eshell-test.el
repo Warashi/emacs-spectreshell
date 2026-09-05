@@ -127,6 +127,7 @@ BODY がエラーで抜けても確実に kill する。"
     (spectreshell-eshell-test--send buf "printf 'a\\nb\\nc\\n' | cat")
     (should (spectreshell-eshell-test--wait-for-command buf))
     (with-current-buffer buf
+      (should-not (string-search "/dev/tty" (buffer-string)))
       (let ((lines (mapcar #'string-trim-right (split-string (buffer-string) "\n"))))
         (dolist (text '("a" "b" "c"))
           (should (member text lines)))))))
@@ -517,6 +518,7 @@ eshell が渡す値を取り上げてしまうと幅の手掛かりが無くな�
      buf "sh -c 'echo COLUMNS=${COLUMNS-unset} LINES=${LINES-unset}' | cat")
     (should (spectreshell-eshell-test--wait-for-command buf))
     (with-current-buffer buf
+      (should-not (string-search "/dev/tty" (buffer-string)))
       (let ((lines (mapcar #'string-trim-right
                            (split-string (buffer-string) "\n"))))
         (should (seq-find (lambda (line)
@@ -615,6 +617,32 @@ exits."
                 (with-current-buffer standard-output
                   (apply #'call-process (car wrapped) nil (list t nil) nil (cdr wrapped))))))
     (should (equal out "..|z|"))))
+
+(ert-deftest spectreshell-eshell-test-wrap-command-sanitizes-pty-without-ctty ()
+  "制御端末を持たない子でも、ラッパは pty の termios を正しエラーを漏らさない。
+パイプ最終段の子は出力側だけが pty で、制御端末を持つとは限らない
+(macOS の Emacs は `(pipe . pty)' の子に pty を制御端末として与えない)。
+`setsid' でその状況を作り、ONLCR が効いた出力になること (LF が CRLF に
+なること) と、端末を開けなかった旨のエラーが出力に混じらないことを見る。"
+  (skip-unless (executable-find "setsid"))
+  (let* ((wrapped (spectreshell-eshell--wrap-command-for-pty
+                   (list "printf" "a\\nb\\n") 24 80))
+         (buffer (generate-new-buffer " *spectreshell-wrap-test*")))
+    (unwind-protect
+        (let ((proc (make-process
+                     :name "spectreshell-wrap-test"
+                     :buffer buffer
+                     :command (append (list "setsid" "-w") wrapped)
+                     :connection-type '(pipe . pty)
+                     :coding 'no-conversion
+                     :noquery t)))
+          (should (spectreshell-eshell-test--wait-until
+                   (lambda () (not (process-live-p proc)))))
+          (with-current-buffer buffer
+            (should (string-search "a\r\nb\r\n" (buffer-string)))
+            (should-not (string-search "/dev/tty" (buffer-string)))
+            (should-not (string-search "stty:" (buffer-string)))))
+      (kill-buffer buffer))))
 
 (provide 'spectreshell-eshell-test)
 ;;; spectreshell-eshell-test.el ends here
