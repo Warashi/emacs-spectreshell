@@ -865,7 +865,12 @@ content it was reading."
     (let ((start-pos (spectreshell--restore-line obj start))
           (point-pos (spectreshell--restore-line obj point)))
       (when (window-live-p window)
-        (set-window-start window start-pos)
+        ;; NOFORCE: a background job's region can be parked in a window
+        ;; whose point is on the command line below it, and a forced
+        ;; start that hides point has redisplay move point instead --
+        ;; taking the very command line this restore is here to leave
+        ;; alone.
+        (set-window-start window start-pos t)
         (set-window-point window point-pos)))))
 
 (defun spectreshell--move-point (obj cursor follow-point follow-windows saved-point)
