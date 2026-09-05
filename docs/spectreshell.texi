@@ -212,11 +212,12 @@ ESC 1 個をプロセスへ送る (vim / less / fzf を抜ける)
 (@code{meta-prefix-char}) なので、ESC を 1 打鍵で送ることはできない。
 @code{ESC ESC} がその脱出口で、ESC を 1 バイトだけ送る。
 
-同じ理由で @code{M-O} と @code{M-[} の 2 つはプロセスへ送れない。端末は矢印・
-F1〜F4・Home/End を @code{ESC O …} (SS3) や @code{ESC [ …} (CSI) として送って
-くるため、Emacs がこの 2 つを先に解釈しないよう空けてある。小文字の
-@code{M-o} ・ @code{M-x} 以外の @code{M-<英字>} ・ @code{M-<数字>} ・ @code{M-<記号>} は
-すべてプロセスへ届く。
+プロセスへ送れないメタキーは大文字の @code{M-O} ・ @code{M-[} ・ @code{M-x} の 3 つ
+だけで、小文字の @code{M-o} を含む他の @code{M-<英字>} ・ @code{M-<数字>} ・
+@code{M-<記号>} はすべて届く。端末は矢印・F1〜F4・Home/End を @code{ESC O …}
+(SS3) や @code{ESC [ …} (CSI) として送ってくるので、Emacs がその変換に
+たどり着けるよう @code{M-O} ・ @code{M-[} を空けてある (打つと次のキーを待った
+うえで未定義キーになる)。 @code{M-x} は Emacs 側に残す例外。
 
 @node 背景ジョブ (@code{cmd &})
 @unnumberedsec 背景ジョブ (@code{cmd &})
