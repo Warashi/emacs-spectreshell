@@ -277,6 +277,19 @@ semi-char モードには入らないのでキーボードは奪われず、実�
 コマンドの実行中は、通常の Emacs マウス操作 (@code{mouse-set-point} /
 ホイールスクロール) にフォールバックする。
 
+tty フレーム (@code{emacs -nw}) では、その前提として Emacs 側の
+@code{xterm-mouse-mode} が有効になっている必要がある。これが無効だと
+クリックがそもそも Emacs のキーイベントにならず、spectreshell は何も
+受け取れない。Emacs は端末の種類によっては起動時に自動で有効にするが、
+そうでない環境では利用者が自分で有効にする。
+
+@lisp
+(xterm-mouse-mode 1)
+@end lisp
+
+グローバルなモードを勝手に切り替えないため、spectreshell 側で自動的に
+有効にはしない。GUI フレームでは不要。
+
 @node スクロールバック
 @unnumberedsec スクロールバック
 

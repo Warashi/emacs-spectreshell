@@ -273,7 +273,9 @@ eat-eshell-mode と同様の接続方式:
 - SGR 全般 (16 色 / 256 色 / 24bit)、カーソル制御、スクロール領域、
   alternate screen、bracketed paste、タイトル変更 (OSC 0/2)
 - マウス (SGR mouse mode)。Emacs のマウスイベントを端末座標に変換して
-  モジュールでエンコードし PTY へ転送
+  モジュールでエンコードし PTY へ転送。tty フレームで前提になる
+  ~xterm-mouse-mode~ は spectreshell 側では有効にしない。グローバルな
+  モードを利用者に断りなく切り替えないため、有効化は利用者に任せる
 - OSC 8 ハイパーリンク
 
 含まない (将来拡張):
@@ -352,3 +354,4 @@ CLAUDE.md の方針どおり、実装と同じ粒度でテストを書き、
 | 14 | 独自 face + ansi-color 継承 | テーマ連動と spectreshell 単位の上書きを両立 | ansi-color 直接使用 |
 | 15 | MIT ライセンス | GPL 互換要件を満たし ghostty と同一で単純 | GPL-3.0-or-later |
 | 16 | 実行中プロセスでの Emacs 側 input method は v1 対象外 | コマンドライン編集では ddskk が無条件で動くため。C-y ペーストで回避可能 | コミット捕捉ブリッジを v1 に含める |
+| 17 | tty での ~xterm-mouse-mode~ は自動有効化しない | グローバルなモードを利用者に断りなく切り替えない。マニュアルで案内する | ~spectreshell-mode~ で有効化する |
