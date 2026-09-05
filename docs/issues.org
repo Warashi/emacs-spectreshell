@@ -448,7 +448,7 @@ ERT: =spectreshell-explore-input-test-xterm-paste-is-bound=
 =--xterm-paste-noop-without-current-terminal= (4487ac4)。実際の tty で
 =xterm-paste= イベントが発生する経路は本環境 (tmux 無し) では未検証。
 
-** TODO L-29: マウスの release / drag / motion がプロセスへ届かない
+** DONE L-29: マウスの release / drag / motion がプロセスへ届かない
 対象: =spectreshell.el= (=spectreshell--track-mouse-drag=)
 
 =(xterm-mouse-mode 1)= を有効にすれば press とホイールは正しい行・桁に
@@ -469,6 +469,18 @@ release がこのループにマウスイベントとして届きようがない
 返し、緑のまま通る。GUI フレームでは通る可能性があるが未検証 (-nw のみ
 確認)。読み取り側を =read-key= / =read-key-sequence= に変える必要がある
 と見られる (推測)。
+
+対応 (2026-09-05, 100eca7): =spectreshell--track-mouse-drag= の読み取りを
+=read-event= から =(read-key nil t)= に変えた。=read-key= は
+=input-decode-map= を通すので、tty フレームで escape sequence として届く
+motion / release がマウスイベントとして得られる。DISABLE-FALLBACKS を
+t にしたのは、drag 中に別ボタンが押されたときに「未束縛の down
+イベントを捨てる」フォールバックを止め、押し戻しの枝へ届かせるため。
+
+ERT: 既存の =spectreshell-key-test-mouse-drag-sends-motion-and-release=
+の stub を =read-key= に差し替えて通ることを確認。Probe は無い。tty での
+実際の motion / release、および GUI フレームでの挙動変化は本環境では
+未検証。
 
 ** TODO L-30: 端末領域の中に置いた point が確定化の挿入で前へ滑る
 対象: =spectreshell.el= (確定化の挿入位置)
