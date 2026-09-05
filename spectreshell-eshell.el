@@ -320,8 +320,8 @@ ONLCR to turn a bare LF into a proper new line -- into a staircase.
 So exec through a tiny `/bin/sh -c' wrapper that runs `stty' first:
 `sane' restores the full standard mode set (ONLCR included), and
 ROWS/COLS are set in the same call so the child\'s very first ioctl
-already sees the right size.  (`term.el' addresses the same problem
-the same way; nothing here is taken from it.)
+already sees the right size.  (cf. `term-exec-1' in `term.el', which
+works around the same default the same way.)
 
 The `stty' is pointed at `/dev/tty' -- the child\'s controlling terminal,
 which is the pty Emacs just opened -- rather than at standard input:
