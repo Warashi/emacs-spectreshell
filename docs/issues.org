@@ -348,7 +348,7 @@ ERT: =spectreshell-explore-input-test-eshell-minor-modes-do-not-shadow=
 (=:expected-result :failed= を外した)。実端末での再確認は本環境に tmux
 が無いため未実施。
 
-** TODO L-26: tty では M- 前置の ESC が落ち、ESC 単体も送れない
+** DONE L-26: tty では M- 前置の ESC が落ち、ESC 単体も送れない
 対象: =spectreshell.el= (=spectreshell-send-key= / semi-char keymap)
 
 3 つの層が重なっている。
@@ -390,6 +390,22 @@ ERT: =test/spectreshell-explore-input-test.el= の
 =spectreshell-explore-input-test-esc-prefixed-meta-letter-keeps-esc=
 (=:expected-result :failed=)。2 の ESC 単体は tty の入力経路を batch で
 再現できないため手順の記録のみ。
+
+対応 (2026-09-05, a3e9c06): 3 層をそれぞれ次のように扱った。
+
+1. alt の復元: =spectreshell--esc-prefixed-key-p= が
+   =this-single-command-keys= を見て、末尾から 2 番目が 27 かつ末尾が
+   =last-command-event= なら alt を補う。GUI の 1 イベント形
+   (meta ビット) の経路と、テストからの直接呼び出しは影響を受けない。
+2. ESC 単体: =ESC ESC= に =spectreshell-send-escape= (ESC 1 バイト) を
+   束縛した。=meta-prefix-char= の性質上 1 打鍵では送れないため。
+   semi-char 中は =ESC ESC ESC= の =keyboard-escape-quit= が影に入る。
+3. =M-<数字>= / =M-<記号>=: L-24 の統合ループで束縛された。
+
+ERT: =spectreshell-explore-input-test-esc-prefixed-meta-letter-keeps-esc=
+(=:expected-result :failed= を外した) と key-table の =ESC a= / =ESC 1= /
+=ESC ESC= 等の行 (39915f5)。ESC 単体が実端末で届くことは本環境では
+未検証。
 
 ** DONE L-27: Insert / Delete と非英字の制御キーが未束縛でバッファを壊す
 対象: =spectreshell.el= (semi-char keymap)
