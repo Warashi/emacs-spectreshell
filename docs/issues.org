@@ -904,7 +904,7 @@ ERT: =spectreshell-explore-geometry-test-zero-column-terminal=
 =spectreshell-eshell-test.el= の 0 桁ウィンドウ無視のテスト。
 =window-min-width= を下げた実操作は未確認。
 
-** TODO L-36: docs の記述が実測と食い違う
+** DONE L-36: docs の記述が実測と食い違う
 対象: =docs/spectreshell.org= / =README.org=
 
 - =docs/spectreshell.org= の semi-char モードの説明は「 ~C-c~ ・
@@ -926,6 +926,31 @@ ERT: =spectreshell-explore-geometry-test-zero-column-terminal=
   フレームでは利用者が自分で有効にしないとクリックがそもそも Emacs の
   イベントにならないので、使えないと受け取られる (F-apps-5)。
   spectreshell 側で自動的に有効にすべきかは設計判断。
+
+対応 (2026-09-05, a89ddeb / d04d65d / 4e26131 / c03dc14 / 4568f75):
+L-24〜L-29 の修正後に =lookup-key= で semi-char マップを引き直し、
+Emacs 側に残るキーを一覧にしてマニュアル・README・design.org に
+反映した。
+
+- Emacs 側に残るキー: =C-c= ・ =C-x= プレフィックス、=M-x=、=C-u=
+  (=universal-argument=)、=C-g= (=quit-char=。束縛はあるが実端末では
+  届かない。原因は未確定)、=M-O= ・ =M-[= (SS3 / CSI 変換のため意図的
+  に空けている)、=ESC ESC ESC= (=ESC ESC= の影に入る)。=C-y= は送るが
+  kill-ring の内容。
+- 送られる側も確認: =C-@ C-\ C-] C-^ C-_=、=M-DEL=、=M-<数字>= ・
+  =M-<記号>= ・ =M-<大文字>=、=C-M-<英字>=、TAB / S-TAB、矢印・F1〜F12、
+  Insert / Delete (=insertchar= / =deletechar=)、=xterm-paste=。
+- IME: 「実行中プロセスへの IME 直接入力は対象外」を「Emacs 側 input
+  method は対象外」に改め、文字が Emacs のキーイベントになれば UTF-8
+  でそのまま届く (「あ」→ =e3 81 82= を batch で確認) ことを併記。
+- マウス: tty フレームでは =xterm-mouse-mode= が前提であることを README
+  とマニュアルに明記。spectreshell 側で自動有効化はしない (グローバル
+  なモードを利用者に断りなく切り替えない。design.org 決定事項 17)。
+
+C-g が届かない機構は、当初「キーマップ照合の前に quit として処理され
+る」と書く予定だったが、Info =(elisp) Quitting= は「=read-key-sequence=
+中は quit が抑止され C-g が通常の入力になる」と述べており食い違うため
+断定を避けた。真因の特定は tty 無しではできず未解決。
 
 ** TODO L-37: 国旗 (regional indicator) の表示幅が ghostty と Emacs で食い違い、マウスの逆写像もずれる
 対象: =spectreshell.el= (=spectreshell--decorate-row= / マウス座標の変換)
