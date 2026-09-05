@@ -184,10 +184,23 @@ underline (スタイル種別含む)・strikethrough・inverse・faint・
 プロセス実行中は 2 モードを切り替える:
 
 - *semi-char モード* (実行中のデフォルト): 印字可能キー・矢印・
-  C-a 等ほとんどのキーを PTY に送信。 ~C-c~ / ~C-x~ プレフィックス・
-  ~M-x~ は Emacs に残す (~C-x o~ ・ ~C-x b~ 等のウィンドウ・バッファ
-  操作を端末バッファからそのまま使えるようにするため)。 ~C-y~ は kill-ring の内容を
-  ~spectreshell--encode-paste~ 経由 (bracketed paste) で送信。
+  C-a 等ほとんどのキーを PTY に送信。例外は次のとおり。
+  - ~C-c~ / ~C-x~ プレフィックス・ ~M-x~ ・ ~C-u~
+    (~universal-argument~) は Emacs に残す。 ~C-x o~ ・ ~C-x b~ 等の
+    ウィンドウ・バッファ操作とプレフィックス引数を、端末バッファから
+    そのまま使えるようにするため。
+  - ~C-y~ は kill-ring の内容を ~spectreshell--encode-paste~ 経由
+    (bracketed paste) で送信。押したキー自体は送らない。
+  - ~C-g~ は Emacs の ~quit-char~ 。キーマップでは送信に束縛するが
+    端末フレームでは quit になり子に届かない。 ~quit-char~ を変えると
+    利用者の脱出口が無くなるので、届かないまま受け入れる。
+  - ~M-O~ / ~M-[~ は束縛しない。端末が矢印・F1〜F4・Home/End を送る
+    ~ESC O …~ (SS3) / ~ESC [ …~ (CSI) の前置そのもので、
+    ~input-decode-map~ の変換はそこまでのキー列が未束縛のときしか
+    働かないため、束縛すると矢印類が壊れる。
+  - ESC 単体は ~meta-prefix-char~ の性質上 1 打鍵で送れないので
+    ~ESC ESC~ を脱出口にする。 ~ESC ESC ESC~
+    (~keyboard-escape-quit~) はその影に入る。
   ~C-c C-e~ で emacs モードへ。
 - *emacs モード*: 全キーが通常の Emacs。バッファ閲覧・コピー用。
   ~C-c C-j~ (仮) で semi-char に復帰。
