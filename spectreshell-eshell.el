@@ -149,10 +149,15 @@ the two can never disagree.
 The rule is `get-buffer-window-list\='s first entry across all frames,
 which its docstring defines as the selected window whenever that window
 shows BUFFER at all.  So the terminal fits whichever window the user is
-actually typing into, and only falls back to an arbitrary-but-stable
-choice when they are elsewhere entirely -- rather than following
-whichever window redisplay happened to notify about last, which is what
-the size ends up being when each notification is honored on its own."
+actually typing into, rather than whichever window redisplay happened
+to notify about last, which is what the size ends up being when each
+notification is honored on its own.
+
+Only as of the *next* resize, though: nothing re-runs this when the
+selection alone moves, since `window-size-change-functions' is not
+called for that.  A terminal therefore keeps the size of the window
+that was selected when it was last resized -- a stale size, but a
+stable one, rather than a SIGWINCH for every `other-window'."
   (car (get-buffer-window-list buffer nil t)))
 
 (defun spectreshell-eshell--terminal-size (buffer)
