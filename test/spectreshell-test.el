@@ -397,6 +397,16 @@ SPEC は `spectreshell-test--with-terminal' と同じ。TEXT は eshell が
       (should (equal "hi\n$ typing" (buffer-substring-no-properties
                                      start (point-max)))))))
 
+(ert-deftest spectreshell-test-finalize-of-empty-region-adds-no-line ()
+  "何も描かれなかった端末領域は空行を残さずに確定する。
+出力しない背景ジョブ (=sleep 3 &= 等) の終了で、プロンプトと編集中の
+コマンドラインが 1 行ぶん押し下げられてはならない。"
+  (spectreshell-test--with-trailing-text (term 5 10) "$ typing"
+    (let ((start (marker-position (spectreshell-marker term))))
+      (should (= (spectreshell-finalize term) start))
+      (should (equal "$ typing" (buffer-substring-no-properties
+                                 start (point-max)))))))
+
 (ert-deftest spectreshell-test-cursor-position-stays-inside-region ()
   "描かれていない行へのカーソル移動でも、カーソル位置は領域内に収まる。
 CUP は行を dirty にしないので領域はまだ短く、素直に行送りすると

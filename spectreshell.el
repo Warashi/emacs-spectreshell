@@ -336,8 +336,13 @@ blank lines further down."
     (goto-char (spectreshell--region-end obj))
     (skip-chars-backward "\n" marker)
     (delete-region (point) (spectreshell--region-end obj))
-    (insert "\n")
-    (spectreshell--set-region-end obj)))
+    ;; Nothing was ever drawn (a job that printed no output at all): the
+    ;; region freezes into no text rather than into an empty line, which
+    ;; would push eshell's prompt -- and whatever is being typed at it --
+    ;; a row down as the job exits.
+    (when (> (point) marker)
+      (insert "\n")
+      (spectreshell--set-region-end obj))))
 
 ;; ---------------------------------------------------------------------
 ;; Update plist application
