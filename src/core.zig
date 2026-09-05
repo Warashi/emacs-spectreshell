@@ -211,7 +211,12 @@ pub const Term = struct {
 
     pub fn encodeKey(self: *Term, alloc: std.mem.Allocator, event: ghostty_vt.input.KeyEvent) !?[]u8 {
         var opts = ghostty_vt.input.KeyEncodeOptions.fromTerminal(&self.terminal);
-        opts.macos_option_as_alt = .false;
+        // .false にしない: darwin ビルドの key encoder は comptime 分岐で
+        // この値を見て alt 修飾を捨て (Option を文字合成に回す macOS の
+        // 慣習に合わせるため)、alt+a が ESC 前置なしの "a" になる。ここに
+        // 届く alt は Emacs が meta と解決済みのもので、物理キーの Option
+        // かどうかは既に問題にならない。
+        opts.macos_option_as_alt = .true;
 
         var aw: std.Io.Writer.Allocating = .init(alloc);
         defer aw.deinit();
