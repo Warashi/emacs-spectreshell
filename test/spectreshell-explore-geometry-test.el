@@ -27,8 +27,10 @@ BYTES は「測りたい文字列」の生バイト列。ghostty-vt は X を必
 (ert-deftest spectreshell-explore-geometry-test-regional-indicator-width ()
   "国旗 (regional indicator) の幅が ghostty 2 セル / Emacs 1 桁でずれる。
 ghostty-vt は U+1F1E6..U+1F1FF を wide (2 セル) として扱うが、Emacs の
-`char-width' は 1 を返す。`spectreshell--row-col-pos' はセル列を
-`move-to-column' で解決するので、この行のカーソル対応がずれる。"
+`char-width' は 1 を返す。カーソル位置そのものは L-33 の `:cursor-index'
+で正しく解けるが、この Probe が測る `current-column' (表示幅) は Emacs が
+国旗を 1 桁で描く限り一致しない。描画側の対応 (L-37) の Probe として
+`:expected-result :failed' のまま残す。"
   :expected-result :failed
   ;; 🇯 単独 (RI 1 つ) で 1 桁、🇯🇵 (RI 2 つ) で 2 桁ずれる。
   (should (equal 19 (spectreshell-explore-geometry-test--marker-column
