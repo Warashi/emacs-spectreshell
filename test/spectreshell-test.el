@@ -256,6 +256,22 @@ point が見える最小しかスクロールしないので、そのままだ�
     (spectreshell-resize term 2 5)
     (should (= 2 (spectreshell--row-count term)))))
 
+(ert-deftest spectreshell-test-resize-rejects-non-positive-size ()
+  "0 行 / 0 桁への resize は、寸法を名指ししたエラーになる。
+生成時と同じ検査を通る (モジュール由来の `args-out-of-range' は数字しか
+出さないので `:exclude-subtypes' でそれと区別する)。端末オブジェクトの
+rows / cols も更新されないままであるべき。"
+  (spectreshell-test--with-terminal (term 3 5)
+    (should-error (spectreshell-resize term 3 0) :type 'error :exclude-subtypes t)
+    (should-error (spectreshell-resize term 0 5) :type 'error :exclude-subtypes t)
+    (should-error (spectreshell-resize term -1 5) :type 'error :exclude-subtypes t)
+    (should (= 3 (spectreshell-rows term)))
+    (should (= 5 (spectreshell-cols term)))
+    ;; 検査を足したあとも通常の resize は通る。
+    (spectreshell-resize term 4 6)
+    (should (= 4 (spectreshell-rows term)))
+    (should (= 6 (spectreshell-cols term)))))
+
 (ert-deftest spectreshell-test-responses-are-sent-via-send-fn ()
   "ESC[6n の応答バイト列が SEND-FN に渡る。"
   (spectreshell-test--with-terminal (term 5 10 responses)

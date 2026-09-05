@@ -226,6 +226,21 @@ spectreshell itself deliberately renames nothing (a buffer rename would
 break eshell's buffer bookkeeping, a frame title is not this layer's
 to own); displaying the title anywhere is entirely up to these hooks.")
 
+(defun spectreshell--check-size (rows cols)
+  "Signal unless ROWS and COLS are both positive integers.
+The dimensions are checked here, with a message naming both, rather
+than left to `spectreshell--create'/`spectreshell--resize': the module
+signals a bare `args-out-of-range' with just the offending number,
+which says nothing about which of the two it was nor that a window
+measurement (`window-body-height' and `window-max-chars-per-line' both
+return 0 for a window too small to show anything) is the usual way a
+caller ends up here.  Not clamped to 1 either: a 1x1 terminal would
+render an unreadable screen for as long as the job runs, rather than
+fail where the size came from."
+  (unless (and (integerp rows) (> rows 0) (integerp cols) (> cols 0))
+    (error "Spectreshell: terminal size must be positive, got %S rows x %S cols"
+           rows cols)))
+
 ;;;###autoload
 (defun spectreshell-start (buffer rows cols send-fn &optional compact)
   "Start a ROWS x COLS spectreshell terminal rendering into BUFFER.
@@ -244,22 +259,13 @@ With COMPACT non-nil the region is kept only as tall as the output
 drawn into it so far, instead of the full ROWS
 \(`spectreshell--trim-blank-tail').
 
-ROWS and COLS must both be at least 1.  A zero is rejected here, with
-a message naming the dimension, rather than left to
-`spectreshell--create': the module signals a bare `args-out-of-range'
-with just the offending number, which says nothing about which of the
-two it was nor that a window measurement (`window-body-height' and
-`window-max-chars-per-line' both return 0 for a window too small to
-show anything) is the usual way a caller ends up here.  Not clamped to
-1 either: a 1x1 terminal would render an unreadable screen for as long
-as the job runs, rather than fail where the size came from.
+ROWS and COLS must both be at least 1
+\(`spectreshell--check-size').
 
 Return a new `spectreshell' object to pass to the other
 `spectreshell-*' functions."
   (spectreshell-ensure-module-loaded)
-  (unless (and (integerp rows) (> rows 0) (integerp cols) (> cols 0))
-    (error "Spectreshell: terminal size must be positive, got %S rows x %S cols"
-           rows cols))
+  (spectreshell--check-size rows cols)
   (with-current-buffer buffer
     (spectreshell--make
      :term (spectreshell--create rows cols)
@@ -286,7 +292,12 @@ Return the raw update plist from `spectreshell--feed' (docs/module-api.org)."
 
 (defun spectreshell-resize (obj rows cols)
   "Resize OBJ's terminal to ROWS x COLS and update its buffer accordingly.
+ROWS and COLS must both be at least 1
+\(`spectreshell--check-size'); OBJ is left untouched otherwise, so a
+caller that traps the error still has a terminal matching the size its
+pty was last told.
 Return the raw update plist from `spectreshell--resize'."
+  (spectreshell--check-size rows cols)
   (let ((update (spectreshell--resize (spectreshell-term obj) rows cols)))
     (setf (spectreshell-rows obj) rows
           (spectreshell-cols obj) cols)
