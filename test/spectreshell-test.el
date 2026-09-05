@@ -48,6 +48,23 @@ recent last)."
     ;; SGR リセット後の "0m" 以降は既定 face (span なし) に戻る。
     (should (null (get-text-property (+ (point-min) 3) 'face)))))
 
+(ert-deftest spectreshell-test-sgr-invisible-hides-text ()
+  "\"\\e[8mhidden\" は前景が背景と同じ色になって読めなくなる。
+Emacs の `invisible\' text property はレイアウトごと文字を潰して
+セル位置がずれるので使わず、色を揃えることで隠す。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-feed term "\x1b[8mhi")
+    (let ((face (get-text-property (point-min) 'face)))
+      (should (member (list :foreground (face-background 'default nil t))
+                      face)))))
+
+(ert-deftest spectreshell-test-sgr-invisible-uses-explicit-background ()
+  "背景色が指定されていれば、隠す前景色はその背景色に揃う。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-feed term "\x1b[41;8mhi")
+    (let ((face (get-text-property (point-min) 'face)))
+      (should (member '(:foreground "red3" :background "red3") face)))))
+
 (ert-deftest spectreshell-test-split-escape-sequence-across-feeds ()
   "feed 境界で分割された SGR シーケンスと UTF-8 文字も正しく描画される。
 PTY の read はエスケープシーケンスや多バイト文字を任意の位置で切る。"

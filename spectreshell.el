@@ -636,6 +636,11 @@ is safe to add properties to it directly."
          (bg (spectreshell--resolve-color (plist-get style :bg) :background))
          (underline (plist-get style :underline))
          faces)
+    ;; SGR 8 (隠し) は前景を背景に揃えて実現する。Emacs の `invisible'
+    ;; text property は文字ごとレイアウトから外すので、セル位置と
+    ;; バッファ位置の対応が崩れて `spectreshell--row-col-pos' が狂う。
+    (when (plist-get style :invisible)
+      (setq fg (or bg (face-background 'default nil t))))
     (when (or fg bg)
       (push (nconc (and fg (list :foreground fg)) (and bg (list :background bg)))
             faces))
