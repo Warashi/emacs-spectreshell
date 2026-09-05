@@ -15,6 +15,7 @@ pub fn build(b: *std.Build) void {
     // 静的ライブラリだけホスト向けに作られてリンクに失敗する。
     if (b.lazyDependency("ghostty", .{ .target = target, .optimize = optimize })) |dep| {
         mod.addImport("ghostty-vt", dep.module("ghostty-vt"));
+        mod.addImport("ghostty-terminfo", terminfoModule(b, dep));
         installTerminfo(b, dep);
     }
 
@@ -79,9 +80,7 @@ fn installTerminfo(b: *std.Build, ghostty_dep: *std.Build.Dependency) void {
         .root_source_file = b.path("src/terminfo_gen.zig"),
         .target = b.graph.host,
     });
-    gen_mod.addImport("ghostty-terminfo", b.createModule(.{
-        .root_source_file = ghostty_dep.path("src/terminfo/main.zig"),
-    }));
+    gen_mod.addImport("ghostty-terminfo", terminfoModule(b, ghostty_dep));
 
     const gen_exe = b.addExecutable(.{
         .name = "spectreshell-terminfo-gen",
@@ -97,6 +96,18 @@ fn installTerminfo(b: *std.Build, ghostty_dep: *std.Build.Dependency) void {
 
     const install = InstallTerminfo.create(b, terminfo_dir, "share/terminfo");
     b.getInstallStep().dependOn(&install.step);
+}
+
+/// ghostty の `src/terminfo` (std のみに依存し、ディレクトリ内で閉じた
+/// 3 ファイル) を module 化する。dep のパスを直接 root にせず一旦コピー
+/// するのは、`ghostty-vt` モジュールが input/function_keys.zig 経由で
+/// termio.zig を、その先で同じ `src/terminfo/main.zig` を取り込んでおり、
+/// 元パスのままでは 1 つのコンパイル内で同じファイルが 2 つのモジュール
+/// に属する (zig が拒否する) ため。
+fn terminfoModule(b: *std.Build, ghostty_dep: *std.Build.Dependency) *std.Build.Module {
+    const copy = b.addWriteFiles();
+    const dir = copy.addCopyDirectory(ghostty_dep.path("src/terminfo"), "", .{});
+    return b.createModule(.{ .root_source_file = dir.path(b, "main.zig") });
 }
 
 /// `tic` が生成した terminfo データベースのディレクトリを install

@@ -1,5 +1,6 @@
 const std = @import("std");
 const ghostty_vt = @import("ghostty-vt");
+const ghostty_terminfo = @import("ghostty-terminfo");
 
 /// ReadonlyHandler は DSR/DA など応答が必要なアクションを無視する
 /// (ghostty のドキュメント通り、応答不要な再生専用ユースケース向けのため)。
@@ -10,6 +11,9 @@ pub const Handler = struct {
     alloc: std.mem.Allocator,
     responses: *std.ArrayList(u8),
     title: *?[]u8,
+    /// DCS 系アクションは ghostty_vt.Stream が状態を持たず生バイトで
+    /// 渡してくるので、組み立ては ghostty 本体と同じこのハンドラに任せる。
+    dcs: ghostty_vt.dcs.Handler = .{},
 
     pub fn init(
         terminal: *ghostty_vt.Terminal,
@@ -26,6 +30,9 @@ pub const Handler = struct {
     }
 
     pub fn deinit(self: *Handler) void {
+        // ST が来ないまま入力が途切れると DCS ハンドラが確保したバッファが
+        // 残るので、内側より先に捨てる。
+        self.dcs.deinit();
         self.inner.deinit();
     }
 
@@ -40,6 +47,9 @@ pub const Handler = struct {
             .request_mode => try self.requestMode(value.mode),
             .request_mode_unknown => try self.requestModeUnknown(value.mode, value.ansi),
             .kitty_keyboard_query => try self.queryKittyKeyboard(),
+            .dcs_hook => try self.dcsHook(value),
+            .dcs_put => try self.dcsPut(value),
+            .dcs_unhook => try self.dcsUnhook(),
             .window_title => try self.setTitle(value.title),
             else => try self.inner.vt(action, value),
         }
@@ -115,6 +125,44 @@ pub const Handler = struct {
             self.inner.terminal.screens.active.kitty_keyboard.current().int(),
         });
         try self.responses.appendSlice(self.alloc, resp);
+    }
+
+    fn dcsHook(self: *Handler, dcs: ghostty_vt.DCS) !void {
+        var cmd = self.dcs.hook(self.alloc, dcs) orelse return;
+        defer cmd.deinit();
+        try self.dcsCommand(&cmd);
+    }
+
+    fn dcsPut(self: *Handler, byte: u8) !void {
+        var cmd = self.dcs.put(byte) orelse return;
+        defer cmd.deinit();
+        try self.dcsCommand(&cmd);
+    }
+
+    fn dcsUnhook(self: *Handler) !void {
+        var cmd = self.dcs.unhook() orelse return;
+        defer cmd.deinit();
+        try self.dcsCommand(&cmd);
+    }
+
+    fn dcsCommand(self: *Handler, cmd: *ghostty_vt.dcs.Command) !void {
+        switch (cmd.*) {
+            // XTGETTCAP。応答表は同梱する terminfo と同じ定義
+            // (ghostty の src/terminfo) から comptime で引くので、
+            // 応答値と terminfo データベースが食い違わない。
+            .xtgettcap => |*gettcap| {
+                const map = comptime ghostty_terminfo.ghostty.xtgettcapMap();
+                while (gettcap.next()) |key| {
+                    // 未知のキーは ghostty 本体同様に無応答 (DCS 0 + r ST
+                    // すら返さない)。
+                    const resp = map.get(key) orelse continue;
+                    try self.responses.appendSlice(self.alloc, resp);
+                }
+            },
+
+            // DECRQSS と tmux control mode は未対応。
+            .decrqss, .tmux => {},
+        }
     }
 
     fn setTitle(self: *Handler, title: []const u8) !void {

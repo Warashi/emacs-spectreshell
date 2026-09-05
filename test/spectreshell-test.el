@@ -202,6 +202,13 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
     (spectreshell-feed term "\x1b[?u")
     (should (equal responses '("\x1b[?0u")))))
 
+(ert-deftest spectreshell-test-xtgettcap-response-is-sent-via-send-fn ()
+  "XTGETTCAP (ESC P + q 436F ESC \\) の応答バイト列が SEND-FN に渡る。"
+  (spectreshell-test--with-terminal (term 5 10 responses)
+    ;; 436F = "Co" (色数)、応答値の 323536 = "256"。
+    (spectreshell-feed term "\x1bP+q436F\x1b\\")
+    (should (equal responses '("\x1bP1+r436F=323536\x1b\\")))))
+
 (ert-deftest spectreshell-test-osc8-hyperlink-becomes-clickable-button ()
   "OSC 8 のリンク区間が text-property ベースの button になる。"
   (spectreshell-test--with-terminal (term 1 10)

@@ -687,6 +687,63 @@ test "kitty keyboard query (CSI ? u) は現在の flags で応答する" {
     try testing.expectEqualStrings("\x1b[?0u\x1b[?1u", update.responses);
 }
 
+test "XTGETTCAP は同梱 terminfo の値で応答する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    // "Co" (436F) の値は 256 (323536)。応答は ghostty 本体と同じく
+    // DCS 1 + r <hex key>=<hex value> ST。
+    var update = try t.feed(alloc, "\x1bP+q436F\x1b\\");
+    defer update.deinit();
+    try testing.expectEqualStrings("\x1bP1+r436F=323536\x1b\\", update.responses);
+}
+
+test "XTGETTCAP は未知のキーに応答しない" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    // "zz" (7A7A) は terminfo に無いので、ghostty 本体同様に無応答。
+    var update = try t.feed(alloc, "\x1bP+q7A7A\x1b\\");
+    defer update.deinit();
+    try testing.expectEqualStrings("", update.responses);
+}
+
+test "XTGETTCAP は ; 区切りの複数キーに順に応答し未知キーだけ飛ばす" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    // Co (436F) -> 256、zz (7A7A) は未知、RGB (524742) -> 8 (38)。
+    var update = try t.feed(alloc, "\x1bP+q436F;7A7A;524742\x1b\\");
+    defer update.deinit();
+    try testing.expectEqualStrings(
+        "\x1bP1+r436F=323536\x1b\\\x1bP1+r524742=38\x1b\\",
+        update.responses,
+    );
+}
+
+test "XTGETTCAP は小文字の 16 進キーでも応答する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1bP+q436f\x1b\\");
+    defer update.deinit();
+    try testing.expectEqualStrings("\x1bP1+r436F=323536\x1b\\", update.responses);
+}
+
+test "ST の来ない XTGETTCAP を残したまま deinit してもリークしない" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1bP+q436F");
+    defer update.deinit();
+    try testing.expectEqualStrings("", update.responses);
+}
+
 test "OSC 2 はタイトル変更を通知する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);
