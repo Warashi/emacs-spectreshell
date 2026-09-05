@@ -752,7 +752,7 @@ ERT: =spectreshell-explore-lifecycle-test-mode-is-off-after-command=
 ERT: =spectreshell-eshell-test.el= に実ウィンドウを split して検証する
 2 本を追加。分割ウィンドウでの見た目は未確認 (tmux 無し)。
 
-** TODO L-33: セル幅と Emacs の表示幅が食い違い、カーソル位置がずれる
+** DONE L-33: セル幅と Emacs の表示幅が食い違い、カーソル位置がずれる
 対象: =src/row.zig= (=extractRow=) / =spectreshell.el=
 (=spectreshell--row-col-pos=)
 
@@ -794,6 +794,37 @@ U+009B (CSI)                       ->  22
 ERT: =test/spectreshell-explore-geometry-test.el= の
 =spectreshell-explore-geometry-test-regional-indicator-width= /
 =--del-is-not-stored= / =--c1-control-width= (=:expected-result :failed=)。
+
+対応 (2026-09-05, 6a27d5c / 00909d0): 3 つの副項目を分けて扱った。
+
+- DEL (0x7F): ghostty が本当にセルに格納することを Zig で確認したうえ
+  で、ECMA-48 どおりパーサへ渡す前にバイト列から落とす
+  (=feedWithoutDel=)。0x7F は UTF-8 多バイト列の内側に現れないので
+  バイト単位で分割しても文字は壊れず、パーサ状態は feed をまたいで
+  残るので解釈も変わらない。
+- C1 (U+0080-U+009F): =extractRow= で U+FFFD に置き換え、1 セル 1 文字
+  を保ったまま表示幅を 1 桁にする。空白に潰さないのは本物の空白と
+  区別できなくなるため。=char-width= が 1 であることは日本語 /
+  Chinese-GB 環境と =cjk-ambiguous-chars-are-wide= = t でも確認した。
+- 国旗 (regional indicator) と DECSET 2027: update plist に
+  =:cursor-index= (カーソル行内のコードポイント index) を足し、
+  =spectreshell--row-col-pos= が任意引数として受けて =forward-char= で
+  解く。全行ぶんの写像 (H-geometry-1) は採らなかった。セル列 → 文字
+  位置を実際に解くのはカーソルの 1 か所だけで、写像は毎 update の
+  受け渡しが重い。docs/module-api.org に「TEXT の 1 文字は必ず 1 セル
+  (全角は 2 セル)」の契約と =:cursor-index= を書いた。
+
+カーソル *位置* は 3 つとも正しくなった。残るのは国旗の *表示幅*
+(Emacs は 1 桁で描き ghostty は 2 セル) と、マウス座標のバッファ位置
+→ セル列の逆写像で、これは L-37 として切り出した。
+=spectreshell-explore-geometry-test-regional-indicator-width= は
+=current-column= (表示幅) を測る Probe なので L-37 の Probe として
+=:expected-result :failed= のまま残す。
+
+ERT: =--del-is-not-stored= / =--c1-control-width= (=:expected-result
+:failed= を外した)、=spectreshell-test-cursor-lands-after-regional-indicator=。
+Zig test: =row.zig= の C1 置換 / =cellToIndex= 3 本、=core.zig= の DEL
+2 本。
 
 ** DONE L-34: SGR 8 (隠し) が落ちて文字がそのまま読める
 対象: =src/style.zig= / =spectreshell.el= (装飾)
