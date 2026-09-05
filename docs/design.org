@@ -191,9 +191,11 @@ underline (スタイル種別含む)・strikethrough・inverse・faint・
     最初の実装から Emacs 側にあり、そのまま残している。
   - ~C-y~ は kill-ring の内容を ~spectreshell--encode-paste~ 経由
     (bracketed paste) で送信。押したキー自体は送らない。
-  - ~C-g~ は Emacs の ~quit-char~ 。キーマップでは送信に束縛している
-    が、実端末では子に届かない (実測。原因は未確定)。 ~quit-char~ を
-    変えると利用者の脱出口が無くなるので、届かないまま受け入れる。
+  - ~C-g~ は Emacs の ~quit-char~ だが、Emacs がキー入力を待っている
+    間は通常のキーとして読まれるので送信に束縛すれば子に届く (実端末で
+    確認)。Lisp 実行中に押した場合だけ quit になって送られない。
+    ~quit-char~ を変えて常に送る手は、利用者の脱出口が無くなるので
+    採らない。
   - ~M-O~ / ~M-[~ は束縛しない。端末が矢印・F1〜F4・Home/End を送る
     ~ESC O …~ (SS3) / ~ESC [ …~ (CSI) の前置そのもので、
     ~input-decode-map~ の変換はそこまでのキー列が未束縛のときしか

@@ -236,10 +236,11 @@ semi-char モードでプロセスへ送られず、通常の Emacs のキーと
 @item @code{C-u}
 @code{universal-argument} として Emacs に残してあり、送れない
 @item @code{C-g}
-Emacs の @code{quit-char} 。semi-char のキーマップでは送信に束縛
-してあるが、実端末では子プロセスに届かないことが実測されている
-(原因は未確定)。 @code{quit-char} を変えると利用者の脱出口が無くなるため
-この扱いのままにしている (vim ・ less の @code{C-g} は使えない)
+Emacs の @code{quit-char} 。Emacs がキー入力を待っている間は
+通常のキーとして読まれるので、semi-char モードでは子プロセスへ
+送られる (vim ・ less の @code{C-g} が使える)。ただし Emacs が Lisp を
+実行中に押した @code{C-g} は quit として働き、送られない。 @code{quit-char}
+を変えて常に送る手は、利用者の脱出口が無くなるので採らない
 @item @code{M-O} ・ @code{M-[}
 端末は矢印・F1〜F4・Home/End を @code{ESC O …} (SS3) や
 @code{ESC [ …} (CSI) として送ってくる。Emacs の @code{input-decode-map} が
@@ -333,7 +334,7 @@ eshell 本来の @code{COLUMNS} / @code{LINES} がそのまま渡る。同じバ
 @itemize
 @item
 char モード非対応: 全キー送信は v1 のスコープ外。semi-char モードで
-Emacs 側に残るキー ( @code{C-c} ・ @code{C-x} ・ @code{M-x} ・ @code{C-u} ・ @code{C-g} ・
+Emacs 側に残るキー ( @code{C-c} ・ @code{C-x} ・ @code{M-x} ・ @code{C-u} ・
 @code{M-O} ・ @code{M-[} ) をプロセスへ送る手段は無い
 @item
 実行中プロセスへの Emacs 側 input method は対象外: ddskk 等は
