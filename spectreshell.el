@@ -787,11 +787,16 @@ tell them apart either), but docs/module-api.org encodes them as their
 own symbols rather than as \"i\"/\"m\"/\"[\"/\"?\" plus `ctrl'.")
 
 (defconst spectreshell--aliased-key-symbols
-  '((backtab tab shift))
+  '((backtab tab shift)
+    (insertchar insert)
+    (deletechar delete))
   "Function-key symbols that stand for another KEY plus extra MODIFIERS.
 Emacs reports Shift-TAB as a `backtab' symbol of its own, carrying no
 `shift' modifier, but docs/module-api.org has no such KEY: what the
-terminal wants for it is TAB with `shift' (CSI Z).")
+terminal wants for it is TAB with `shift' (CSI Z).  A terminal frame
+likewise decodes the Insert and Delete keys to `insertchar'/`deletechar'
+rather than to the `insert'/`delete' that a GUI frame delivers, and
+docs/module-api.org only names the latter pair.")
 
 (defun spectreshell--event-char (event)
   "Return EVENT's character code with Emacs's modifier bits cleared.
@@ -1095,6 +1100,7 @@ disable mouse-wheel scrolling entirely between jobs that want it."
     ;; command; splitting the list by modifier to avoid that would only
     ;; make the table harder to read.
     (dolist (key '(up down left right home end prior next insert delete
+                   insertchar deletechar
                    tab return backspace escape backtab
                    f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12))
       (dolist (mods '(() (control) (meta) (control meta) (shift)
@@ -1156,6 +1162,13 @@ disable mouse-wheel scrolling entirely between jobs that want it."
     ;; reason to stay on the Emacs side.
     (dolist (letter (number-sequence ?a ?z))
       (define-key map (kbd (format "C-M-%c" letter)) #'spectreshell-send-key))
+    ;; Control keys whose base character is not a letter, plus M-DEL
+    ;; (readline's `backward-kill-word'): none of them is reachable from
+    ;; the letter loops above, and the Emacs commands they land on
+    ;; otherwise (`undo' on C-_, `backward-kill-word' on M-DEL) edit the
+    ;; terminal region as if it were ordinary buffer text.
+    (dolist (key '("C-@" "C-\\" "C-]" "C-^" "C-_" "M-DEL"))
+      (define-key map (kbd key) #'spectreshell-send-key))
     (define-key map (kbd "C-y") #'spectreshell-yank)
     (define-key map [xterm-paste] #'spectreshell-xterm-paste)
     (define-key map (kbd "C-c C-e") #'spectreshell-emacs-mode)

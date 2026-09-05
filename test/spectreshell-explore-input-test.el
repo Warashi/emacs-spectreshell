@@ -21,7 +21,6 @@
   "端末の Insert/Delete は `insertchar'/`deletechar' として届くので束縛が要る。
 tmux+terminfo 環境の `input-decode-map' は ESC [ 2 ~ / ESC [ 3 ~ を
 `insert'/`delete' ではなく `insertchar'/`deletechar' に変換する。"
-  :expected-result :failed
   (should (eq (lookup-key spectreshell-semi-char-mode-map [insertchar])
               #'spectreshell-send-key))
   (should (eq (lookup-key spectreshell-semi-char-mode-map [deletechar])
@@ -29,14 +28,12 @@ tmux+terminfo 環境の `input-decode-map' は ESC [ 2 ~ / ESC [ 3 ~ を
 
 (ert-deftest spectreshell-explore-input-test-non-letter-control-keys-are-bound ()
   "C-@ / C-\\ / C-] / C-^ / C-_ も PTY へ送られるべきだが束縛が無い。"
-  :expected-result :failed
   (dolist (key '("C-@" "C-\\" "C-]" "C-^" "C-_"))
     (should (eq (lookup-key spectreshell-semi-char-mode-map (kbd key))
                 #'spectreshell-send-key))))
 
 (ert-deftest spectreshell-explore-input-test-meta-del-is-bound ()
   "M-DEL (readline の backward-kill-word) が束縛されていない。"
-  :expected-result :failed
   (should (eq (lookup-key spectreshell-semi-char-mode-map (kbd "M-DEL"))
               #'spectreshell-send-key)))
 

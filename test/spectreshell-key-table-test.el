@@ -146,13 +146,24 @@ the fix as an unexpected pass."
   ("<right>" "\eOC" "\e[?1h")
   ("<left>" "\eOD" "\e[?1h")
 
-  ;; 編集キー。
+  ;; 編集キー。端末フレームは Insert/Delete を insertchar/deletechar と
+  ;; いう別シンボルに decode するので、そちらも表に置く。
   ("<home>" "\e[H")
   ("<end>" "\e[F")
   ("<prior>" "\e[5~")
   ("<next>" "\e[6~")
   ("<insert>" "\e[2~")
   ("<delete>" "\e[3~")
+  ("<insertchar>" "\e[2~")
+  ("<deletechar>" "\e[3~")
+
+  ;; 英字でない制御キー。C0 の生バイトをそのまま送る。
+  ("C-@" "\0")
+  ("C-\\" "\x1c")
+  ("C-]" "\x1d")
+  ("C-^" "\x1e")
+  ("C-_" "\x1f")
+  ("M-DEL" "\e\d")
 
   ;; ファンクションキー。F1-F4 は SS3、F5 以降は CSI ~ 形式。
   ("<f1>" "\eOP")
