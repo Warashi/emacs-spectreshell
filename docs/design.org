@@ -140,7 +140,11 @@ underline (スタイル種別含む)・strikethrough・inverse・faint・
   ユーザーのカラーテーマが自動で効きつつ、spectreshell 単位での
   上書きも可能。24bit 色はそのままの色値を text property に載せる。
 - *OSC 8 ハイパーリンク*: クリック可能なリンク (button 相当) として描画。
-- *カーソル*: 端末カーソル位置に point を追従させる。
+- *カーソル*: point (と各ウィンドウの window-point) が前回のカーソル
+  位置にあったときだけ、新しいカーソル位置へ追従させる。semi-char
+  モード中は常に追従し、emacs モードでスクロールバックを読んでいる間は
+  動かさない (term.el と同方式)。判定はバッファの point と各
+  window-point で個別に行う。
 
 * 入力設計
 
