@@ -50,7 +50,7 @@ semi-char モードも解除される)、以後のコマンドは実行できる
 
 =spectreshell-eshell--terminal-size= は桁数に
 =window-max-chars-per-line= を使う。この値は tty フレームでは折り返しの
-継続グリフ =\\= のぶん最終桁が予約されるため =window-body-width= より
+継続グリフのぶん最終桁が予約されるため =window-body-width= より
 1 小さい。一方 eshell 本体 (=esh-var.el=) は子プロセスへ export する
 =COLUMNS= を =window-body-width= で定義しているので、子から見た幅が
 環境変数では 80、=TIOCGWINSZ= では 79 になる。
