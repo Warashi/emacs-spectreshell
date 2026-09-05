@@ -832,6 +832,17 @@ test "encodeKey は DECCKM の on/off で矢印キーのエンコードが変わ
     }
 }
 
+test "encodeKey は alt 付きの文字を ESC 前置でエンコードする" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    const keymap = @import("keymap.zig");
+    const bytes = try t.encodeKey(alloc, keymap.charEvent('a', "a", .{ .alt = true }));
+    defer if (bytes) |b| alloc.free(b);
+    try testing.expectEqualStrings("\x1ba", bytes.?);
+}
+
 test "encodePaste は bracketed paste モードに追従する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);
