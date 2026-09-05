@@ -189,7 +189,7 @@ ERT: =test/spectreshell-explore-stderr-test.el= の
 =:expected-result= を付けない対照で、子が別の理由で stderr へ書いて
 いないことを担保する。
 
-** TODO M-17: eshell パイプの最終段に入力が届かず、端末クエリの応答が stdin に混入する
+** WAIT M-17: eshell パイプの最終段に入力が届かず、端末クエリの応答が stdin に混入する
 対象: =spectreshell-eshell.el= (=--force-pty-output=)
 
 =... | fzf= や =... | less= が使えない (F-apps-11、3/3 回)。
@@ -227,6 +227,34 @@ L-21 / L-23 で =stty= の対象を決めたときと同じ構造の帰結。
 8a839f0 / 900d340 / 3a9fe0d / 346462d の全ビルドで同じ壊れ方を実測)。
 
 ERT: なし。batch の Probe は作られておらず、上記の実端末手順のみ。
+
+調査結果 (2026-09-05, batch で =make-process= を直接使って実測。
+=sh -c 'stty <&1 sane rows 24 columns 80; …'= を wrapper に
+=:connection-type= だけを変えて比較):
+
+#+begin_example
+観察                               (pipe . pty) 現状   (pty . pty)
+process-tty-name PROC 'stdin       nil                /dev/pts/N
+test -t 0                          PIPE               TTY
+read -r x < /dev/tty に send       届かない           届く (GOT=[hello])
+less (ファイル名なし)              ページャ起動       Missing filename で終了
+前段データが画面に出るか           出ない             エコーで二重に描かれる
+データ中の 0x03                    そのまま渡る       INTR に食われ前段が死ぬ
+5001 バイトの 1 行 (wc -c)         5001               4096 (canonical 行長上限)
+#+end_example
+
+=(pty . pty)= は入力こそ届くが、isatty / エコーによる二重描画 / 制御
+文字の横取り / 行長上限でのデータ欠落の 4 通りでパイプの意味を壊すので
+採らない。Emacs には pty master へ別経路で書く Lisp API が無く、
+キー入力と前段データを分けるにはデマルチプレクサ用のヘルパープログラム
+とフレーミング (前段のデータとキー入力を 1 本の pipe に多重化し、子側
+で pty へ振り分ける) が必要になる。これは設計変更なので未着手とし、
+外部条件ではなく設計判断待ちとして WAIT に置く。
+
+F-apps-12 (端末クエリの応答が前段データに混入) だけなら「パイプ最終段
+では応答を送らない」緩和が可能だが、応答待ちの子が固まる恐れがあるので
+候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
+(=process-tty-name 'stdin= で確認)。
 
 ** DONE M-18: 全画面アプリでカーソルが上端にあると端末領域がウィンドウに収まらない
 対象: =spectreshell.el= (ウィンドウのスクロール)
