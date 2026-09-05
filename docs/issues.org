@@ -15,7 +15,614 @@
 
 レビュー後に見つかった課題は同じ体系の続き番号 (L-21 以降など) を振る。
 
+2026-09-05 の探索的テスト第 2 回で見つかった課題は M-14 / L-24 / P-7
+以降 (M-4〜M-13 は 2026-07-18 レビュー分で使用済みのため)。
+
 * 機能・堅牢性
+
+** TODO M-14: 高速な出力の確定テキストがまとまって欠落する
+対象: =src/core.zig= / 同梱の ghostty-vt (=PageList=)
+
+子が出した行が、確定テキストにもモジュールが返す =:scrolled-off= にも
+現れずに消える。3 つの条件で観測した。
+
+1. 幅の広いウィンドウでの素の出力 (F-super-2)。tmux ペインを W x 24 に
+   リサイズして =sh -c 'seq 1 100000'= を実行するだけで、リサイズも
+   ウィンドウ操作も出力中には一切していない。
+
+   #+begin_example
+   幅 (桁)  gap 数  欠落行数
+        80       0         0
+       100       0         0
+       120       1       389
+       160     168     48888
+       220     168     38584
+   #+end_example
+
+   220 桁では 425 行の欠落が約 680 行間隔で周期的に並ぶ。ワイド
+   ディスプレイで eshell を全幅で使うと、ログやビルド出力の途中が
+   まとまって消える。
+
+2. 出力中に幅を変えずに高さだけ増やすリサイズ (F-concurrency-4 /
+   F-concurrency-19)。=sh -c 'seq 1 200000'= の実行中に
+   =(split-window)= → =(delete-other-windows)= を 1 回行うと、5/5 回とも
+   きっかり 5 か所で 9・7・5・3・1 行、計 25 行が消える。gap の間隔は
+   毎回 585 行。tmux のペインリサイズでも同じで、80x24 → 80x12 →
+   80x24 で 30 行、80x15 → 80x40 → 80x24 で 135 行。縮小のみ、および
+   幅も同時に変えた場合 (60x15 → 120x40) は 0。素の eshell でも 0。
+   ただし 60x12 → 80x24 は幅が変わっても高さのみの場合と同じ 30 行が
+   欠けており (F-concurrency-19 の表)、「幅が変われば起きない」は
+   無条件の規則ではない。
+   欠けた番号はバッファのどこにも文字列として存在せず、行の結合でも
+   折り返しの見落としでもなくテキストが失われている。
+
+3. 1 回の feed が大きい場合 (F-module-2)。21x80 の端末に 1200 行を
+   1 回の =spectreshell-feed= で流すと、確定テキストの先頭が 577 行目に
+   なり先頭 576 行が消える。消えるのは常に先頭側で 576 の倍数。
+   cols=200 では 464 行、cols=400 では 580 行が単位。連番の「穴」では
+   ないので、gap を数えるだけの計測では見落とす。
+
+いずれもモジュールが返す =:scrolled-off= の時点で同じだけ欠けており、
+バッファを一切作らない batch (=spectreshell--feed= / =--resize= を直接
+呼ぶだけ) でも再現する (F-module-1 / F-module-2)。したがって
+=spectreshell.el= の描画・確定処理ではなく Zig モジュール側の欠陥。
+Debug ビルドと nix の Release ビルドで結果は完全に一致し、同じ入力なら
+欠落位置まで一致する (決定的)。
+
+Linux の pty 経由では 1 回の feed は 4095 バイトを超えない (F-super-1、
+=spectreshell-feed= に advice を付けて 169 回ぶん実測)。Emacs 31.1 の
+=read-process-output-max= の既定は 65536 だが、pty master からの read が
+4095 で切れるため。80 桁で 3 の経路を踏まないのはこれによるもので、
+幅が広いと 1 ページに入る行数が減って閾値が下がる、というのが 1 と 3 の
+関係だと考えられる (推測)。
+
+推測 (H-module-1、コード読解のみ): =src/core.zig= の =buildUpdate= は
+毎回 history の全行を =:scrolled-off= に取り出してから
+=eraseDisplay(.scrollback)= で消すので、Emacs へ渡す前に history から
+消えた行はどこにも出ない。ghostty の =PageList.grow= は新しいページが
+=maxSize()= を超えるとき先頭ページを丸ごと捨てる。=max_scrollback= の
+既定 10000 バイトに対して =minMaxSize= が効くため 80x21 では実質 2 ページ
+しか持てず、cols=80 のページ容量は実測から 576 行と見られる。gap の
+間隔 585 行と 1 回の feed で落ちる単位 576 行の差 9 が、gap ごとに欠落
+行数が減る公差 9 と一致する点も同じ筋で説明できる。ページ容量を直接
+確かめる API がモジュールに無いため未検証。上記 2 の反例
+(60x12 → 80x24 でも欠ける) をこの筋では説明できていない。
+
+ERT: =test/spectreshell-explore-module-test.el= の
+=spectreshell-explore-module-test-height-grow-drops-lines= と
+=--large-feed-drops-leading-lines= (どちらも =:expected-result :failed=)。
+前者は 25000 行を流すので、テストヘルパが読む =zig-out= の Debug ビルド
+では 28 秒かかる (Release なら 1 秒)。
+
+** TODO M-15: 幅を変えると確定テキストの改行が失われ空白で埋まって連結する
+対象: 同梱の ghostty-vt の reflow / =src/row.zig= (行の抽出)
+
+実端末 (F-concurrency-12): 1 行 129 バイトの行を 100 回出すスクリプトの
+実行中に tmux ペインを 100x30 → 60x15 → 120x40 → 80x24 と 0.5 秒間隔で
+3 周すると、確定済みテキストに「行頭でない L0xx」が 13 か所できる
+(2/2 回とも同じ位置)。折り返しの継続行が旧幅ぶんの空白で埋められた
+うえに、次の出力行が同じバッファ行へ連結される。
+
+#+begin_example
+L095 1 2 3 4 5 6 7 8 9 10 … 20 21$
+22 23 24 … 39 40   L096 1 2 3 4 5 6 7 8 9 10 … 20 21 2$
+2 23 24 … 39 40   L097 1 2 3 4 5 6 7 8 9 … 21 22$
+#+end_example
+
+出力をコピーすると 2 行が 1 行に潰れて余分な空白が混ざる。画面
+(capture-pane) も同じ形なので、画面とバッファの乖離ではなくバッファの
+真値がこうなっている。
+
+batch でも再現する (F-module-3)。21x100 の端末に同じ形の行を 331 バイト
+ずつ流し、途中で幅を 60 → 120 → 80 → 60 → 120 → 80 と変えると 8 か所
+できる。モジュールが返す =:scrolled-off= の各行を直接調べても同じ 8 か所
+あり、数も一致する。=spectreshell--apply-scrolled-off= は行を "\n" で
+連結して入れるので el 側で 2 行が 1 行に潰れることは構造上なく、壊れた
+行をモジュールが返している。1 チャンクが 1 行より十分小さい (7 / 31
+バイト) 場合と、幅を変えない対照では 0 で、数行ぶんのチャンクでよく出る。
+
+同じ条件で L054 と L105 が確定テキストから消えてもいる。これが M-14 と
+同じ枝刈りによるものか、reflow で行そのものが失われたのかは未検証。
+
+ERT: =test/spectreshell-explore-module-test.el= の
+=spectreshell-explore-module-test-width-change-joins-lines=
+(=:expected-result :failed=)。
+
+** TODO M-16: ghostty-vt の log が Emacs の stderr (= tty) へ直書きされ画面を壊す
+対象: =src/main.zig= (=std_options= / =logFn= の未指定)
+
+=emacs -nw= の stderr は端末そのものなので、モジュールが =std.log= で
+書いた行が Emacs の画面表現を通らずに tty へ出る。Emacs の増分再描画は
+これを知らないので、以後の画面が恒久的に壊れる。この文字列は
+=*Messages*= にも =*Warnings*= にも無い。
+
+最も派手な例 (F-apps-9、4/4 回): 起動直後の eshell で =vim -u NONE= →
+=:q!= とすると、バッファは 3 行で完全に正常なのに画面 21 行が vim の
+起動画面の残骸で埋まる。時間が経っても直らず、以後のコマンド出力は
+残骸の上に重ね書きされる。=(redraw-display)= を呼べば一発で直る。
+Emacs の stderr をファイルへ逃がして同じ手順を踏むと残骸は完全に消え、
+警告文だけがファイルに残る (3/3 回) ので因果は確定している。警告を
+出さない nvim では起きない。
+
+契機のバイト列は実測で確定した (F-stderr-5)。=script= で捕った vim の
+出力に含まれる =CSI 22;1t= と =CSI 23;1t= で、vim 自身に吐かせると
+=t_Si= (save icon) と =t_Ri= (restore icon) に一致する。ghostty は
+=CSI 22/23 t= のうちタイトル (=;2=) だけを実装するため、アイコン側の
+2 つが必ず警告になる。vim は起動時と終了時に送るので、使うたびに 2 件
+出る。他の契機も総当たりで数えた (F-stderr-4): DECSET / DECRST は
+1996/2031 が未実装モードの警告、=CSI n t= は 48 中 44、C0 の 0x03 /
+0x04 / 0x06、sixel などの DCS 4 種、OSC 1 と rxvt 拡張。行頭に来た
+ゼロ幅・結合文字 (U+200B / U+FEFF / U+0301 単独) でも出る
+(F-geometry-2)。
+
+一次情報 (F-stderr-1): =src/*.zig= に =std_options= も =logFn= も無い
+(=grep= で 0 件) ので、zig 既定の =std.log.defaultLog= がそのまま fd 2
+へ書く。ReleaseSafe の既定 log level は info なので、
+=info(terminal_dcs): unknown DCS hook: …= のような info の行も同じ経路で
+画面に出る。ビルドされている ghostty には重複抑止が無く、vim を 3 回
+使えば警告はちょうど 6 件出る。
+
+実運用で踏むのは事実上 vim だけで、git / ls --color / less / htop /
+fzf / infocmp / 全角の折り返し / SGR 全パラメータ / OSC の主要番号 /
+terminfo の描画系 capability はいずれも警告ゼロだった (F-stderr-2 /
+F-stderr-6。terminfo で警告が出るのは端末がアプリへ送る側のキー
+capability だけで、 =cup= =csr= =ich= などの描画系は引数を与えた
+正しい形なら全部無警告)。
+ただし警告が 1 件でも出れば画面は壊れ、出なければ壊れない (同一手順で
+画面の非空行数が 3 行 ↔ 20 行、F-stderr-3)。残骸の大きさは「警告が
+書かれた後に Emacs がその領域を描き直すか」で決まるので揺れる。
+
+前回の探索的テストの F-2 (画面にだけ前の内容が残る) と見え方は同じだが、
+F-2 の元手順 (=seq 1 100= → =cd= → =git log --oneline=) では警告が 1 件も
+出ず (F-stderr-2)、その手順自体も 0/23 回で再現していない
+(F-concurrency-5)。同一だとは断定しない。
+
+ERT: =test/spectreshell-explore-stderr-test.el= の
+=spectreshell-explore-stderr-test-csi-22-1-t-is-silent= /
+=--zero-width-leading-is-silent= / =--unimplemented-mode-is-silent= /
+=--info-level-also-leaks= の 4 本 (=:expected-result :failed=)。子 Emacs
+を =call-process= の DESTINATION =(nil ERRFILE)= で起こして stderr だけ
+別ファイルに分ける。同じファイルの =--harness-is-sane= は
+=:expected-result= を付けない対照で、子が別の理由で stderr へ書いて
+いないことを担保する。
+
+** TODO M-17: eshell パイプの最終段に入力が届かず、端末クエリの応答が stdin に混入する
+対象: =spectreshell-eshell.el= (=--force-pty-output=)
+
+=... | fzf= や =... | less= が使えない (F-apps-11、3/3 回)。
+=seq 1 1000 | fzf= は UI こそ出るが、打鍵しても絞り込まれず
+=1000/1000= のまま。最小の切り分けは次のコマンドで、 =hello= RET を
+打ってもエコーも出ず read も返らない。
+
+#+begin_example
+$ seq 1 2 | sh -c 'read -r x < /dev/tty; echo GOT=[$x]'
+#+end_example
+
+非パイプの同じコマンドでは =GOT=[hello]= が返り、
+=sh -c 'seq 1 1000 | fzf'= のようにパイプを sh の中に閉じ込めれば
+正しく絞り込める。最終段の =/dev/tty= 自体は pty を
+正しく指す (=seq 1 2 | sh -c 'echo HELLO-DEVTTY > /dev/tty'= はバッファ
+に出る)。壊れているのは入力方向だけ。=less= は SIGINT を無視するので
+=C-c C-c= でも死なず、=kill-process= 以外に抜ける手段が無かった。
+
+さらに、端末クエリへの応答がそのまま子の標準入力のデータに混入する
+(F-apps-12)。
+=seq 1 2 | sh -c 'printf "\033[6n" >&1; sleep 1; /bin/cat -v'= は、
+パイプで渡ってきた =1= =2= の後ろに CPR の応答 =ESC [ 1;1R= を 1 件の
+データとして受け取る (1/1 回、決定的)。実害として
+=seq 1 1000 | fzf= の候補数が =1001/1001= になったり、候補行に応答が
+混ざって描かれたりする。
+
+原因 (対照実験までが実測、以下の説明はコード読解による推測):
+=spectreshell-eshell--force-pty-output= は
+=(cons (car connection-type) 'pty)= で出力側だけを pty にするため、
+最終段の入力側は eshell の plain pipe のまま残る。キー入力も端末応答も
+=process-send-string= でそのパイプへ流れ、pty の入力キューには入らない。
+L-21 / L-23 で =stty= の対象を決めたときと同じ構造の帰結。
+
+150f3f3 (eshell 連携の初回) から実装が同一で退行ではない (F-regress-4。
+8a839f0 / 900d340 / 3a9fe0d / 346462d の全ビルドで同じ壊れ方を実測)。
+
+ERT: なし。batch の Probe は作られておらず、上記の実端末手順のみ。
+
+** TODO M-18: 全画面アプリでカーソルが上端にあると端末領域がウィンドウに収まらない
+対象: =spectreshell.el= (ウィンドウのスクロール)
+
+=nvim -u NONE FILE= を開くと、21 行の端末領域のうち画面に見えるのが
+1 行だけになる (F-concurrency-14 2/2 回、F-apps-3 3/3 回)。バッファには
+領域 21 行すべてが入っているので、見え方だけの欠落。
+
+Emacs は point (= 端末のカーソル位置) が見える最小量しかスクロール
+しないため、カーソル行より下の領域行が画面外へ落ちる。nvim で =G= を
+打ってカーソルを最終行へやると 21 行すべてが見え、=gg= で戻すとまた
+下端に張り付く。カーソルが領域の最下行にあるアプリ (htop のフッタ行、
+less の =:= の行) では window-start がたまたま領域先頭と一致して全部
+見える (F-apps-14 / F-apps-15)。起動直後 (スクロールバックが 3 行) でも
+下 3 行 = nvim のステータス行とコマンド行が欠け、素の tmux ペイン
+79x21 で同じ nvim を開いたときとの差になる。
+
+=grep -n 'recenter\|set-window-start' spectreshell.el spectreshell-eshell.el=
+は 0 件で、端末領域をウィンドウへ整列させる仕組みが無い。
+docs/design.org は「領域が端末サイズそのものであることが全画面 TUI の
+前提」と書くが、その整列は実装されていない。
+
+8a839f0 以前から一貫して存在する欠陥で、P-1 の対応 (d8699ff) の退行では
+ない (F-regress-1。4 ビルドで point 246 / window-start 116 まで
+一致した)。
+
+** TODO L-24: 裸の矢印と F1〜F4 の SS3 で ESC が落ちる
+対象: =spectreshell.el= (semi-char keymap の =M-<大文字>= 束縛)
+
+semi-char モードで Up を押すと、子には ESC の無い =O= =A= の 2 バイトが
+届く (F-input-1 3/3 回、F-apps-16 3/3 回)。=emacs -nw= は smkx を出すので
+端末は矢印を SS3 (=ESC O A=) で送るが、semi-char マップが =M-A= 〜 =M-Z=
+を束縛しているため =ESC O= の時点で =M-O= として読みが確定し、
+=input-decode-map= の =ESC O A -> [up]= 変換に進まない。確定した key
+sequence は =[27 79]= で、 =spectreshell-send-key= が見る
+=last-command-event= は 79 (=?O=) なので ESC が落ちる。続く =A= は
+そのまま送られる。
+
+対照実験 (実測): 実行中の Emacs で =M-O= の束縛だけを外すと同じ Left が
+=ESC [ D= として正しく届き、束縛し直すと =OD= に戻る。影響するのは
+=ESC O A/B/C/D= (矢印) と =ESC O P/Q/R/S= (F1〜F4)、端末によっては
+=ESC O H/F= (Home/End)。実アプリでは readline で =abcdef= → Left Left →
+=XY= と打つと行が =abcdefODODXY= になる。修飾付き矢印などの CSI 形式
+(=ESC [ 1;N A=) は =M-[= を束縛していないので無事。
+
+3a9fe0d (L-19 の対処として =M-<大文字>= の束縛を足したコミット) が入れた
+退行で、親の 900d340 では Left が =ESC [ D= 、F1 が =ESC O P= と正しく
+届く (F-regress-2。キーマップの実測と =git log -S 'M-%c'= で確定)。
+
+ERT: =test/spectreshell-explore-apps-test.el= の
+=spectreshell-explore-apps-test-ss3-arrow-survives-meta-letter-binding= と
+=--ss3-arrows-all-survive= (=:expected-result :failed=)。tty と同じ
+=input-decode-map= を作って =read-key-sequence-vector= に =ESC O D= を
+読ませる。=M-O= を外したコピーのマップでは =[left]= になることを対照で
+確認済み。
+
+** TODO L-25: eshell の minor mode が semi-char マップを横取りする
+対象: =spectreshell.el= (=minor-mode-map-alist= 上の優先順位)
+
+=minor-mode-map-alist= の並びは実測で次のとおりで、eshell 側の minor
+mode が前にある。semi-char マップと衝突する束縛を機械的に洗った結果と
+あわせて (すべて実測):
+
+#+begin_example
+(eshell-prompt-mode eshell-pred-mode eshell-hist-mode eshell-cmpl-mode
+ eshell-command-mode spectreshell-semi-char-mode spectreshell-mode …)
+
+(eshell-hist-mode "C-<down>" eshell-next-input)
+(eshell-hist-mode "C-<up>"   eshell-previous-input)
+(eshell-hist-mode "<down>"   eshell-next-matching-input-from-input)
+(eshell-hist-mode "<up>"     eshell-previous-matching-input-from-input)
+(eshell-cmpl-mode "<backtab>" pcomplete-reverse)
+(eshell-cmpl-mode "TAB"       completion-at-point)
+(eshell-command-mode "C-j"  eshell-command-mode-exit)
+(eshell-command-mode "RET"  eshell-command-mode-exit)
+(eshell-command-mode "C-g"  abort-recursive-edit)
+#+end_example
+
+実害は TAB と S-TAB (BTab) がプロセスに一切届かないこと、および
+=C-Up= / =C-Down= が eshell の履歴コマンドになること (F-input-2)。
+=spectreshell--encode-key= 自体は BTab に対して =1b 5b 5a= (CSI Z) を
+正しく返すので、エンコーダではなく優先順位の問題。裸の上下矢印は
+L-24 の SS3 経路で先に壊れるため、=M-O= の束縛を外して初めてこの横取り
+が見える。
+
+8a839f0 以前からの欠陥で、=minor-mode-map-alist= の順序は検証した全
+ビルドで同一だった (F-regress-3)。マップの内容ではなく置き場所を変える
+(=emulation-mode-map-alists= に載せる等) 必要がある、というのが方針の
+候補だが未検証 (推測)。
+
+ERT: =test/spectreshell-explore-input-test.el= の
+=spectreshell-explore-input-test-eshell-minor-modes-do-not-shadow=
+(=:expected-result :failed=)。
+
+** TODO L-26: tty では M- 前置の ESC が落ち、ESC 単体も送れない
+対象: =spectreshell.el= (=spectreshell-send-key= / semi-char keymap)
+
+3 つの層が重なっている。
+
+1. 束縛はあるのに ESC が落ちる。tty では =M-a= は ESC + a の 2 イベント
+   で届き、Emacs は key sequence =[27 97]= を作る。このとき
+   =last-command-event= は 97 (=?a=) なので、それだけを見る
+   =spectreshell-send-key= は alt 修飾を知りようがなく、子には裸の =a=
+   が 1 バイト届く (F-input-4 4/4 回、F-recheck-12 3/3 回)。
+   =/bin/cat -v= で受信バイトを見る・=process-send-string= に advice を
+   付ける・=spectreshell-send-key= に advice を付けて
+   =last-command-event= を記録する、の 3 通りで裏を取った。=M-RET= も
+   同じ理由で =\r= に潰れる (F-input-15)。=DECSET 1036= を明示的に
+   立てた子でも同じ。既存の
+   =test/spectreshell-key-table-test.el= は =?\M-f= のように 1 イベント
+   に meta ビットが立つ経路しか通らないので、113 件すべて batch で通る。
+2. ESC 単体が 1 バイトも届かない (F-input-6 3/3 回)。Emacs は ESC を
+   =meta-prefix-char= として無期限に次のキーを待つので、1 秒空けても
+   次のキーと合体する。=ESC ESC ESC= は =keyboard-escape-quit= になる。
+   vim / less / fzf の「ESC で抜ける」が使えず、nvim の挿入モードから
+   出られない (F-apps-4)。
+3. =M-<記号>= / =M-<数字>= はそもそも束縛が無く、Emacs 側のコマンドが
+   走る (F-input-13)。 =M-1= は =digit-argument= 、 =M-.= は
+   =xref-find-definitions= 、 =M-SPC= は =cycle-spacing= 、 =M-/= は
+   =dabbrev-expand= になり、後ろ 2 つは端末領域を編集する。これは
+   L-27 と同根。
+
+エンコーダ側は正しい (=--encode-key term "a" '(alt)= の 16 進は
+=1b 61= 、 =--encode-key term 'escape nil= は =1b= )。
+
+推測 (H-input-1、コード読解のみ): 1 と 2 と L-24 は「tty では ESC が
+メタプレフィックスとして先に食われる」1 点に集約でき、
+=last-command-event= ではなく =this-command-keys-vector= (=[27 97]= 等)
+の先頭の 27 を alt 修飾として解釈すれば 3 つとも同時に説明・修正できる。
+ただし =[27 27]= を送りたい場合など、ESC そのものの送信には別の脱出口が
+要る点は残る。
+
+ERT: =test/spectreshell-explore-input-test.el= の
+=spectreshell-explore-input-test-esc-prefixed-meta-letter-keeps-esc=
+(=:expected-result :failed=)。2 の ESC 単体は tty の入力経路を batch で
+再現できないため手順の記録のみ。
+
+** TODO L-27: Insert / Delete と非英字の制御キーが未束縛でバッファを壊す
+対象: =spectreshell.el= (semi-char keymap)
+
+tty フレームの Emacs は =ESC [ 2 ~= / =ESC [ 3 ~= を =insertchar= /
+=deletechar= という別のシンボルに decode するが、semi-char マップが
+束縛しているのは =insert= / =delete= だけ (実測: =lookup-key= が nil)。
+結果 Insert は =overwrite-mode= 、Delete は =delete-forward-char=
+になり、
+後者は端末領域のテキストを直接消す (F-input-3 3/3 回、F-apps-17 2/2 回)。
+
+英字のループが =C-a= .. =C-z= と =M-a= .. =M-z= / =M-A= .. =M-Z= しか
+回らない
+ため、次のキーにも束縛が無い (実測: すべて =lookup-key= が nil)。
+
+#+begin_example
+送ったキー   probe 受信  走ったコマンド
+C-@ (C-SPC)  無          set-mark-command
+C-\          無          toggle-input-method
+C-]          無          abort-recursive-edit
+C-^          無          nil (未定義)
+C-_          無          undo                <- バッファ破壊
+M-DEL        無          backward-kill-word  <- バッファ破壊
+#+end_example
+
+バッファ破壊は buffer-string の前後 diff で実測した (F-input-5)。M-DEL は
+端末領域のテキストを 3 文字消し、C-_ (undo) がそれを戻した。Delete は
+point が末尾にあったため差分が出なかったが、領域の途中に point があれば
+消えると見られる (未実測なので推測)。=spectreshell--encode-key= 自体は
+insert = =CSI 2~= 、delete = =CSI 3~= を正しく返す。
+
+なお =C-g= は semi-char マップに =spectreshell-send-key= の束縛が「ある」
+のに届かない。Emacs の =quit-char= がキーマップ照合の前に処理される
+ためと見られ (推測)、vim の C-g、less の C-g が送れない。
+
+ERT: =test/spectreshell-explore-input-test.el= の
+=spectreshell-explore-input-test-insertchar-deletechar-are-bound= /
+=--non-letter-control-keys-are-bound= / =--meta-del-is-bound= (いずれも
+=:expected-result :failed=)。
+
+** TODO L-28: 端末側の paste がプロセスへ届かずバッファに入る
+対象: =spectreshell.el= (semi-char keymap の =[xterm-paste]=)
+
+=tmux paste-buffer -p= (= マウスや OS のペーストと同じ経路) を送ると、
+=emacs -nw= も自身の bracketed paste を有効にしているため Emacs は
+=ESC[200~…ESC[201~= を 1 個の =xterm-paste= イベントにする。semi-char
+マップに =[xterm-paste]= の束縛が無いのでグローバルの =xterm-paste= が
+走り、テキストはプロセスに届かず端末領域へ挿入される (F-input-10。
+1/1 回だが、束縛が無いことが原因なので決定的)。
+
+#+begin_example
+pre-command-hook: ((xterm-paste (xterm-paste "p1\np2 日本語\n") …))
+#+end_example
+
+「端末にマウスや OS のペーストで貼る」という最も自然な操作が、プロセス
+に届かないうえバッファを壊す。C-y (kill-ring から bracketed paste) の
+経路は完全に正しく、200KB のペーストでも欠落せず、=ESC= の注入も
+無害化されている (F-input-9)。
+
+ERT: =test/spectreshell-explore-input-test.el= の
+=spectreshell-explore-input-test-xterm-paste-is-bound=
+(=:expected-result :failed=)。
+
+** TODO L-29: マウスの release / drag / motion がプロセスへ届かない
+対象: =spectreshell.el= (=spectreshell--track-mouse-drag=)
+
+=(xterm-mouse-mode 1)= を有効にすれば press とホイールは正しい行・桁に
+再エンコードされて届くが、release (=ESC [ < 0;10;12m=) と motion
+(mode 1002) は 1 度も届かない (F-input-11 4/4 回、F-input-16)。かわりに
+Emacs 側で =mouse-set-region= が走り、バッファに選択領域ができる。
+
+原因は advice で実測した (推測ではない): =--track-mouse-drag= の中の
+=read-event= が返した値は生の整数 27 (ESC) だった。=read-event= は
+=input-decode-map= を通さない (xterm-mouse のデコードは
+=read-key-sequence= 側でしか起きない) ので、tty フレームでは drag /
+release がこのループにマウスイベントとして届きようがない。27 は
+=unread-command-events= へ押し戻され、残りのバイトと合わさって
+コマンドループが =drag-mouse-1= を作る。
+
+既存の =spectreshell-key-test-mouse-drag-sends-motion-and-release= は
+合成イベントを =unread-command-events= に積むので =read-event= がそのまま
+返し、緑のまま通る。GUI フレームでは通る可能性があるが未検証 (-nw のみ
+確認)。読み取り側を =read-key= / =read-key-sequence= に変える必要がある
+と見られる (推測)。
+
+** TODO L-30: 端末領域の中に置いた point が確定化の挿入で前へ滑る
+対象: =spectreshell.el= (確定化の挿入位置)
+
+出力中に C-c C-e で emacs モードへ抜けて M-v を 1 回打つと、着地点は
+端末領域の中になる (行末が 79 桁まで空白で padding されていることで
+確認)。このとき =point-max - point= は 640 (= 20 行 x 80 桁 = 領域の
+終端から 1 画面ぶん手前) のまま一定で、point も window-start も出力と
+同じ速度で前へ滑る。point 上の行は line 20 → 39 → 69 → 117 と変わり
+続け、画面には常に「最新の 1 画面ぶん手前」が映るので、同じ場所を見
+続けることができない (3/3 回、point の値まで一致)。
+
+M-v を 3 回打って端末領域より上へ抜ければ point は完全に固定される
+(8 秒間 "line 181" のまま)。素の eshell では M-v 1 回でも固定される
+ので、差は spectreshell 固有。
+
+機構は実測で確定している: 着地点に =(copy-marker (point))= (insertion
+type は nil) を置くと、marker が point と常に一致した。挿入位置より
+後ろの marker だけが前へ動くので、point は明示的に動かされているの
+ではなく「point より前へのテキスト挿入」で押し出されている。
+=spectreshell--move-point= は関与していない。P-1 で直したのは前者の
+経路だけで、こちらが残りである (F-recheck-7)。
+
+ERT: =test/spectreshell-explore-recheck-test.el= の
+=spectreshell-explore-recheck-test-point-inside-region-survives-scroll=
+(=:expected-result :failed=)。5 行 x 10 桁の端末で領域の 3 行目に point
+を置き 3 行スクロールさせると、point が "l3" から "l6" へ滑る。
+
+** TODO L-31: 外部コマンドを一度走らせると spectreshell-mode が解除されない
+対象: =spectreshell-eshell.el= (=--detach=)
+
+=sh -c 'echo hi'= を 1 回実行してプロンプトへ戻ると、端末オブジェクトも
+プロセスも無いのに =spectreshell-mode= が t のまま残り、モードラインに
+=SpectreShell[emacs]= が出続ける (9/9 回)。=--detach= は
+=spectreshell-semi-char-mode -1= しか呼ばず、=spectreshell-mode= を
+=-1= / nil で呼ぶ箇所はどちらのファイルにも存在しない (grep で確認)。
+
+実害は =spectreshell-mode-map= が active なままなので C-c C-j が生きて
+いること。端末が無い状態で semi-char モードに入れてしまい、
+=spectreshell-send-key= は端末が無いと何もしないので、打った文字も RET
+も黙って捨てられ、eshell が入力を受け付けなくなる (3/3 回 + 別セッション
+での追試 2 回)。エラーも =*Messages*= への出力も無いので、利用者には
+原因が分からない。脱出は C-c C-e で可能 (F-lifecycle-1 / F-apps-7)。
+
+ERT: =test/spectreshell-explore-lifecycle-test.el= の
+=spectreshell-explore-lifecycle-test-mode-is-off-after-command=
+(=:expected-result :failed=)。
+
+** TODO L-32: 同一バッファを 2 ウィンドウに表示すると端末サイズが最後のウィンドウのものになる
+対象: =spectreshell-eshell.el= (=--window-size-change=)
+
+=*eshell*= を上下に分割して両方へ出したうえでコマンドを実行すると、
+起動時は =get-buffer-window= が返す先頭のウィンドウ (7 行) のサイズに
+なるが、その後 =window-size-change-functions= が両方のウィンドウに
+ついて呼ばれるため、最後に処理された下のウィンドウ (11 行) が残る。
+上のウィンドウを 9 行に広げても端末は 11 行のままで、端末領域がその窓に
+収まらない (F-geometry-11、3/3 回)。
+
+#+begin_example
+;; ウィンドウは (9 11) なのに端末は
+((11 79))
+#+end_example
+
+どちらのウィンドウが勝つかは hook が呼ばれた順で決まり、利用者が
+カーソルを置いているウィンドウとは無関係。左右分割でも同じ。ただし
+「同一バッファを複数ウィンドウに出したときどのサイズを採るか」は M-3
+と同種の設計未決事項でもある。
+
+** TODO L-33: セル幅と Emacs の表示幅が食い違い、カーソル位置がずれる
+対象: =src/row.zig= (=extractRow=) / =spectreshell.el=
+(=spectreshell--row-col-pos=)
+
+CHA (=ESC [ 20 G=) でセル 19 にマーカー =X= を置き、Emacs 側の
+=current-column= と比べた実測 (正解は 19):
+
+#+begin_example
+A / 漢 / 😀 / 👍🏽 / 👨‍👩‍👧 / ☺️   ->  19  一致
+🇯🇵 (国旗 1 つ)                    ->  17  ずれ 2
+🇯 (RI 単独)                       ->  18  ずれ 1
+🇯🇵🇯🇵 (国旗 2 つ)                ->  15  ずれ 4
+DEL 0x7F                           ->  20
+U+0085 (NEL)                       ->  22
+U+009B (CSI)                       ->  22
+#+end_example
+
+- 国旗 (regional indicator) は ghostty が 1 文字を 2 セルとして扱う
+  一方、Emacs の =char-width= は 1 (F-geometry-1、5/5 回)。折り返しでは
+  国旗のペアが行境界で割れ、カーソルは文字列から数桁離れて浮く。素の
+  Emacs バッファと外側の tmux は一致しているので、ghostty-vt だけが
+  外れ値。
+- DEL (0x7F) と C1 (U+0080-U+009F) はセルに格納され、Emacs は =^?= /
+  =\205= と 2〜4 桁で描く (F-geometry-3、3/3 回)。同じ tmux の素の
+  ペインは DEL を捨てるので、DEL については ghostty-vt が外れ値。C1 を
+  CSI として解釈しない点自体は UTF-8 端末として妥当。
+- 子が =DECSET 2027= (grapheme clustering) を有効にすると ZWJ で +4、
+  肌色修飾で +2 ずれる (F-geometry-17、3/3 回)。DECRQM の応答は =;2=
+  (reset) なので、モード 2027 は対応済みだが既定は off で、子がいつでも
+  有効にできる状態。2027 を使う TUI では影響範囲がずっと広い。
+
+推測 (H-geometry-1、コード読解のみ): =extractRow= が 1 セルを 1 コード
+ポイントに落としてセル幅の情報を捨て、=spectreshell--row-col-pos= が
+それを =char-width= の和で読み直すので、両者が一致する文字でしか正しく
+ならない。モジュールが「セル列 → コードポイント index」の写像を span と
+同じ粒度で返せば =char-width= 非依存にできるが、2027 有効時のように
+「Emacs が 6 桁で描くものを ghostty が 2 セルと思っている」場合は位置を
+直しても見た目の桁数は合わず、描画側の対処が別途要る。
+
+ERT: =test/spectreshell-explore-geometry-test.el= の
+=spectreshell-explore-geometry-test-regional-indicator-width= /
+=--del-is-not-stored= / =--c1-control-width= (=:expected-result :failed=)。
+
+** TODO L-34: SGR 8 (隠し) が落ちて文字がそのまま読める
+対象: =src/style.zig= / =spectreshell.el= (装飾)
+
+=ESC [ 8 m= を付けた文字の face が nil になり、隠すつもりの文字がその
+まま見える (F-geometry-5)。=src/style.zig= の =Style= は fg / bg /
+bold / italic / faint / underline / strikethrough / inverse しか持たず、
+invisible のフィールドが無い。
+
+同じ実測で SGR 5 (点滅) も落ちるが、Emacs の face に点滅属性が無く
+代替が無いのでこちらは判断保留とする。二重下線・点線下線が単線へ
+縮退することと下線色が無視されることは、=spectreshell--underline-value=
+の docstring どおりの仕様。
+
+** TODO L-35: 本文 1 桁のウィンドウで端末生成・リサイズが args-out-of-range になる
+対象: =spectreshell.el= (=spectreshell--create=) / =spectreshell-eshell.el=
+(=--window-size-change=)
+
+=window-min-width= を下げて本文 1 桁 (=window-max-chars-per-line= が 0)
+のウィンドウを作ると、端末エミュレーションが始まらず、子の出力が端末を
+通らずバッファへ直接落ちる (4/4 回)。
+
+#+begin_example
+~/…/emacs-spectreshell $ sh -c 'stty size; echo Z'
+Args out of range: 0
+~/…/emacs-spectreshell [1] $ 21 0
+Z
+#+end_example
+
+実行中に同じ分割をすると redisplay 中の hook が signal し、端末
+オブジェクトは古いサイズのまま取り残されて pty と食い違う。
+
+#+begin_example
+Error muted by safe_call: (spectreshell-eshell--window-size-change …)
+signaled (args-out-of-range 0)
+#+end_example
+
+batch の最小再現は =(spectreshell-start (current-buffer) 3 0 …)= と
+=(spectreshell-start (current-buffer) 0 3 …)= で、cols=1 / cols=2 は
+正常。=--window-size-change= の =when-let*= は nil しか弾かないので 0 が
+素通りする (F-geometry-14)。既定の =window-min-width= (10) では到達
+しないので優先度は低い。
+
+ERT: =test/spectreshell-explore-geometry-test.el= の
+=spectreshell-explore-geometry-test-zero-column-terminal=
+(=:expected-result :failed=)。
+
+** TODO L-36: docs の記述が実測と食い違う
+対象: =docs/spectreshell.org= / =README.org=
+
+- =docs/spectreshell.org= の semi-char モードの説明は「 ~C-c~ ・
+  ~C-x~ プレフィックスと ~M-x~ は Emacs 側に残る」と書くが、実端末では
+  これ以外に多数が Emacs 側に残る (F-input-14)。ESC と M- の全て、裸の
+  矢印と F1〜F4、TAB / S-TAB、上下と C-上下、Insert / Delete、C-g、
+  C-u、C-@ C-\ C-] C-^ C-_、M-DEL / M-数字 / M-記号、端末側の paste、
+  マウスの release / drag。L-24〜L-29 を直すまでは実態に合わせた記述が
+  要る。なお C-u (=universal-argument=) は docs/design.org の例外一覧
+  にも記載が無い。
+- =README.org= の「実行中プロセスへの IME 直接入力は対象外」は、
+  「ddskk 等の input method が動かない」意味に限れば正しいが、文字が
+  Emacs のキーイベントとして発生しさえすれば UTF-8 でそのまま子へ届く
+  (F-input-12。=tmux send-keys -l 'あいう'= で =\xe3\x81\x82= 等が届く
+  ことを実測)。=self-insert-command= の remap 経由なので当然の帰結で、
+  現在の書き方は誤解を招く。
+- =README.org= と =docs/spectreshell.org= はどちらもマウス対応をうたう
+  が、=xterm-mouse-mode= への言及が 1 つも無い (grep で 0 件)。tty
+  フレームでは利用者が自分で有効にしないとクリックがそもそも Emacs の
+  イベントにならないので、使えないと受け取られる (F-apps-5)。
+  spectreshell 側で自動的に有効にすべきかは設計判断。
 
 ** DONE M-3: 同一バッファでの並行ジョブで端末領域が交錯する
 対象: =spectreshell.el= (端末領域) / =spectreshell-eshell.el=
@@ -89,6 +696,14 @@ ascii 特殊キー判定が raw イベント完全一致だったため、=M-RET
 ループに tab / return / backspace / escape / backtab を追加した
 (900d340・234e9b9・cd38ac4、=test/spectreshell-key-table-test.el= の
 =M-RET= / =C-<backspace>= / =<backtab>= 行)。
+
+2026-09-05 の実端末での再確認: batch のキー表テストは通るが、実端末では
+直っていない。TAB / S-TAB は =eshell-cmpl-mode= に、上下と =C-上下= は
+=eshell-hist-mode= に横取りされる (L-25)。tty の Insert / Delete が
+decode される =insertchar= / =deletechar= は束縛が無い (L-27)。=M-RET=
+は tty では meta が落ちて =\r= になる (L-26)。「Emacs のイベント →
+=spectreshell--encode-key=」の単体では直っているが、「端末のバイト列 →
+Emacs のイベント」の段で崩れている (F-input-2 / F-input-3 / F-input-14)。
 
 ** DONE L-19: シフト付き英字が小文字で送られる
 対象: =spectreshell.el= (=spectreshell--event-to-key=)
@@ -346,6 +961,62 @@ libghostty-vt のビルドに足りるかは未確認 (推測)。
 
 * 性能・UX (設計判断を要する改善)
 
+** TODO P-7: コマンドが最後に出した空行が確定時に消える
+対象: =spectreshell.el= (=spectreshell--trim-frozen-region=)
+
+出力の末尾にある空行が確定時に全部消える (F-lifecycle-8、3/3 回)。
+素の eshell とは異なる。
+
+#+begin_example
+実行したもの            有効時           無効時 (素の eshell)
+printf "\n"             (何も残らない)   空行 1 行
+printf "\n\n\n"         (何も残らない)   空行 3 行
+printf "x\n\n\ny\n"     x + 空 2 + y     同じ
+printf "   "            (何も残らない)   "   "
+                        ↑ 有効時は L-17 の行末空白除去による
+#+end_example
+
+途中の空行は正しく残る。eshell を一切通さない batch
+(=spectreshell-feed= して =spectreshell-finalize= するだけ) でも同じ
+結果になるので、層は =spectreshell.el= 側であることが確定している
+(F-module-4)。当初の「eshell 統合側の可能性が高い」という見立ては
+否定された。=compact= の有無で差は無い。
+
+該当箇所は =spectreshell--trim-frozen-region= が領域末尾で
+=(skip-chars-backward "\n" marker)= して、最後の出力行より下の改行を
+全部消しているところと見られる (コード読解による推測)。
+
+M-3 の追補「何も描かれなかった領域が確定時に空行を残さない」を末尾の
+空行一般へ拡張した結果であり、意図的な可能性が高い。一方で「コマンドが
+実際に出力した空行が消える」のは出力の欠落であり、素の eshell とも
+実端末とも異なる。仕様として文書化するか、末尾の空行を残すよう直すかの
+設計判断が要る。外部条件の待ちではないので WAIT ではなく TODO に置く。
+
+ERT: =test/spectreshell-explore-lifecycle-test.el= の
+=spectreshell-explore-lifecycle-test-trailing-blank-lines-are-kept= と、
+eshell を通らない層で同じことを主張する
+=test/spectreshell-explore-module-test.el= の
+=spectreshell-explore-module-test-trailing-blank-lines-are-kept=
+(どちらも =:expected-result :failed=)。判定が保留なので「直すべき」では
+なく「現状をこう固定した」テストとして読むこと。
+
+** TODO P-8: emacs モードで打った行がバッファに 3 個現れる
+対象: =spectreshell-eshell.el= (emacs モード中の =eshell-send-input=)
+
+=/bin/cat= の実行中に C-c C-e で emacs モードへ抜け、=hello= と打って
+RET すると、バッファに =hello= が 3 個残る (F-lifecycle-6、2/2 回)。
+pty の echo・cat の出力・=eshell-send-input= が端末領域の外へ挿入した分
+の 3 つ。素の eshell では 2 個 (pty の echo が無いぶん 1 個少ない)。
+
+打った行はプロセスにはちゃんと届いており、エラーも出ない。ただし確定後
+の並びが「入力 → 出力 → 終了メッセージ → もう一度入力」となって時系列が
+崩れる (終了メッセージが領域終端マーカーの位置に、挿入テキストがその
+後ろに入るため。推測)。=sh -c 'sleep 30'= の実行中に空の RET を打つと
+端末領域に空行が 1 行入り、C-c C-c で中断した後も残る。
+
+軽微だが、emacs モードは docs が書くとおり「出力をさかのぼって閲覧・
+コピーする用途」で使っていても RET を押せば起きる。
+
 ** WAIT P-6: 描画の残りコストは span ごとの put-text-property
 対象: =spectreshell.el= (=spectreshell--decorate-row=)
 
@@ -370,6 +1041,12 @@ term.el と同様に、更新前の point が前回のカーソル位置だっ�
 追従させるようにして解決した。判定は再描画の前に済ませ、バッファの
 point と各ウィンドウの window-point で個別に行う。semi-char モード中は
 常に追従する (d8699ff)。
+
+2026-09-05 の実端末での再確認: 端末領域より上へ point を出せば固定される
+(M-v 3 回、8 秒間動かない)。ただし M-v 1 回の着地点は端末領域の中になり、
+そこでは point が確定化の挿入で前へ押し出される (L-30)。当初の不満
+「スクロールバック閲覧が実質不能」は、最も普通の操作である M-v 1 回では
+依然として成立する (F-recheck-7)。
 
 ** DONE P-2: font-lock 有効時に dirty 行スキップ最適化が無効化される
 対象: =spectreshell.el= (=spectreshell--apply-dirty=)
@@ -484,3 +1161,20 @@ import する。dep のパスをそのまま root にすると =ghostty-vt= が
 - 依存ピン留め (build.zig.zon hash + flake.lock + コミット済み
   build.zig.zon.nix)、ライセンス同梱、README / マニュアルの記述精度
   (TERM フォールバック・キーバインド・検出パス) はコードと一致。
+- 2026-09-05 の探索的テスト: 出力中の C-g 連打で Emacs が emergency
+  escape に落ちる件 (F-lifecycle-12) は spectreshell 固有ではないため
+  起票しない。出力を絞らない =seq 1 200000= なら素の eshell でも同じ
+  連打で 6/6 回落ちる (F-stderr-7)。spectreshell はフィルタが 1 回
+  あたり平均 14〜25 ms と素の eshell の 70〜120 倍遅いぶん閾値を下げて
+  いるだけで、機構は Emacs 側 (F-stderr-9)。フィルタの所要時間が体感の
+  課題になったら P 系列で起票する。
+- 2026-09-05 の探索的テスト: 端末領域の中への挿入が次の更新で黙って
+  消える件 (F-concurrency-16) は、領域が端末の描画で上書きされる以上
+  設計どおりの可能性が高いため起票しない。領域が read-only ではないので
+  誤操作に気づけない、という点だけ記録しておく。
+- 2026-09-05 の探索的テスト: ZWJ 絵文字の描画が外側の端末とずれる件
+  (F-geometry-6) は spectreshell と無関係のため起票しない。素の
+  =*scratch*= に直接打ち込んでも tmux の =cursor_x= と Emacs の桁数が
+  ずれる (Emacs 31 の tty 描画がグラフェム連結を考慮しない)。ghostty
+  のセル数と =char-width= の和は一致しており、
+  =spectreshell--row-col-pos= の対応は正しい。
