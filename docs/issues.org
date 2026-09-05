@@ -121,6 +121,13 @@ Zig test: =core.zig= の「1 回の大きな feed でも先頭の行が落ちな
 ERT: =spectreshell-explore-module-test-height-grow-drops-lines= /
 =--large-feed-drops-leading-lines= (=:expected-result :failed= を外した)。
 
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+幅 160 桁のペインで =sh -c 'seq 1 100000'= を実行し、確定テキストの連番
+を数えると 100000 個・gap 0・欠落 0 (修正前は 168 gap / 48888 行欠落)。
+80x24 で =seq 1 40000= の実行中に =(split-window)= →
+=(delete-other-windows)= と tmux の 80x12 → 80x24 を行っても 40000 個・
+gap 0 (条件 2)。いずれも Debug ビルドの .so。
+
 ** DONE M-15: 幅を変えると確定テキストの改行が失われ空白で埋まって連結する
 対象: 同梱の ghostty-vt の reflow / =src/row.zig= (行の抽出)
 
@@ -182,6 +189,11 @@ L054 / L105 の欠落は M-14 と同根で、M-14 の修正だけで消えるこ
 Zig test: =core.zig= の「history を捨てた後に再利用される行が折り返し
 扱いにならない」。ERT: =spectreshell-explore-module-test-width-change-joins-lines=
 (=:expected-result :failed= を外した)。
+
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+100x30 で 1 行 129 バイト x 100 行を 0.05 秒間隔で出すスクリプトの
+実行中に 60x15 → 120x40 → 80x24 を 0.5 秒間隔で 3 周しても、L001〜L100
+がすべて行頭に 1 回ずつあり、行頭でない =L0xx= は 0 (修正前は 13 か所)。
 
 ** DONE M-16: ghostty-vt の log が Emacs の stderr (= tty) へ直書きされ画面を壊す
 対象: =src/main.zig= (=std_options= / =logFn= の未指定)
@@ -256,6 +268,10 @@ ghostty-vt を含む全依存の =std.log= 出力を捨てる。ルートモジ�
 
 ERT: =spectreshell-explore-stderr-test.el= の 4 本
 (=:expected-result :failed= を外した)。
+
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+=vim -u NONE= → =:q!= のあと画面の非空行は 9 行で、すべて eshell の
+本来の内容 (vim の残骸なし)。
 
 ** WAIT M-17: eshell パイプの最終段に入力が届かず、端末クエリの応答が stdin に混入する
 対象: =spectreshell-eshell.el= (=--force-pty-output=)
@@ -363,6 +379,11 @@ ERT: =spectreshell-test.el= に整列する / emacs モードでは動かさな�
 の 2 本を追加。=set-window-start= は次の再表示で効くため、nvim での
 実際の見え方は batch では未確認 (tmux 無し)。
 
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+=nvim -u NONE /tmp/m18.txt= を開くと =~= 行が 16 本見え、
+=window-start= が領域先頭の marker (189) と一致、=window-body-height= 21
+= 端末行数。領域全体がウィンドウに収まっている。
+
 ** DONE L-24: 裸の矢印と F1〜F4 の SS3 で ESC が落ちる
 対象: =spectreshell.el= (semi-char keymap の =M-<大文字>= 束縛)
 
@@ -408,6 +429,10 @@ ERT: =spectreshell-explore-apps-test-ss3-arrow-survives-meta-letter-binding=
 になることを通しで見る
 =spectreshell-key-test-ss3-arrow-is-re-encoded-not-passed-through=
 (39915f5)。
+
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+=/bin/cat -v= に Up/Down/Left/Right と F1/F4 を打つと =^[[A ^[[B ^[[D ^[[C=
+と =^[OP ^[OS= が届く。ESC が落ちない。
 
 ** DONE L-25: eshell の minor mode が semi-char マップを横取りする
 対象: =spectreshell.el= (=minor-mode-map-alist= 上の優先順位)
@@ -457,6 +482,10 @@ ERT: =test/spectreshell-explore-input-test.el= の
 ERT: =spectreshell-explore-input-test-eshell-minor-modes-do-not-shadow=
 (=:expected-result :failed= を外した)。実端末での再確認は本環境に tmux
 が無いため未実施。
+
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+TAB / S-TAB が =^I= / =^[[Z= として、C-Up / C-Down が =^[[1;5A= /
+=^[[1;5B= として子に届く。eshell 側の minor mode に横取りされない。
 
 ** DONE L-26: tty では M- 前置の ESC が落ち、ESC 単体も送れない
 対象: =spectreshell.el= (=spectreshell-send-key= / semi-char keymap)
@@ -517,6 +546,12 @@ ERT: =spectreshell-explore-input-test-esc-prefixed-meta-letter-keeps-esc=
 =ESC ESC= 等の行 (39915f5)。ESC 単体が実端末で届くことは本環境では
 未検証。
 
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+ESC ESC で =^[= が 1 個、M-a で =^[a= 、M-1 / M-. で =^[1= / =^[.= が届く。
+=stty -icanon -echo= の raw モードでは M-BSpace が =1b 7f= として届く。
+(canonical モードの =cat -v= では DEL が erase 文字として tty ドライバに
+消費されて子に届かないが、それは端末として正しい挙動。)
+
 ** DONE L-27: Insert / Delete と非英字の制御キーが未束縛でバッファを壊す
 対象: =spectreshell.el= (semi-char keymap)
 
@@ -571,6 +606,18 @@ ERT: =spectreshell-explore-input-test-insertchar-deletechar-are-bound=
 (=:expected-result :failed= を外した)、および
 =spectreshell-key-test-csi-delete-is-re-encoded= (39915f5)。
 
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+Insert / Delete が =^[[2~= / =^[[3~= 、C-@ C-_ C-] C-^ が =^@ ^_ ^] ^^= 、
+M-Delete が =^[[3;3~= として届く。Backspace は raw モードで =7f= 。
+
+C-g の訂正: =/bin/cat -v= (canonical) でも =stty -icanon -isig= の raw
+モードでも =^G= (0x07) が届いた。探索的テストで届かなかったのは、
+上記 L-25 の表にある =eshell-command-mode= の =C-g= →
+=abort-recursive-edit= が semi-char マップより前にあって横取りしていた
+ためで、L-25 の =emulation-mode-map-alists= への移行で解消している。
+Emacs が Lisp 実行中に押した C-g だけが quit になる。docs は 6bef89c で
+訂正した。
+
 ** DONE L-28: 端末側の paste がプロセスへ届かずバッファに入る
 対象: =spectreshell.el= (semi-char keymap の =[xterm-paste]=)
 
@@ -605,6 +652,10 @@ ERT: =spectreshell-explore-input-test-xterm-paste-is-bound=
 =--xterm-paste-noop-without-current-terminal= (4487ac4)。実際の tty で
 =xterm-paste= イベントが発生する経路は本環境 (tmux 無し) では未検証。
 
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+=tmux set-buffer= + =paste-buffer -p= で送った =p1\np2 日本語= が
+=/bin/cat -v= に届き、バッファへは挿入されない。
+
 ** DONE L-29: マウスの release / drag / motion がプロセスへ届かない
 対象: =spectreshell.el= (=spectreshell--track-mouse-drag=)
 
@@ -638,6 +689,14 @@ ERT: 既存の =spectreshell-key-test-mouse-drag-sends-motion-and-release=
 の stub を =read-key= に差し替えて通ることを確認。Probe は無い。tty での
 実際の motion / release、および GUI フレームでの挙動変化は本環境では
 未検証。
+
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+=printf '\e[?1002h\e[?1006h'= のあと raw モードの =cat -v= に、tmux から
+SGR 列 =ESC [ < 0;10;5 M= (press) → =ESC [ < 32;12;6 M= (motion) →
+=ESC [ < 0;12;6 m= (release) を注入すると、子に
+=^[[<0;10;4M ^[[<32;12;5M ^[[<32;12;5M ^[[<0;12;5m= が届く (行は領域
+基準に 1 ずれた正しい値、motion は Emacs の mouse-movement と drag の
+2 イベントぶんで 2 回)。release が届くようになった。
 
 ** DONE L-30: 端末領域の中に置いた point が確定化の挿入で前へ滑る
 対象: =spectreshell.el= (確定化の挿入位置)
@@ -685,6 +744,11 @@ ERT: =spectreshell-explore-recheck-test-point-inside-region-survives-scroll=
 batch では記録値の読み返しまでしか確認できず、M-v の実際の見え方は
 未確認 (tmux 無し)。
 
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+0.02 秒間隔で 400 行出すコマンドの実行中に C-c C-e → M-v して、2 秒
+おきに 2 回 capture-pane した画面が同一 (L36〜L38 が同じ位置)。point の
+行 64 と window-start の行 44 も出力継続中に不変。
+
 ** DONE L-31: 外部コマンドを一度走らせると spectreshell-mode が解除されない
 対象: =spectreshell-eshell.el= (=--detach=)
 
@@ -714,6 +778,10 @@ ERT: =test/spectreshell-explore-lifecycle-test.el= の
 ERT: =spectreshell-explore-lifecycle-test-mode-is-off-after-command=
 (=:expected-result :failed= を外した)。モードラインの見た目は本環境
 (tmux 無し) では未確認。
+
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+コマンド終了後に =spectreshell-mode= と =spectreshell-semi-char-mode= が
+nil、モードラインは =Eshell= のみ (=SpectreShell[emacs]= が残らない)。
 
 ** DONE L-32: 同一バッファを 2 ウィンドウに表示すると端末サイズが最後のウィンドウのものになる
 対象: =spectreshell-eshell.el= (=--window-size-change=)
@@ -751,6 +819,11 @@ ERT: =spectreshell-explore-lifecycle-test-mode-is-off-after-command=
 
 ERT: =spectreshell-eshell-test.el= に実ウィンドウを split して検証する
 2 本を追加。分割ウィンドウでの見た目は未確認 (tmux 無し)。
+
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+=(split-window nil 8)= で上 7 行・下 13 行にして下を選択し
+=sh -c 'stty size; sleep 2'= を実行すると端末は 13 行 (=stty size= も
+=13 79=)。選択ウィンドウのサイズに追従している。
 
 ** DONE L-33: セル幅と Emacs の表示幅が食い違い、カーソル位置がずれる
 対象: =src/row.zig= (=extractRow=) / =spectreshell.el=
@@ -849,6 +922,11 @@ text property はレイアウトから外れてセル位置とバッファ位置
 
 Zig test 2 本、ERT (=spectreshell-test.el=) 2 本を Red から追加。
 
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+=printf '\e[8mSECRET\e[0m'= の SECRET に =(:foreground "unspecified-bg")=
+の face が付き、tty の既定背景 (=face-background 'default= も
+=unspecified-bg=) と一致する。見た目は capture-pane では判別できず未確認。
+
 ** DONE L-35: 本文 1 桁のウィンドウで端末生成・リサイズが args-out-of-range になる
 対象: =spectreshell.el= (=spectreshell--create=) / =spectreshell-eshell.el=
 (=--window-size-change=)
@@ -904,6 +982,12 @@ ERT: =spectreshell-explore-geometry-test-zero-column-terminal=
 =spectreshell-eshell-test.el= の 0 桁ウィンドウ無視のテスト。
 =window-min-width= を下げた実操作は未確認。
 
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+=window-min-width= を 1 にして本文 1 桁 (=window-max-chars-per-line= が 0)
+のウィンドウで =sh -c 'stty size; echo Z'= を実行すると、
+=Spectreshell: terminal size must be positive, got 21 rows x 0 cols= が
+バッファに出て子の出力は素の経路に落ちる。=args-out-of-range= は出ない。
+
 ** DONE L-36: docs の記述が実測と食い違う
 対象: =docs/spectreshell.org= / =README.org=
 
@@ -951,6 +1035,11 @@ C-g が届かない機構は、当初「キーマップ照合の前に quit と�
 る」と書く予定だったが、Info =(elisp) Quitting= は「=read-key-sequence=
 中は quit が抑止され C-g が通常の入力になる」と述べており食い違うため
 断定を避けた。真因の特定は tty 無しではできず未解決。
+
+訂正 (2026-09-05): 上記の「C-g (=quit-char=。束縛はあるが実端末では届か
+ない)」は誤りで、実端末 (tmux 上の =emacs -nw=) では C-g が子に届く
+(L-27 の再確認を参照)。マニュアル・README・design.org は 6bef89c で
+訂正した。
 
 ** TODO L-37: 国旗 (regional indicator) の表示幅が ghostty と Emacs で食い違い、マウスの逆写像もずれる
 対象: =spectreshell.el= (=spectreshell--decorate-row= / マウス座標の変換)
@@ -1373,6 +1462,11 @@ ERT: =spectreshell-explore-lifecycle-test-trailing-blank-lines-are-kept=
 と =spectreshell-explore-module-test-trailing-blank-lines-are-kept=
 (=:expected-result :failed= を外した)。
 
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+=printf 'A\n\n\n'= のあと =echo END= を実行すると、確定テキストは
+=A= 、空行、空行、=$ echo END= の順 (実端末と同じ位置にプロンプトが
+出る)。
+
 ** DONE P-8: emacs モードで打った行がバッファに 3 個現れる
 対象: =spectreshell-eshell.el= (emacs モード中の =eshell-send-input=)
 
@@ -1407,6 +1501,10 @@ pty のエコー + プログラムの出力の 2 個で、実端末と一致す�
 ERT: =spectreshell-eshell-test.el= に 2 本追加。エコーは子の =stty=
 実行タイミングで揺れるため =stty -echo= で止め、「eshell の挿入が消え
 たこと」を決定的に検証している。実端末での 3 個 → 2 個は未確認。
+
+実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
+=/bin/cat= の実行中に C-c C-e → =hello= RET で、バッファ中の =hello= を
+含む行は 2 (pty のエコーとプログラムの出力)。
 
 ** WAIT P-6: 描画の残りコストは span ごとの put-text-property
 対象: =spectreshell.el= (=spectreshell--decorate-row=)
