@@ -75,7 +75,6 @@ tmux+terminfo 環境の `input-decode-map' は ESC [ 2 ~ / ESC [ 3 ~ を
   "eshell-cmpl-mode / eshell-hist-mode が TAB・BTab・矢印を横取りする。
 `minor-mode-map-alist' 上で eshell 側の minor mode が
 `spectreshell-semi-char-mode' より前にあるため。"
-  :expected-result :failed
   (let ((buf (generate-new-buffer "*spectreshell-explore-eshell*")))
     (unwind-protect
         (with-current-buffer buf

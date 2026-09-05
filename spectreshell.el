@@ -1139,6 +1139,18 @@ disable mouse-wheel scrolling entirely between jobs that want it."
 Sends nearly every key to the terminal; see docs/design.org's semi-char
 mode section for the (small) set of keys deliberately left to Emacs.")
 
+(defvar spectreshell--emulation-mode-map-alist
+  (list (cons 'spectreshell-semi-char-mode spectreshell-semi-char-mode-map))
+  "`emulation-mode-map-alists' entry for `spectreshell-semi-char-mode-map'.
+The `minor-mode-map-alist' entry that `define-minor-mode' makes is not
+enough on its own: a major mode's own minor modes can sit ahead of it
+there (eshell's `eshell-cmpl-mode'/`eshell-hist-mode' do, and take TAB,
+S-TAB and the arrows for themselves), and that order is fixed by the
+order the modes were turned on, which spectreshell does not control.
+`emulation-mode-map-alists' is searched before all of them.")
+
+(add-to-list 'emulation-mode-map-alists 'spectreshell--emulation-mode-map-alist)
+
 (defvar spectreshell-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "C-c C-j") #'spectreshell-semi-char-mode-on)
