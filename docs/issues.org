@@ -414,7 +414,7 @@ ERT: =test/spectreshell-explore-input-test.el= の
 =--non-letter-control-keys-are-bound= / =--meta-del-is-bound= (いずれも
 =:expected-result :failed=)。
 
-** TODO L-28: 端末側の paste がプロセスへ届かずバッファに入る
+** DONE L-28: 端末側の paste がプロセスへ届かずバッファに入る
 対象: =spectreshell.el= (semi-char keymap の =[xterm-paste]=)
 
 =tmux paste-buffer -p= (= マウスや OS のペーストと同じ経路) を送ると、
@@ -436,6 +436,17 @@ pre-command-hook: ((xterm-paste (xterm-paste "p1\np2 日本語\n") …))
 ERT: =test/spectreshell-explore-input-test.el= の
 =spectreshell-explore-input-test-xterm-paste-is-bound=
 (=:expected-result :failed=)。
+
+対応 (2026-09-05, 517ac9d): =[xterm-paste]= に =spectreshell-xterm-paste=
+を束縛し、イベントが運ぶ文字列を =spectreshell-yank= と同じ
+=spectreshell--send-paste= (bracketed paste 有効なら囲みを付ける)
+で子へ送る。端末が無いときは yank と同じく黙って何もしない。
+
+ERT: =spectreshell-explore-input-test-xterm-paste-is-bound=
+(=:expected-result :failed= を外した) と
+=spectreshell-key-test-xterm-paste-sends-event-text= /
+=--xterm-paste-noop-without-current-terminal= (4487ac4)。実際の tty で
+=xterm-paste= イベントが発生する経路は本環境 (tmux 無し) では未検証。
 
 ** TODO L-29: マウスの release / drag / motion がプロセスへ届かない
 対象: =spectreshell.el= (=spectreshell--track-mouse-drag=)
