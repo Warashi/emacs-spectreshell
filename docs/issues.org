@@ -223,12 +223,27 @@ point と各ウィンドウの window-point で個別に行う。semi-char モ�
 =make_global_ref= での初期化時キャッシュ、=symbol-name= 文字列比較の
 =eq= 比較化で削減できる。実測で問題になってから対応する。
 
-** TODO P-4: ReadonlyHandler 委譲でクエリ系が無応答
+** TODO P-4: XTGETTCAP が無応答 (残り)
 対象: =src/handler.zig=
 
-XTGETTCAP・kitty keyboard query (CSI ? u)・DECRQM が黙殺され、neovim
-等の起動時タイムアウト待ちの原因になり得る。DA と同様に横取りして応答
-する価値があるが、各クエリの正しい応答値の調査が必要。
+DECRQM (b0294c9) と kitty keyboard query (5ed6133) は ghostty 本体の
+=src/termio/stream_handler.zig= と同じ応答を返すようにした。DECRQM は
+既知モードに 1 / 2、未知モードに 0 を返す (ghostty 同様 3 / 4 は使わ
+ない)。なお ANSI 形式の DECRQM (=CSI Ps $ p=) は ghostty 1.3.1 の
+=stream.zig= が intermediates 2 個の場合しか dispatch しないため、ハン
+ドラまで届かない (=src/core.zig= に現状を固定するテストあり)。
+
+XTGETTCAP は未対応。応答値はビルドで同梱する terminfo (ghostty の
+=src/terminfo/main.zig= の xterm-ghostty) と一致させる必要があり、
+ghostty 本体は =terminfo.ghostty.xtgettcapMap()= を comptime で引いて
+いる。この定義は =ghostty-vt= モジュールが再エクスポートしていないた
+め、=build.zig= で本体モジュールに =ghostty-terminfo= (terminfo 生成
+exe 用に作っているものと同じ =src/terminfo/main.zig=) を =addImport=
+しないと handler から参照できない。手書きの表は同梱
+terminfo との乖離を招くので採らない。=build.zig= を触れる時に、
+=dcs_hook= / =dcs_put= / =dcs_unhook= を横取りして
+=ghostty_vt.dcs.Handler= に流し、=.xtgettcap= の各キーを map で引いて
+返す (未知キーは ghostty 同様に無応答) 形で対応する。
 
 ** DONE P-5: --pad-rows の O(n^2) と modification hooks
 対象: =spectreshell.el=

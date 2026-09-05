@@ -116,7 +116,8 @@ emacs-module で公開する関数。 ~term~ は user-ptr (finalizer 付き)。
 - ~:dirty~ — 変更行のリスト。各要素は ~(ROW TEXT SPANS)~ の形。
   SPANS はスタイル区間 ~((START END . STYLE-PLIST) ...)~
 - ~:cursor~ — ~(ROW . COL)~ とカーソル可視状態
-- ~:responses~ — DA/DSR 等、PTY に返送すべきバイト列
+- ~:responses~ — DA / DSR / DECRQM / kitty keyboard の問い合わせ等、
+  PTY に返送すべきバイト列
 - ~:alt-screen~ — alternate screen への出入りが起きたか
 - ~:title~ — OSC 0/2 によるタイトル変更 (あれば)
 
