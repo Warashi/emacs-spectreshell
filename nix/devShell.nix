@@ -1,4 +1,6 @@
 {
+  lib,
+  stdenv,
   mkShell,
   zig,
   zon2nix,
@@ -7,6 +9,7 @@
   nixfmt,
   ncurses,
   texinfo,
+  util-linux,
 }:
 mkShell {
   name = "emacs-spectreshell";
@@ -20,5 +23,8 @@ mkShell {
     ncurses
     # `makeinfo`。build.zig の Info マニュアル生成 step が要る。
     texinfo
-  ];
+  ]
+  # `setsid`。ERT が制御端末を持たない子を作るのに要る (issues.org の
+  # L-23)。darwin には無いので Linux のみ。
+  ++ lib.optionals stdenv.hostPlatform.isLinux [ util-linux ];
 }
