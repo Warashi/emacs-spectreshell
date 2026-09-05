@@ -96,7 +96,6 @@ fn installTerminfo(b: *std.Build, ghostty_dep: *std.Build.Dependency) void {
     const tic = b.addSystemCommand(&.{ "tic", "-x", "-o" });
     const terminfo_dir = tic.addOutputFileArg("terminfo");
     tic.addFileArg(terminfo_source);
-    _ = tic.captureStdErr();
 
     const mkdir = b.addSystemCommand(&.{"mkdir"});
     mkdir.addArgs(&.{"-p"});
