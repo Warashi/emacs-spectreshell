@@ -1,8 +1,12 @@
 #+title: Third-Party Notices
 
-このリポジトリのソースコード自体は第三者コードを含まず、すべて
-[[file:LICENSE][MIT License]] で提供される。一方、ビルドされた
-~libspectreshell.so~ には以下の第三者ソフトウェアが静的リンクされる
+このリポジトリのソースコードはすべて [[file:LICENSE][MIT License]] で
+提供される。GPL のコードからの流用はなく、第三者由来と言えるのは
+~src/core.zig~ の ~encodeMouse~ が ghostty 本体 ~src/Surface.zig~ の
+~mouseReport~ を移植したものである点のみで、ghostty も MIT かつ
+その許諾表示は本ファイル (下記「ghostty (ghostty-vt)」) に含まれる。
+
+一方、ビルドされた ~libspectreshell.so~ には以下の第三者ソフトウェアが静的リンクされる
 (いずれも ~ghostty-vt~ モジュールの依存として取り込まれる)。
 ビルド済みバイナリを再配布する場合は、本ファイルを成果物に同梱すること
 (zig build / nix build の成果物には ~share/doc/spectreshell/~ として
