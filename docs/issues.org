@@ -121,7 +121,7 @@ Zig test: =core.zig= の「1 回の大きな feed でも先頭の行が落ちな
 ERT: =spectreshell-explore-module-test-height-grow-drops-lines= /
 =--large-feed-drops-leading-lines= (=:expected-result :failed= を外した)。
 
-** TODO M-15: 幅を変えると確定テキストの改行が失われ空白で埋まって連結する
+** DONE M-15: 幅を変えると確定テキストの改行が失われ空白で埋まって連結する
 対象: 同梱の ghostty-vt の reflow / =src/row.zig= (行の抽出)
 
 実端末 (F-concurrency-12): 1 行 129 バイトの行を 100 回出すスクリプトの
@@ -154,6 +154,34 @@ batch でも再現する (F-module-3)。21x100 の端末に同じ形の行を 33
 ERT: =test/spectreshell-explore-module-test.el= の
 =spectreshell-explore-module-test-width-change-joins-lines=
 (=:expected-result :failed=)。
+
+対応 (2026-09-05, 22b13a6): 上流 ghostty の不具合を特定した。
+=PageList.eraseRows= は行を物理削除せず、残す行を前へずらして
+=size.rows= を縮め、余った末尾行を =clearCells= するだけ (フルページは
+ページごとプールへ戻す)。=clearCells= もプールの再利用も =Row.wrap= /
+=wrap_continuation= を落とさないため、その行を =PageList.grow= の fast
+path が再利用すると「折り返していない行が折り返し中」のまま使われ、
+幅を広げる reflow がそれを信じて次行を同じ行へ連結していた。
+=eraseDisplay(.scrollback)= を挟むときだけ現れることを drain あり /
+なしの切り分けで確認。
+
+回避策として、=buildUpdate= で取り出し終えた history 行 (= これから
+消える行) の 2 フラグをその場で落とす。=createPage= の zero fill は
+=runtime_safety= 時だけなので、末尾へ退避される経路とプールへ戻る経路
+の両方を塞ぐ必要がありこの位置にした。ghostty を fork せず済む最小の
+手当てで、ghostty 側で直れば外せる。
+
+ghostty への issue 候補: 最小再現は 3x5 端末で
+=printString("abcdefgh\r\nZ\r\n")= → =eraseDisplay(.scrollback)= →
+=printString("PP\r\nQQ\r\nRR\r\n")= → cols 12 へ resize で
+="QQ   RR"= になる。=eraseRows= か =clearCells= が行フラグも落とすべき。
+
+L054 / L105 の欠落は M-14 と同根で、M-14 の修正だけで消えることを Zig
+で確認した (200 行すべて出現)。
+
+Zig test: =core.zig= の「history を捨てた後に再利用される行が折り返し
+扱いにならない」。ERT: =spectreshell-explore-module-test-width-change-joins-lines=
+(=:expected-result :failed= を外した)。
 
 ** DONE M-16: ghostty-vt の log が Emacs の stderr (= tty) へ直書きされ画面を壊す
 対象: =src/main.zig= (=std_options= / =logFn= の未指定)
