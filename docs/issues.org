@@ -927,7 +927,7 @@ ERT: =spectreshell-explore-geometry-test-zero-column-terminal=
   イベントにならないので、使えないと受け取られる (F-apps-5)。
   spectreshell 側で自動的に有効にすべきかは設計判断。
 
-対応 (2026-09-05, a89ddeb / d04d65d / 4e26131 / c03dc14 / 4568f75):
+対応 (2026-09-05, 637b8ba / ebd22e3 / 3773f9f / c432a34 / 4568f75):
 L-24〜L-29 の修正後に =lookup-key= で semi-char マップを引き直し、
 Emacs 側に残るキーを一覧にしてマニュアル・README・design.org に
 反映した。
