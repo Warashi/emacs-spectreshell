@@ -56,6 +56,7 @@ less/vim のような alternate screen アプリの出力を eshell バッファ
 使い方
 
 * semi-char モードと emacs モード::
+* 背景ジョブ (@code{cmd &})::
 * マウス::
 * スクロールバック::
 
@@ -168,6 +169,7 @@ eshell 編集に戻る。
 
 @menu
 * semi-char モードと emacs モード::
+* 背景ジョブ (@code{cmd &})::
 * マウス::
 * スクロールバック::
 @end menu
@@ -175,7 +177,7 @@ eshell 編集に戻る。
 @node semi-char モードと emacs モード
 @unnumberedsec semi-char モードと emacs モード
 
-プロセス実行中は 2 つの入力モードを切り替えて使う。
+前景ジョブの実行中は 2 つの入力モードを切り替えて使う。
 
 @table @asis
 @item semi-char モード (実行中のデフォルト)
@@ -201,6 +203,18 @@ semi-char モードから emacs モードへ切り替える
 @item @code{C-c C-j}
 emacs モードから semi-char モードへ復帰する
 @end table
+
+@node 背景ジョブ (@code{cmd &})
+@unnumberedsec 背景ジョブ (@code{cmd &})
+
+@code{&} を付けて起動した背景ジョブは、自分の端末領域と描画だけを持つ。
+semi-char モードには入らないのでキーボードは奪われず、実行中も
+コマンドラインはそのまま編集でき、次のコマンドも普通に実行できる。
+背景ジョブの出力はプロンプトの上にある自分の領域へ追記されていく
+ので、前景の出力と混ざらない。
+
+背景ジョブへの対話入力はできない (実端末でも背景ジョブは端末からの
+読み込みで止まる)。入力が必要なコマンドは前景で実行する。
 
 @node マウス
 @unnumberedsec マウス
