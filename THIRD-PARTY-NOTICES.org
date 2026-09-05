@@ -2,9 +2,13 @@
 
 このリポジトリのソースコードはすべて [[file:LICENSE][MIT License]] で
 提供される。GPL のコードからの流用はなく、第三者由来と言えるのは
-~src/core.zig~ の ~encodeMouse~ が ghostty 本体 ~src/Surface.zig~ の
-~mouseReport~ を移植したものである点のみで、ghostty も MIT かつ
-その許諾表示は本ファイル (下記「ghostty (ghostty-vt)」) に含まれる。
+ghostty 本体からの移植だけである。~src/core.zig~ の ~encodeMouse~ は
+~src/Surface.zig~ の ~mouseReport~ を、~src/handler.zig~ のクエリ応答
+(DSR / DA / DECRQM / kitty keyboard query / XTGETTCAP) は
+~src/termio/stream_handler.zig~ の該当関数を移植したもので、XTGETTCAP
+の応答表は ghostty の ~src/terminfo~ をビルド時にコピーして
+~ghostty-terminfo~ モジュールとして取り込んでいる。ghostty は MIT
+かつその許諾表示は本ファイル (下記「ghostty (ghostty-vt)」) に含まれる。
 
 一方、ビルドされた ~libspectreshell.so~ には以下の第三者ソフトウェアが静的リンクされる
 (いずれも ~ghostty-vt~ モジュールの依存として取り込まれる)。
