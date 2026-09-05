@@ -17,6 +17,19 @@ pub const Extracted = struct {
     }
 };
 
+/// C1 制御 (U+0080-U+009F) を幅 1 の代替文字に差し替える。
+///
+/// ghostty は UTF-8 端末として C1 を CSI 等に解釈せず 1 セルに格納する
+/// が、Emacs はこれを =\\205= のような 4 桁のエスケープ表示にするので、
+/// セル列と表示桁がずれてカーソル位置が合わなくなる。落とすと今度は
+/// ghostty が数えたセルと文字数がずれるため、1 セル 1 文字のまま
+/// 表示幅だけを 1 桁にする。U+FFFD を使うのは、空白へ潰して本物の
+/// 空白と区別できなくするより「表現できないものがあった」ことが
+/// 読み手に見えるほうがよいため。
+fn substituteC1(cp: u21) u21 {
+    return if (cp >= 0x80 and cp <= 0x9f) 0xfffd else cp;
+}
+
 fn hyperlinkUri(pin: ghostty_vt.Pin, cell: *const ghostty_vt.Cell) ?[]const u8 {
     if (!cell.hyperlink) return null;
     const page = &pin.node.data;
@@ -84,7 +97,7 @@ pub fn extractRow(
             try text.append(alloc, ' ');
             cp_index += 1;
         } else {
-            const n = try std.unicode.utf8Encode(cp, &buf);
+            const n = try std.unicode.utf8Encode(substituteC1(cp), &buf);
             try text.appendSlice(alloc, buf[0..n]);
             cp_index += 1;
 
@@ -174,4 +187,21 @@ test "extractRow は同じスタイルの区間に同じ ID を振る" {
     try std.testing.expectEqual(row.spans[0].id, row.spans[2].id);
     try std.testing.expect(row.spans[0].id != row.spans[1].id);
     try std.testing.expectEqual(@as(usize, 2), table.count());
+}
+
+test "extractRow は C1 制御を幅 1 の代替文字に置き換える" {
+    const alloc = std.testing.allocator;
+    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 3, .rows = 1 });
+    defer t.deinit(alloc);
+    var table: style.Table = .init(alloc);
+    defer table.deinit();
+
+    t.setCursorPos(1, 1);
+    try t.printString("\u{0085}\u{009b}a");
+
+    const pin = t.screens.active.pages.pin(.{ .viewport = .{ .y = 0 } }).?;
+    var row = try extractRow(alloc, pin, &table);
+    defer row.deinit(alloc);
+
+    try std.testing.expectEqualStrings("\u{fffd}\u{fffd}a", row.text);
 }

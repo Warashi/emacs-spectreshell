@@ -37,12 +37,10 @@ ghostty-vt は U+1F1E6..U+1F1FF を wide (2 セル) として扱うが、Emacs �
 (ert-deftest spectreshell-explore-geometry-test-del-is-not-stored ()
   "DEL (0x7F) がセルに格納され、Emacs では `^?' の 2 桁で表示される。
 実端末 (xterm 等) は DEL を無視する。"
-  :expected-result :failed
   (should (equal 19 (spectreshell-explore-geometry-test--marker-column "\x7f"))))
 
 (ert-deftest spectreshell-explore-geometry-test-c1-control-width ()
   "C1 制御 (U+0085 / U+009B) がセルに格納され、Emacs では 4 桁で表示される。"
-  :expected-result :failed
   (should (equal 19 (spectreshell-explore-geometry-test--marker-column
                      (encode-coding-string "\N{U+0085}" 'utf-8))))
   (should (equal 19 (spectreshell-explore-geometry-test--marker-column

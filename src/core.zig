@@ -180,8 +180,23 @@ pub const Term = struct {
     /// 複数回の feed に跨って分割される可能性があるため、Parser の状態は
     /// self.stream に永続化してあり、呼び出しごとに作り直さない。
     pub fn feed(self: *Term, alloc: std.mem.Allocator, bytes: []const u8) !Update {
-        try self.stream.nextSlice(bytes);
+        try self.feedWithoutDel(bytes);
         return self.buildUpdate(alloc);
+    }
+
+    /// DEL (0x7F) を落としてからパーサへ渡す。ECMA-48 では DEL は常に
+    /// 無視される制御文字だが、ghostty はセルに格納するため、Emacs 側
+    /// では 1 セルが =^?= の 2 桁で描かれてセル列と表示桁がずれる。
+    /// 0x7F は UTF-8 の多バイト列の内側には現れないので、バイト単位で
+    /// 切り出しても文字は壊れない。パーサの状態は feed をまたいで
+    /// self.stream に残るため、分割して渡しても解釈は変わらない。
+    fn feedWithoutDel(self: *Term, bytes: []const u8) !void {
+        var rest = bytes;
+        while (std.mem.indexOfScalar(u8, rest, 0x7f)) |i| {
+            if (i > 0) try self.stream.nextSlice(rest[0..i]);
+            rest = rest[i + 1 ..];
+        }
+        try self.stream.nextSlice(rest);
     }
 
     pub fn resize(self: *Term, alloc: std.mem.Allocator, rows: u16, cols: u16) !Update {
@@ -1176,4 +1191,28 @@ test "feed は SGR 8 (隠し) を span に載せる" {
     defer update.deinit();
     try testing.expectEqual(@as(usize, 1), update.dirty[0].spans.len);
     try testing.expect(update.styles[0].invisible);
+}
+
+test "DEL (0x7F) はセルに格納されない" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 1, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "a\x7fb");
+    defer update.deinit();
+    try testing.expectEqualStrings("ab        ", update.dirty[0].text);
+}
+
+test "feed 境界で切れても DEL だけが落ちる" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 1, 10);
+    defer t.deinit();
+
+    {
+        var update = try t.feed(alloc, "\x1b[3");
+        update.deinit();
+    }
+    var update = try t.feed(alloc, "1m\x7fHi\x7f");
+    defer update.deinit();
+    try testing.expectEqualStrings("Hi        ", update.dirty[0].text);
 }

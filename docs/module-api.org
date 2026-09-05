@@ -162,6 +162,10 @@ unibyte 文字列。
   挙動であり、モジュール境界のバグではない)。
 - *~:dirty~ / ~:scrolled-off~ の TEXT*: 画面上の文字列なので常に
   UTF-8 の multibyte Lisp 文字列 (~make_string~) として返す。
+  TEXT の 1 文字は必ず 1 セルに対応させる (全角は 1 文字 2 セル)。
+  そのため DEL (0x7F) は ECMA-48 どおり無視してセルに入れず、C1 制御
+  (U+0080-U+009F) は U+FFFD に置き換えて返す。どちらも Emacs では
+  ~^?~ ・ ~\205~ のように複数桁で描かれ、セル列と表示桁がずれるため。
 - *~:responses~*: DA/DSR 等の制御応答は unibyte 文字列
   (~make_unibyte_string~) として返す。
 - *~--encode-key~ / ~--encode-paste~ の戻り値*: PTY にそのまま書き込む
