@@ -439,7 +439,7 @@ exits."
     (should (equal out "x|y|"))))
 
 (ert-deftest spectreshell-eshell-test-wrap-command-passes-dot-dot-argument ()
-  "\"..\" という引数もセンチネルとして食われずそのまま渡る。"
+  "\"..\" のような引数もラッパの内部事情に左右されずそのまま渡る。"
   (let* ((wrapped (spectreshell-eshell--wrap-command-for-pty
                    (list "printf" "%s|" ".." "z") 24 80))
          (out (with-output-to-string
