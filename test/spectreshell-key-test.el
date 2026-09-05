@@ -425,5 +425,43 @@ position (a marker is resolved to its integer position, since
               (should scrolled)))
         (kill-buffer buf)))))
 
+
+;; ---------------------------------------------------------------------
+;; 端末が送ってくる生バイト列 (input-decode-map 経由)
+;; ---------------------------------------------------------------------
+
+(defun spectreshell-key-test--bytes-through-decode-map (bytes &optional feed)
+  "BYTES を tty と同じ `input-decode-map' の下で打鍵し、PTY へ出た列を返す。
+FEED は打鍵前に端末へ食わせる文字列 (DECCKM の設定等)。"
+  (let ((result nil)
+        (decode (make-sparse-keymap)))
+    (define-key decode "\eOA" [up])
+    (define-key decode "\e[3~" [deletechar])
+    (spectreshell-test--with-terminal (term 5 20 responses)
+      (let ((buf (generate-new-buffer "spectreshell-key-test-decode")))
+        (unwind-protect
+            (save-window-excursion
+              (switch-to-buffer buf)
+              (spectreshell-semi-char-mode 1)
+              (setq spectreshell--current term)
+              (when feed (spectreshell-feed term feed))
+              (setq responses nil)
+              (let ((input-decode-map decode))
+                (execute-kbd-macro bytes))
+              (setq result (apply #'concat (reverse responses))))
+          (kill-buffer buf))))
+    result))
+
+(ert-deftest spectreshell-key-test-ss3-arrow-is-re-encoded-not-passed-through ()
+  "端末から来た SS3 の矢印は decode され、DECCKM に従って再エンコードされる。
+生バイトの素通しではないので、DECCKM オフの端末には CSI 形式で届く。"
+  (should (equal (spectreshell-key-test--bytes-through-decode-map "\eOA") "\e[A"))
+  (should (equal (spectreshell-key-test--bytes-through-decode-map "\eOA" "\e[?1h")
+                 "\eOA")))
+
+(ert-deftest spectreshell-key-test-csi-delete-is-re-encoded ()
+  "端末から来た CSI 3 ~ は `deletechar' に decode され、CSI 3 ~ として送られる。"
+  (should (equal (spectreshell-key-test--bytes-through-decode-map "\e[3~") "\e[3~")))
+
 (provide 'spectreshell-key-test)
 ;;; spectreshell-key-test.el ends here
