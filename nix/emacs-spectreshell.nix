@@ -4,7 +4,7 @@
   zig,
   ncurses,
   texinfo,
-  util-linux,
+  perl,
   callPackage,
   runCommand,
   writeShellScriptBin,
@@ -64,16 +64,11 @@ stdenv.mkDerivation (finalAttrs: {
   # ncurses は build.zig の terminfo install step が呼ぶ `tic` のために、
   # texinfo は Info マニュアル生成 step が呼ぶ `makeinfo` のために要る
   # (docs/design.org の「TERM=xterm-ghostty + terminfo 同梱」)。
-  # util-linux は checkPhase の ERT が `setsid` で「制御端末を持たない
-  # 子」を作って pty ラッパを検査する (docs/issues.org の L-23) ために
-  # 要る。無ければテストは skip されるだけだが、それでは macOS でしか
-  # 落ちない回帰になる。darwin には setsid(1) が無いので Linux のみ。
   nativeBuildInputs = [
     zig
     ncurses
     texinfo
   ]
-  ++ lib.optionals stdenv.hostPlatform.isLinux [ util-linux ]
   ++ lib.optionals stdenv.hostPlatform.isDarwin [ xcodeShim ];
 
   deps = callPackage ../build.zig.zon.nix {
@@ -106,7 +101,15 @@ stdenv.mkDerivation (finalAttrs: {
     export PATH="${xcodeShim}/bin:$PATH"
   '';
 
-  nativeCheckInputs = [ emacs31-nox ];
+  # perl は checkPhase の ERT が POSIX::setsid で「制御端末を持たない
+  # 子」を作って pty ラッパを検査する (docs/issues.org の L-23) ために
+  # 要る。util-linux の setsid(1) は darwin に無く、その間 macOS では
+  # このテストが skip されていた。ERT は skip せず失敗にするので、
+  # 依存を落とせば CI が気付く。
+  nativeCheckInputs = [
+    emacs31-nox
+    perl
+  ];
 
   # Zig のユニットテストと ERT (module 境界 / 描画 / キー入力 / eshell
   # 統合) をパッケージビルドの一部として走らせる。ERT のテストヘルパーは
