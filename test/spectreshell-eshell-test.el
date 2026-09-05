@@ -776,13 +776,54 @@ exits."
                   (apply #'call-process (car wrapped) nil (list t nil) nil (cdr wrapped))))))
     (should (equal out "..|z|"))))
 
+(defun spectreshell-eshell-test--without-ctty (command)
+  "Return COMMAND wrapped so that it runs without a controlling terminal.
+Uses perl's `POSIX::setsid' after a fork (a session leader cannot call
+setsid again, and the child Emacs spawns on a pty already is one) rather
+than util-linux's setsid(1), which darwin does not ship; the wrapper
+must run on every platform the ERT does.  The parent waits for the
+child and relays its exit status, like `setsid -w'."
+  (append
+   (list "perl" "-MPOSIX" "-e"
+         (concat "my $pid = fork; defined $pid or die \"fork: $!\"; "
+                 "if ($pid) { waitpid $pid, 0; exit $? >> 8 } "
+                 "POSIX::setsid() != -1 or die \"setsid: $!\"; "
+                 "exec @ARGV or die \"exec: $!\"")
+         "--")
+   command))
+
+(ert-deftest spectreshell-eshell-test-without-ctty-drops-controlling-terminal ()
+  "`--without-ctty' の子は `(pipe . pty)' でも制御端末を持たない。
+下の pty ラッパのテストが頼る前提そのものを、同じ起動形で確かめる。
+/dev/tty を開いて ENXIO になることが「制御端末が無い」の定義
+(Linux は tty_open_proc_set_tty、macOS は cttyopen)。ENOENT など他の
+失敗は前提が確かめられていないので、緑にしない。"
+  (let ((buffer (generate-new-buffer " *spectreshell-ctty-test*")))
+    (unwind-protect
+        (let ((proc (make-process
+                     :name "spectreshell-ctty-test"
+                     :buffer buffer
+                     :command (spectreshell-eshell-test--without-ctty
+                               (list "perl" "-e"
+                                     (concat "print(open(my $fh, '<', '/dev/tty') ? \"ctty\" "
+                                             ": ($!{ENXIO} ? \"noctty\" : \"err:$!\"))")))
+                     :connection-type '(pipe . pty)
+                     :coding 'no-conversion
+                     :noquery t)))
+          (should (spectreshell-eshell-test--wait-until
+                   (lambda () (not (process-live-p proc)))))
+          (with-current-buffer buffer
+            ;; 1 行目だけを見る。2 行目以降は sentinel の "Process ... finished"。
+            (should (equal (car (split-string (buffer-string) "\n")) "noctty"))))
+      (kill-buffer buffer))))
+
 (ert-deftest spectreshell-eshell-test-wrap-command-sanitizes-pty-without-ctty ()
   "制御端末を持たない子でも、ラッパは pty の termios を正しエラーを漏らさない。
 パイプ最終段の子は出力側だけが pty で、制御端末を持つとは限らない
 (macOS の Emacs は `(pipe . pty)' の子に pty を制御端末として与えない)。
-`setsid' でその状況を作り、ONLCR が効いた出力になること (LF が CRLF に
-なること) と、端末を開けなかった旨のエラーが出力に混じらないことを見る。"
-  (skip-unless (executable-find "setsid"))
+`--without-ctty' でその状況を作り、ONLCR が効いた出力になること (LF が
+CRLF になること) と、端末を開けなかった旨のエラーが出力に混じらない
+ことを見る。"
   (let* ((wrapped (spectreshell-eshell--wrap-command-for-pty
                    (list "printf" "a\\nb\\n") 24 80))
          (buffer (generate-new-buffer " *spectreshell-wrap-test*")))
@@ -790,7 +831,7 @@ exits."
         (let ((proc (make-process
                      :name "spectreshell-wrap-test"
                      :buffer buffer
-                     :command (append (list "setsid" "-w") wrapped)
+                     :command (spectreshell-eshell-test--without-ctty wrapped)
                      :connection-type '(pipe . pty)
                      :coding 'no-conversion
                      :noquery t)))
