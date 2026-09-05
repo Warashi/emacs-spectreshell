@@ -364,13 +364,27 @@ ROWS/COLS are set in the same call so the child\'s very first ioctl
 already sees the right size.  (cf. `term-exec-1' in `term.el', which
 works around the same default the same way.)
 
-The `stty' is pointed at `/dev/tty' -- the child\'s controlling terminal,
-which is the pty Emacs just opened -- rather than at standard input:
-only the *output* side is forced to a pty here
-\(`spectreshell-eshell--force-pty-output\'), so on a pipeline\'s last stage
-standard input is eshell\'s plain pipe from the previous stage and an
-`stty' on it would just fail with ENOTTY, leaving the staircase above
-unfixed for every piped command.
+The `stty' is given a duplicate of file descriptor 1 as its standard
+input.  Only the *output* side is forced to a pty here
+\(`spectreshell-eshell--force-pty-output\'), so fd 1 is the one descriptor
+that is a pty by construction wherever this wrapper runs at all.  Not
+standard input: on a pipeline\'s last stage that is eshell\'s plain pipe
+from the previous stage, and an `stty' on it fails with ENOTTY, leaving
+the staircase above unfixed for every piped command.  Not `/dev/tty'
+either, even though it names the pty on GNU/Linux: a child gets that pty
+as its *controlling* terminal only via the TIOCSCTTY that Emacs\'s
+`emacs_spawn' issues when the *input* side is a pty too, or via the
+reopen that Emacs skips on Darwin and the BSDs (its DONT_REOPEN_PTY,
+whose stated premise -- TIOCSCTTY already ran -- does not hold for the
+\(pipe . pty) connection type used here); on macOS the open therefore
+fails with ENXIO.
+
+The redirection of standard error to the null device comes first in the
+list, because POSIX evaluates redirections left to right: putting it
+last is what let that ENXIO message reach the pty and land in the
+user\'s buffer.  Keeping it first also swallows the ENOTTY from the
+`allocate_pty' failure that silently downgrades a pty to a pipe behind
+Lisp\'s back.
 
 COMMAND is appended after the script so that `sh' binds PROGRAM to $0
 and ARGS to $@; `exec \"$0\" \"$@\"' then reassembles them exactly.  Passing
@@ -379,8 +393,8 @@ placeholder argument, so an ARG that happens to look like one is just an
 ordinary argument."
   (append
    (list "/bin/sh" "-c"
-         (format "stty sane rows %d columns %d </dev/tty 2>%s; exec \"$0\" \"$@\""
-                 rows cols null-device))
+         (format "stty 2>%s <&1 sane rows %d columns %d; exec \"$0\" \"$@\""
+                 null-device rows cols))
    command))
 
 (defun spectreshell-eshell--make-process-advice (orig &rest args)
