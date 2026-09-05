@@ -244,9 +244,22 @@ With COMPACT non-nil the region is kept only as tall as the output
 drawn into it so far, instead of the full ROWS
 \(`spectreshell--trim-blank-tail').
 
+ROWS and COLS must both be at least 1.  A zero is rejected here, with
+a message naming the dimension, rather than left to
+`spectreshell--create': the module signals a bare `args-out-of-range'
+with just the offending number, which says nothing about which of the
+two it was nor that a window measurement (`window-body-height' and
+`window-max-chars-per-line' both return 0 for a window too small to
+show anything) is the usual way a caller ends up here.  Not clamped to
+1 either: a 1x1 terminal would render an unreadable screen for as long
+as the job runs, rather than fail where the size came from.
+
 Return a new `spectreshell' object to pass to the other
 `spectreshell-*' functions."
   (spectreshell-ensure-module-loaded)
+  (unless (and (integerp rows) (> rows 0) (integerp cols) (> cols 0))
+    (error "Spectreshell: terminal size must be positive, got %S rows x %S cols"
+           rows cols))
   (with-current-buffer buffer
     (spectreshell--make
      :term (spectreshell--create rows cols)

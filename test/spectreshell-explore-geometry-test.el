@@ -49,15 +49,18 @@ ghostty-vt は U+1F1E6..U+1F1FF を wide (2 セル) として扱うが、Emacs �
                      (encode-coding-string "\N{U+009B}" 'utf-8)))))
 
 (ert-deftest spectreshell-explore-geometry-test-zero-column-terminal ()
-  "0 桁 / 0 行の端末生成が `args-out-of-range' を投げる。
+  "0 桁 / 0 行の端末生成は、寸法を名指しした明確なエラーになる。
 `window-max-chars-per-line' は本文 1 桁のウィンドウで 0 を返すので、
-`spectreshell-eshell--window-size-change' がこの経路で signal し、
-redisplay 側で `Error muted by safe_call' になって端末サイズが取り残される。"
-  :expected-result :failed
+`spectreshell-eshell--window-size-change' がこの経路に来ていた。0 桁の
+端末は描きようがないので、生成の成功ではなく、モジュール由来の
+`args-out-of-range' (数字しか出ず、どちらの寸法かも分からない) より
+読めるエラーを求める。"
   (with-temp-buffer
-    (should (spectreshell-start (current-buffer) 3 0 (lambda (_)) nil)))
+    (should-error (spectreshell-start (current-buffer) 3 0 (lambda (_)) nil)
+                  :type 'error :exclude-subtypes t))
   (with-temp-buffer
-    (should (spectreshell-start (current-buffer) 0 3 (lambda (_)) nil))))
+    (should-error (spectreshell-start (current-buffer) 0 3 (lambda (_)) nil)
+                  :type 'error :exclude-subtypes t)))
 
 (provide 'spectreshell-explore-geometry-test)
 ;;; spectreshell-explore-geometry-test.el ends here
