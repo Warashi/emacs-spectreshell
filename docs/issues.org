@@ -795,7 +795,7 @@ ERT: =test/spectreshell-explore-geometry-test.el= の
 =spectreshell-explore-geometry-test-regional-indicator-width= /
 =--del-is-not-stored= / =--c1-control-width= (=:expected-result :failed=)。
 
-** TODO L-34: SGR 8 (隠し) が落ちて文字がそのまま読める
+** DONE L-34: SGR 8 (隠し) が落ちて文字がそのまま読める
 対象: =src/style.zig= / =spectreshell.el= (装飾)
 
 =ESC [ 8 m= を付けた文字の face が nil になり、隠すつもりの文字がその
@@ -807,6 +807,16 @@ invisible のフィールドが無い。
 代替が無いのでこちらは判断保留とする。二重下線・点線下線が単線へ
 縮退することと下線色が無視されることは、=spectreshell--underline-value=
 の docstring どおりの仕様。
+
+対応 (2026-09-05, 0022fe3 / 352a5a3): =src/style.zig= の =Style= に
+=invisible= を足し、STYLE-PLIST に =:invisible t= として送出する。
+Emacs 側 (=spectreshell--decorate-row=) は前景色を背景色 (無ければ
+=(face-background 'default nil t)=) に揃えた face で隠す。=invisible=
+text property はレイアウトから外れてセル位置とバッファ位置の対応を
+崩すため使わない。docs/module-api.org 更新済み。SGR 5 (点滅) は判断
+保留のまま。
+
+Zig test 2 本、ERT (=spectreshell-test.el=) 2 本を Red から追加。
 
 ** DONE L-35: 本文 1 桁のウィンドウで端末生成・リサイズが args-out-of-range になる
 対象: =spectreshell.el= (=spectreshell--create=) / =spectreshell-eshell.el=
