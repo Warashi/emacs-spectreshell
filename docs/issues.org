@@ -1,8 +1,12 @@
 #+title: 課題管理
-#+todo: TODO(t) | DONE(d)
+#+todo: TODO(t) WAIT(w) | DONE(d)
 
 既知の未対応課題を管理するファイル。対応したら =DONE= に移し、対応
 コミットを本文に記録するか、末尾の対応済み一覧へ 1 行で移す。
+
+外部条件や実測結果を待って保留している項目は =WAIT= に置く。条件を
+再検証したら日付と結果を本文に追記し、条件が満たされて対応できたら
+=DONE= に移す。
 
 各項目の ID (M-3, L-2, P-1 など) は初出のリポジトリ全体レビュー
 (2026-07-18 実施) での採番で、過去のコミットメッセージからも参照されて
@@ -185,7 +189,7 @@ stderr も =captureStdErr= で捨てており失敗時の診断が出なかっ�
 あわせて、tic が解析エラーでも終了コード 0 を返して空の出力を残す件
 に対し、install 対象が 0 件ならステップを失敗させるようにした。
 
-** TODO B-1: zig 自前 x86_64 バックエンドの .so segfault が直ったら use_llvm を外す
+** WAIT B-1: zig 自前 x86_64 バックエンドの .so segfault が直ったら use_llvm を外す
 対象: =build.zig= (=addLibrary= の =.use_llvm = true=)
 
 zig 0.15.2 の自前 x86_64 バックエンド (Debug ビルドの既定) が生成した
@@ -196,7 +200,12 @@ lldb で特定し、LLVM バックエンド強制 (=.use_llvm = true=) で回避
 zig を更新した際は x86_64 の Debug ビルドで ERT が通るか確認し、
 直っていれば =use_llvm= 指定を外して Debug ビルドを高速化する。
 
-** TODO B-2: ghostty が SDKROOT を直接使うようになったら xcode-shim を外す
+2026-09-05 の再検証: 検証環境は aarch64 (=uname -m=) のため、x86_64
+自前バックエンドの segfault は検証できない。zig は課題を記録した時点と
+同じ 0.15.2 (=zig version=) のまま。x86_64 環境で zig を更新したときに
+再検証する。
+
+** WAIT B-2: ghostty が SDKROOT を直接使うようになったら xcode-shim を外す
 対象: =nix/emacs-spectreshell.nix= (=xcodeShim=)
 
 macOS の Nix サンドボックスには Xcode がなく、ghostty の
@@ -219,9 +228,26 @@ Simulator 向けグラフも無条件に構築し (=GhosttyXCFramework.init=)、
 ghostty の pkg/apple-sdk (または zig std) が xcrun を介さず SDKROOT
 環境変数を直接尊重するようになったらシムを削除する。
 
+2026-09-05 の再検証: ghostty upstream main (commit
+492300cad104195411d12217dd22f1cd05f31376, 2026-09-04) の
+=pkg/apple-sdk/build.zig= は依然として
+=std.zig.LibCInstallation.findNative= 経由で xcrun を呼び、SDKROOT を
+直接は見ない。zig master の =lib/std/zig/system/darwin.zig= も
+=xcrun --sdk <sdk> --show-sdk-path= のままで、ピン留め中の zig 0.15.2
+も同じ。条件は未達。
+
+ただし upstream main では findNative の失敗を =catch break :darwin= で
+受け、zig 同梱の Darwin ヘッダ (=libc/include/any-darwin-any=) へ
+フォールバックする経路が追加されている (ピン留め中の ghostty 1.3.1 の
+=pkg/apple-sdk/build.zig= には無い)。upstream main は zig 0.16 前提
+(=std.Io.Writer= 等を使用) なので、ghostty を更新して zig 0.16 へ
+上げた時点で、シム無しで =nix flake check= (darwin) が通るかを再検証
+する。このフォールバック経路はフレームワークパスを設定しないため
+libghostty-vt のビルドに足りるかは未確認 (推測)。
+
 * 性能・UX (設計判断を要する改善)
 
-** TODO P-6: 描画の残りコストは span ごとの put-text-property
+** WAIT P-6: 描画の残りコストは span ごとの put-text-property
 対象: =spectreshell.el= (=spectreshell--decorate-row=)
 
 =just bench= の 40 区間/行 (50x200) で、1 フレーム 11.6 ms のうち
@@ -229,6 +255,11 @@ ghostty の pkg/apple-sdk (または zig std) が xcrun を介さず SDKROOT
 区間ごとにプロパティを載せる以外の API が Emacs 側に無いため、これ以上は
 「行あたりの区間数を減らす」か「Emacs の再描画側」の話になる。
 体感で足りなくなったら再測してから考える。
+
+2026-09-05 に同じ =just bench= で再測定: 40 区間/行の 1 フレームは
+全体 11.9 ms で、課題を記録した時点の 11.6 ms とほぼ同じ。体感で
+足りないという報告も無く、条件は未達。次に測るときの比較用にこの
+数値を残す。
 
 ** DONE P-1: point の強制移動でスクロールバック閲覧が実質不能
 対象: =spectreshell.el= (=spectreshell--move-point=)
@@ -251,12 +282,18 @@ point と各ウィンドウの window-point で個別に行う。semi-char モ�
 =(TEXT . SPANS)=」に変えて解決した。他モードが後から付けたプロパティに
 左右されず、装飾を組み立てる前に短絡できる (9aa4f2a)。
 
-** TODO P-3: Zig ホットパスの intern / funcall 回数
+** WAIT P-3: Zig ホットパスの intern / funcall 回数
 対象: =src/module.zig=
 
 キーワードシンボルを feed ごとに =intern= し直している。
 =make_global_ref= での初期化時キャッシュ、=symbol-name= 文字列比較の
 =eq= 比較化で削減できる。実測で問題になってから対応する。
+
+2026-09-05 に =just bench= (release=safe, 50x200, 試行 5 回の最小値)
+で再測定: モジュール単体は 1 区間/行で 0.7 ms/frame、10 区間/行で
+1.0 ms、40 区間/行で 2.1 ms (同条件の全体は 11.9 ms、うち GC 2.6 ms)、
+同一画面の再送は 2.4 ms。モジュール側は全体の 2 割弱で支配項ではなく、
+条件 (実測で問題になる) は未達。
 
 ** DONE P-4: ReadonlyHandler 委譲でクエリ系が無応答
 対象: =src/handler.zig= , =build.zig=
