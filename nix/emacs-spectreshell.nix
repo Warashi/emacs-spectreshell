@@ -128,6 +128,13 @@ stdenv.mkDerivation (finalAttrs: {
       -l test/spectreshell-test.el \
       -l test/spectreshell-key-test.el \
       -l test/spectreshell-eshell-test.el \
+      -l test/spectreshell-explore-recheck-test.el \
+      -l test/spectreshell-explore-input-test.el \
+      -l test/spectreshell-explore-lifecycle-test.el \
+      -l test/spectreshell-explore-apps-test.el \
+      -l test/spectreshell-explore-geometry-test.el \
+      -l test/spectreshell-explore-module-test.el \
+      -l test/spectreshell-explore-stderr-test.el \
       -f ert-run-tests-batch-and-exit
     runHook postCheck
   '';
