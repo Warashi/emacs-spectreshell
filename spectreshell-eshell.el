@@ -137,25 +137,49 @@ keyboard.  Kept in lockstep with `spectreshell--current' by
 ;; Terminal geometry
 ;; ---------------------------------------------------------------------
 
+(defun spectreshell-eshell--window (buffer)
+  "Return the window whose size BUFFER\='s spectreshell terminals follow, or nil.
+A buffer can be on screen more than once, in windows of different
+sizes, but a terminal has exactly one size; this function is the single
+rule that picks which window wins, applied both when a terminal is
+created (`spectreshell-eshell--terminal-size') and whenever the layout
+changes afterwards (`spectreshell-eshell--window-size-change'), so that
+the two can never disagree.
+
+The rule is `get-buffer-window-list\='s first entry across all frames,
+which its docstring defines as the selected window whenever that window
+shows BUFFER at all.  So the terminal fits whichever window the user is
+actually typing into, and only falls back to an arbitrary-but-stable
+choice when they are elsewhere entirely -- rather than following
+whichever window redisplay happened to notify about last, which is what
+the size ends up being when each notification is honored on its own."
+  (car (get-buffer-window-list buffer nil t)))
+
 (defun spectreshell-eshell--terminal-size (buffer)
   "Return (ROWS . COLS) for a new spectreshell terminal in BUFFER.
-Prefers a window currently showing BUFFER: `window-body-height' and
-`window-max-chars-per-line' are exactly the visible terminal cell
-counts a real terminal would report via TIOCGWINSZ.  Falls back to the
-selected frame's size when BUFFER has no window yet (e.g. a job
-started into a buffer that isn't displayed anywhere), and to a plain
-80x24 under `noninteractive' (batch Emacs, as ERT runs under), where
-frame dimensions do not correspond to anything a user could see."
-  (if-let* ((window (get-buffer-window buffer t)))
+Prefers `spectreshell-eshell--window\='s window for BUFFER:
+`window-body-height' and `window-max-chars-per-line' are exactly the
+visible terminal cell counts a real terminal would report via
+TIOCGWINSZ.  Falls back to the selected frame's size when BUFFER has no
+window yet (e.g. a job started into a buffer that isn't displayed
+anywhere), and to a plain 80x24 under `noninteractive' (batch Emacs, as
+ERT runs under), where frame dimensions do not correspond to anything a
+user could see."
+  (if-let* ((window (spectreshell-eshell--window buffer)))
       (cons (window-body-height window) (window-max-chars-per-line window))
     (if noninteractive
         (cons 24 80)
       (cons (frame-height) (frame-width)))))
 
-(defun spectreshell-eshell--window-size-change (window)
-  "Resize every spectreshell terminal running in this buffer to fit WINDOW.
-All of them share WINDOW, so a background job left at the old size
-would keep wrapping its output at a width nothing on screen has.
+(defun spectreshell-eshell--window-size-change (_window)
+  "Resize every spectreshell terminal in this buffer to its window.
+Every terminal in the buffer follows the same window, the one
+`spectreshell-eshell--window' picks, so a background job left at the
+old size would keep wrapping its output at a width nothing on screen
+has.  The notified WINDOW is deliberately ignored in favor of that
+rule: redisplay calls this once per window showing the buffer, so
+honoring each notification on its own would leave the terminal at
+whichever window came last.
 Buffer-local member of `window-size-change-functions' and
 `window-buffer-change-functions' (the latter covers a buffer being
 \(re)displayed in an existing window without any size change -- e.g. a
@@ -175,7 +199,8 @@ dimension -- and signaling from here is worse than doing nothing:
 `window-size-change-functions' runs inside redisplay, which mutes the
 error, so the terminal would silently stay at its old size while the
 pty had already been told the new one."
-  (when-let* ((rows (window-body-height window))
+  (when-let* ((window (spectreshell-eshell--window (current-buffer)))
+              (rows (window-body-height window))
               ((> rows 0))
               (cols (window-max-chars-per-line window))
               ((> cols 0)))

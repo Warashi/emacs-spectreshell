@@ -339,13 +339,15 @@ sentinel 内で escape したエラーが Emacs ごと落とすため、実プ�
 
 (ert-deftest spectreshell-eshell-test-window-size-change-resizes-terminal-and-pty ()
   "ウィンドウサイズ変化で端末と PTY の両方が新サイズになる。
-batch にはウィンドウがないため、ウィンドウ計測関数と
-set-process-window-size をスタブして関数単体で検証する。"
+バッファをウィンドウに出さずに検証するため、追従先ウィンドウの決定と
+その計測、および set-process-window-size をスタブする。"
   (with-temp-buffer
     (let ((obj (spectreshell-start (current-buffer) 24 80 #'ignore))
           (pty-size nil))
       (setq spectreshell-eshell--terminals (list (cons 'fake-proc obj)))
-      (cl-letf (((symbol-function 'window-body-height) (lambda (_w) 30))
+      (cl-letf (((symbol-function 'spectreshell-eshell--window)
+                 (lambda (_buffer) 'fake-window))
+                ((symbol-function 'window-body-height) (lambda (_w) 30))
                 ((symbol-function 'window-max-chars-per-line) (lambda (_w) 100))
                 ((symbol-function 'set-process-window-size)
                  (lambda (_proc rows cols) (setq pty-size (cons rows cols)))))
@@ -358,6 +360,64 @@ set-process-window-size をスタブして関数単体で検証する。"
         (spectreshell-eshell--window-size-change 'fake-window)
         (should (null pty-size))))))
 
+(defmacro spectreshell-eshell-test--with-two-windows (buffer-var top bottom &rest body)
+  "同一バッファを縦 2 分割して両方に表示し、BODY を実行する。
+BUFFER-VAR にそのバッファ、TOP / BOTTOM に上下のウィンドウを束縛する。
+選択ウィンドウは上側にしておく。終了時に元のウィンドウ構成へ戻す。"
+  (declare (indent 3))
+  `(let ((,buffer-var (generate-new-buffer " *spectreshell-two-windows*"))
+         (config (current-window-configuration)))
+     (unwind-protect
+         (let* ((,top (selected-window))
+                (,bottom (progn (set-window-buffer ,top ,buffer-var)
+                                (split-window ,top))))
+           (set-window-buffer ,bottom ,buffer-var)
+           ;; 上下で本文行数を変えて、どちらが採られたか区別できるようにする。
+           (window-resize ,top -2)
+           (select-window ,top)
+           ,@body)
+       (set-window-configuration config)
+       (kill-buffer ,buffer-var))))
+
+(ert-deftest spectreshell-eshell-test-terminal-size-prefers-selected-window ()
+  "同一バッファが 2 ウィンドウに出ていたら、選択ウィンドウのサイズを採る。"
+  (spectreshell-eshell-test--with-two-windows buf top bottom
+    (should-not (= (window-body-height top) (window-body-height bottom)))
+    (should (equal (cons (window-body-height top) (window-max-chars-per-line top))
+                   (spectreshell-eshell--terminal-size buf)))
+    (select-window bottom)
+    (should (equal (cons (window-body-height bottom)
+                         (window-max-chars-per-line bottom))
+                   (spectreshell-eshell--terminal-size buf)))))
+
+(ert-deftest spectreshell-eshell-test-window-size-change-follows-selected-window ()
+  "サイズ変更 hook は、呼ばれた引数によらず選択ウィンドウのサイズに揃える。
+hook はバッファを表示する各ウィンドウについて呼ばれるので、引数の
+ウィンドウに合わせると最後に処理された方が勝ち、利用者がカーソルを
+置いているウィンドウとは無関係なサイズが残る。"
+  (spectreshell-eshell-test--with-two-windows buf top bottom
+    (with-current-buffer buf
+      (let ((obj (spectreshell-start buf 5 5 #'ignore))
+            (pty-size nil))
+        (setq spectreshell-eshell--terminals (list (cons 'fake-proc obj)))
+        (cl-letf (((symbol-function 'set-process-window-size)
+                   (lambda (_proc rows cols) (setq pty-size (cons rows cols)))))
+          ;; 下のウィンドウについて呼ばれても、選択中の上のウィンドウが勝つ。
+          (spectreshell-eshell--window-size-change bottom)
+          (should (= (spectreshell-rows obj) (window-body-height top)))
+          (should (equal pty-size (cons (window-body-height top)
+                                        (window-max-chars-per-line top))))
+          ;; 続けて上のウィンドウについて呼ばれてもサイズは変わらない。
+          (setq pty-size nil)
+          (spectreshell-eshell--window-size-change top)
+          (should (null pty-size))
+          ;; 選択が下へ移れば、次の呼び出しから下のサイズになる。
+          (select-window bottom)
+          (spectreshell-eshell--window-size-change top)
+          (should (= (spectreshell-rows obj) (window-body-height bottom)))
+          (should (equal pty-size (cons (window-body-height bottom)
+                                        (window-max-chars-per-line bottom)))))))))
+
 (ert-deftest spectreshell-eshell-test-window-size-change-ignores-zero-sized-window ()
   "本文 0 行 / 0 桁のウィンドウは無視し、直前のサイズを保つ。
 `window-max-chars-per-line' は本文 1 桁のウィンドウで 0 を返し、
@@ -368,7 +428,9 @@ pty と食い違う。"
     (let ((obj (spectreshell-start (current-buffer) 24 80 #'ignore))
           (pty-size nil))
       (setq spectreshell-eshell--terminals (list (cons 'fake-proc obj)))
-      (cl-letf (((symbol-function 'window-body-height) (lambda (_w) 0))
+      (cl-letf (((symbol-function 'spectreshell-eshell--window)
+                 (lambda (_buffer) 'fake-window))
+                ((symbol-function 'window-body-height) (lambda (_w) 0))
                 ((symbol-function 'window-max-chars-per-line) (lambda (_w) 0))
                 ((symbol-function 'set-process-window-size)
                  (lambda (_proc rows cols) (setq pty-size (cons rows cols)))))
@@ -377,7 +439,9 @@ pty と食い違う。"
         (should (= (spectreshell-cols obj) 80))
         (should (null pty-size)))
       ;; 0 なのが片側だけでも同じ (0 桁の端末は行数によらず作れない)。
-      (cl-letf (((symbol-function 'window-body-height) (lambda (_w) 30))
+      (cl-letf (((symbol-function 'spectreshell-eshell--window)
+                 (lambda (_buffer) 'fake-window))
+                ((symbol-function 'window-body-height) (lambda (_w) 30))
                 ((symbol-function 'window-max-chars-per-line) (lambda (_w) 0))
                 ((symbol-function 'set-process-window-size)
                  (lambda (_proc rows cols) (setq pty-size (cons rows cols)))))
@@ -396,7 +460,9 @@ pty と食い違う。"
       (setq spectreshell-eshell--terminals
             (list (cons 'fake-bg-proc background) (cons 'fake-fg-proc foreground))
             spectreshell--current foreground)
-      (cl-letf (((symbol-function 'window-body-height) (lambda (_w) 30))
+      (cl-letf (((symbol-function 'spectreshell-eshell--window)
+                 (lambda (_buffer) 'fake-window))
+                ((symbol-function 'window-body-height) (lambda (_w) 30))
                 ((symbol-function 'window-max-chars-per-line) (lambda (_w) 100))
                 ((symbol-function 'set-process-window-size)
                  (lambda (proc rows cols) (push (list proc rows cols) pty-sizes))))
