@@ -254,7 +254,15 @@ A background job's exit touches neither `spectreshell--current' nor
 belong to whatever eshell is doing in the foreground, which is either a
 running job whose keyboard must not be taken away mid-command, or a
 command line whose half-typed input the next `eshell-send-input' still
-has to read back."
+has to read back.
+
+`spectreshell-mode' itself goes away only once the *last* terminal in
+this buffer has, whichever kind of job owned it: its keymap\'s sole
+binding re-enters `spectreshell-semi-char-mode', which is meaningless
+-- and silently swallows every key, since `spectreshell-send-key' has
+no terminal to send to -- with nothing left running.  Turning it off
+per foreground job instead would take that entry point away from a
+background job still drawing into the buffer."
   (when-let* ((obj (process-get proc 'spectreshell-eshell-terminal)))
     (process-put proc 'spectreshell-eshell-terminal nil)
     (if (buffer-live-p (spectreshell-buffer obj))
@@ -277,7 +285,9 @@ has to read back."
               (set-marker eshell-last-output-end end)
               (setq spectreshell--current nil
                     spectreshell-eshell--process nil)
-              (spectreshell-semi-char-mode -1))))
+              (spectreshell-semi-char-mode -1)))
+          (unless spectreshell-eshell--terminals
+            (spectreshell-mode -1)))
       ;; The buffer was killed while PROC was still running: there is
       ;; nothing left to finalize *into*, so just release the module
       ;; terminal directly instead of leaving it for the GC finalizer.

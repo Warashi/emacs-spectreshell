@@ -26,7 +26,6 @@
 `spectreshell-mode' が残り続ける。その結果、端末が無いプロンプト上でも
 `spectreshell-mode-map' の C-c C-j が生きており、押すと端末の無い
 semi-char モードに入って打鍵が黙って捨てられる。"
-  :expected-result :failed
   (spectreshell-eshell-test--with-eshell buf
     (spectreshell-eshell-test--send buf "printf 'hi\\n'")
     (should (spectreshell-eshell-test--wait-for-command buf))
