@@ -619,7 +619,7 @@ ERT: =spectreshell-explore-lifecycle-test-mode-is-off-after-command=
 (=:expected-result :failed= を外した)。モードラインの見た目は本環境
 (tmux 無し) では未確認。
 
-** TODO L-32: 同一バッファを 2 ウィンドウに表示すると端末サイズが最後のウィンドウのものになる
+** DONE L-32: 同一バッファを 2 ウィンドウに表示すると端末サイズが最後のウィンドウのものになる
 対象: =spectreshell-eshell.el= (=--window-size-change=)
 
 =*eshell*= を上下に分割して両方へ出したうえでコマンドを実行すると、
@@ -638,6 +638,23 @@ ERT: =spectreshell-explore-lifecycle-test-mode-is-off-after-command=
 カーソルを置いているウィンドウとは無関係。左右分割でも同じ。ただし
 「同一バッファを複数ウィンドウに出したときどのサイズを採るか」は M-3
 と同種の設計未決事項でもある。
+
+対応 (2026-09-05, 24c5dbc / c12b465): 追従先を選ぶ規則を
+=spectreshell-eshell--window= に一本化し、attach 時の
+=--terminal-size= とサイズ変更 hook の両方から使う。規則は
+=(car (get-buffer-window-list buf nil t))= で、docstring が定めるとおり
+選択ウィンドウがそのバッファを表示していればそれ、そうでなければ表示
+しているウィンドウの先頭。hook の引数 WINDOW は無視する (引数ごとに
+従うと通知順が結果を決める)。
+
+=window-size-change-functions= はサイズ変化時にしか呼ばれないので、
+実挙動は「サイズが変わった時点で選択されていたウィンドウ」。選択を
+移しただけでは追従しない。=window-selection-change-functions= を足せば
+追従できるが =other-window= のたびに SIGWINCH が飛ぶので採らず、
+マニュアルにその範囲を書いた。
+
+ERT: =spectreshell-eshell-test.el= に実ウィンドウを split して検証する
+2 本を追加。分割ウィンドウでの見た目は未確認 (tmux 無し)。
 
 ** TODO L-33: セル幅と Emacs の表示幅が食い違い、カーソル位置がずれる
 対象: =src/row.zig= (=extractRow=) / =spectreshell.el=
