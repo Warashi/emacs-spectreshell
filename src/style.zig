@@ -66,6 +66,7 @@ pub const Style = struct {
     underline: Underline = .none,
     strikethrough: bool = false,
     inverse: bool = false,
+    invisible: bool = false,
 
     pub fn fromGhostty(gs: ghostty_vt.Style) Style {
         return .{
@@ -77,6 +78,7 @@ pub const Style = struct {
             .underline = Underline.fromGhostty(gs.flags.underline),
             .strikethrough = gs.flags.strikethrough,
             .inverse = gs.flags.inverse,
+            .invisible = gs.flags.invisible,
         };
     }
 
@@ -88,7 +90,8 @@ pub const Style = struct {
             !self.faint and
             self.underline == .none and
             !self.strikethrough and
-            !self.inverse;
+            !self.inverse and
+            !self.invisible;
     }
 
     pub fn eql(a: Style, b: Style) bool {
@@ -99,7 +102,8 @@ pub const Style = struct {
         if (a.faint != b.faint) return false;
         if (a.underline != b.underline) return false;
         if (a.strikethrough != b.strikethrough) return false;
-        return a.inverse == b.inverse;
+        if (a.inverse != b.inverse) return false;
+        return a.invisible == b.invisible;
     }
 };
 
@@ -232,4 +236,12 @@ test "Table.clear は ID を 0 から振り直す" {
     const after = try table.intern(.{ .italic = true });
     try std.testing.expect(before != after);
     try std.testing.expectEqual(@as(StyleId, 0), after);
+}
+
+test "Style.fromGhostty は invisible を引き継ぐ" {
+    var gs: ghostty_vt.Style = .{};
+    gs.flags.invisible = true;
+    try std.testing.expect(Style.fromGhostty(gs).invisible);
+    try std.testing.expect(!Style.isDefault(.{ .invisible = true }));
+    try std.testing.expect(!Style.eql(.{ .invisible = true }, .{}));
 }

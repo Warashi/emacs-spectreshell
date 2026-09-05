@@ -1166,3 +1166,14 @@ test "history を捨てた後に再利用される行が折り返し扱いにな
     }
     try testing.expectEqualStrings("QQ          ", u.dirty[0].text);
 }
+
+test "feed は SGR 8 (隠し) を span に載せる" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 1, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[8mHi");
+    defer update.deinit();
+    try testing.expectEqual(@as(usize, 1), update.dirty[0].spans.len);
+    try testing.expect(update.styles[0].invisible);
+}

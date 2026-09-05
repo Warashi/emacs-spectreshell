@@ -92,7 +92,7 @@ STYLE-PLIST のキーはすべて値が既定 (装飾なし) の場合キーご�
 | キー | 値 |
 |------+----|
 | ~:fg~ / ~:bg~ | パレット index (0〜255 の整数) または ~"#rrggbb"~ 文字列 (24bit色) |
-| ~:bold~ / ~:italic~ / ~:faint~ / ~:strikethrough~ / ~:inverse~ | ~t~ |
+| ~:bold~ / ~:italic~ / ~:faint~ / ~:strikethrough~ / ~:inverse~ / ~:invisible~ | ~t~ |
 | ~:underline~ | ~t~ (single) / ~double~ / ~curly~ / ~dotted~ / ~dashed~ |
 
 * ~--encode-key~ の KEY / MODIFIERS

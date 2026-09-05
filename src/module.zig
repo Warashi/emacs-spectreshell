@@ -150,6 +150,10 @@ fn pushStyleItems(
         try items.append(arena, emacs.intern(env, ":inverse"));
         try items.append(arena, emacs.t(env));
     }
+    if (s.invisible) {
+        try items.append(arena, emacs.intern(env, ":invisible"));
+        try items.append(arena, emacs.t(env));
+    }
 }
 
 /// SPANS の1要素 (START END ID . URI)。URI が無ければ (START END ID)。
