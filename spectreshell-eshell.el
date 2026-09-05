@@ -165,9 +165,20 @@ in place after the last terminal it was added for finalizes
 \(`spectreshell-eshell--detach' does not remove it): an empty
 `spectreshell-eshell--terminals' then makes every subsequent call of
 this a no-op, which is cheaper than tracking add/remove state across
-however many jobs run in this buffer over its lifetime."
+however many jobs run in this buffer over its lifetime.
+
+A window with no body at all (either measurement 0, which is what a
+window narrowed down to a single column reports for its width) is
+skipped and the terminals keep the size they had.  There is no
+terminal to resize *to* -- `spectreshell-start' rejects a zero
+dimension -- and signaling from here is worse than doing nothing:
+`window-size-change-functions' runs inside redisplay, which mutes the
+error, so the terminal would silently stay at its old size while the
+pty had already been told the new one."
   (when-let* ((rows (window-body-height window))
-              (cols (window-max-chars-per-line window)))
+              ((> rows 0))
+              (cols (window-max-chars-per-line window))
+              ((> cols 0)))
     (pcase-dolist (`(,proc . ,obj) spectreshell-eshell--terminals)
       (unless (and (= rows (spectreshell-rows obj)) (= cols (spectreshell-cols obj)))
         (spectreshell-resize obj rows cols)

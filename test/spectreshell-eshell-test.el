@@ -358,6 +358,33 @@ set-process-window-size をスタブして関数単体で検証する。"
         (spectreshell-eshell--window-size-change 'fake-window)
         (should (null pty-size))))))
 
+(ert-deftest spectreshell-eshell-test-window-size-change-ignores-zero-sized-window ()
+  "本文 0 行 / 0 桁のウィンドウは無視し、直前のサイズを保つ。
+`window-max-chars-per-line' は本文 1 桁のウィンドウで 0 を返し、
+0 桁の端末は作れない。redisplay 中に走る hook がそこで signal すると
+`Error muted by safe_call' で握り潰され、端末だけが古いサイズのまま
+pty と食い違う。"
+  (with-temp-buffer
+    (let ((obj (spectreshell-start (current-buffer) 24 80 #'ignore))
+          (pty-size nil))
+      (setq spectreshell-eshell--terminals (list (cons 'fake-proc obj)))
+      (cl-letf (((symbol-function 'window-body-height) (lambda (_w) 0))
+                ((symbol-function 'window-max-chars-per-line) (lambda (_w) 0))
+                ((symbol-function 'set-process-window-size)
+                 (lambda (_proc rows cols) (setq pty-size (cons rows cols)))))
+        (spectreshell-eshell--window-size-change 'fake-window)
+        (should (= (spectreshell-rows obj) 24))
+        (should (= (spectreshell-cols obj) 80))
+        (should (null pty-size)))
+      ;; 0 なのが片側だけでも同じ (0 桁の端末は行数によらず作れない)。
+      (cl-letf (((symbol-function 'window-body-height) (lambda (_w) 30))
+                ((symbol-function 'window-max-chars-per-line) (lambda (_w) 0))
+                ((symbol-function 'set-process-window-size)
+                 (lambda (_proc rows cols) (setq pty-size (cons rows cols)))))
+        (spectreshell-eshell--window-size-change 'fake-window)
+        (should (= (spectreshell-rows obj) 24))
+        (should (null pty-size))))))
+
 (ert-deftest spectreshell-eshell-test-window-size-change-resizes-every-attached-terminal ()
   "ウィンドウサイズ変化は attach 済みの全端末に及ぶ。
 背景ジョブは前景ジョブと同じウィンドウを共有するので、前景の分だけ
