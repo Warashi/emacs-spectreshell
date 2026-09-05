@@ -17,37 +17,60 @@
 
 * 機能・堅牢性
 
-** TODO M-3: 同一バッファでの並行ジョブで端末領域が交錯する
-対象: =spectreshell-eshell.el= (=--attach= / gather advice)
+** DONE M-3: 同一バッファでの並行ジョブで端末領域が交錯する
+対象: =spectreshell.el= (端末領域) / =spectreshell-eshell.el=
+(=--attach= / gather advice)
 
 =spectreshell--current= / =spectreshell-eshell--process= が単一スロット
 のため、=command &= 実行中に次のコマンドを打つと後発 attach が先発を
 上書きし、双方が「marker〜point-max」を自領域とみなして削除・上書きし
 合う。先発の detach は後発ジョブ実行中でも無条件に semi-char モードを
-解除する。
+解除する。実際には =cmd &= 実行中に打った文字がコマンドラインに入らず
+背景ジョブの pty へ送られ、コマンドが実行できなかった。
 
-端末領域を複数持つ設計変更 (領域終端マーカーの導入、per-process の
-領域管理) が必要で、docs/design.org の「最後のパイプラインステージ
-のみ」簡略化の見直しを含む。別途設計してから対応する。
+対応は 3 コミット:
 
-実端末での再現手順 (2026-09-05, tmux 80x24):
+1. 3cd8e4d: 端末領域の終端をプロセスごとのマーカーにする。point-max を
+   見ていた箇所 (行数計算・パディング・余剰行削除・alt screen の
+   保存/復元・確定化・カーソル位置算出) をすべて終端マーカー経由に
+   変え、領域外のテキストを壊さないようにする。insertion type は t
+   ではなく nil を選んだ (=t= だと空の領域の直後に eshell が出す
+   プロンプトを飲み込む)。併せて semi-char の無条件カーソル追従を
+   =spectreshell--current= の端末に限り、カーソル位置とマウス座標を
+   領域内にクランプし、finalize が領域外の point を動かさないように
+   する。
+2. 2fd2ca7: =spectreshell-start= に COMPACT を足し、末尾の空行を畳む
+   領域を選べるようにする。モジュールは最初の更新で全行を dirty に
+   するため、これが無いと 1 行しか出力しない背景ジョブでも領域が
+   rows 行に広がり、プロンプトが 1 画面ぶん下へ落ちる。
+3. cc662ec: attach 済みの (プロセス . 端末) 一覧を持ち、キー入力の
+   宛先と semi-char モードを前景ジョブ (gather advice の中で読んだ
+   =eshell-current-subjob-p= が nil) だけのものにする。背景ジョブは
+   領域と描画だけを持ち、その detach では semi-char も
+   =eshell-last-output-end= も触らない。リサイズは全プロセスに適用。
 
-1. =sh -c 'i=0; while [ $i -lt 15 ]; do echo "BG-$i"; sleep 0.4; i=$((i+1)); done' &=
-2. 背景ジョブの出力が続いている間に前景コマンドを打って RET
+パイプラインの最終段だけ端末に接続する割り切りは維持した (接続先が
+ジョブごとに独立した領域になったので、並行ジョブとは両立する)。
 
-打った文字はコマンドラインに入らず背景ジョブの pty へ送られ、pty の
-echo で端末領域に文字列として現れるだけで、コマンドは実行されない
-(RET も =eshell-send-input= に届かない)。=spectreshell-eshell-mode=
-を無効にした素の eshell では同じ操作で前景コマンドが普通に実行される
-ので、spectreshell 固有の後退。
-
-背景ジョブが終われば状態は元に戻り (=spectreshell--current= も
-semi-char モードも解除される)、以後のコマンドは実行できる。失われるのは
-実行中に打った入力だけ。
-
+ERT: =test/spectreshell-test.el= の領域終端・COMPACT 関連テスト群と、
 =test/spectreshell-eshell-test.el= の
 =spectreshell-eshell-test-background-job-leaves-command-line-usable=
-が =:expected-result :failed= で固定してある。
+(=:expected-result :failed= を外した) ・
+=--foreground-command-runs-during-background-job= ・
+=--background-and-foreground-regions-do-not-interleave= ・
+=--background-job-exit-keeps-foreground-semi-char= ・
+=--window-size-change-resizes-every-attached-terminal= 。
+
+実端末での再確認 (2026-09-05, tmux 80x24, =emacs -nw -Q -L . -l
+spectreshell-eshell=):
+
+1. =sh -c 'i=0; while [ $i -lt 15 ]; do echo "BG-$i"; sleep 0.4; i=$((i+1)); done' &=
+2. 背景ジョブの出力が続いている間に =printf 'FG-A\nFG-B\n'= を打って RET
+
+打った文字はコマンドラインに入り、コマンドが実行されて =FG-A= /
+=FG-B= が出力された。背景ジョブの出力 (=BG-0= 〜 =BG-14=) は自分の
+領域に 1 行も欠けずに並び、前景の出力とも混ざらない。プロンプトは
+背景ジョブの出力の直下に付き、空行の下へ落ちることもない。
 
 ** DONE L-2: キーマップの穴 (backtab / 修飾付き TAB・RET・DEL)
 対象: =spectreshell.el= (semi-char keymap, =spectreshell--event-to-key=)
