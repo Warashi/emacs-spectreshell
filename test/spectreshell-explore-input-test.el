@@ -2,8 +2,8 @@
 
 ;; 2026-09-05 の探索的テスト (worker 2 / 方向名 input) で実端末上に見つけた
 ;; 入力経路の欠陥のうち、batch Emacs でも再現できるものを固定したファイル。
-;; いずれも現状では失敗するので `:expected-result :failed' を付けてある。
-;; 直したときに unexpected pass で気付ける。
+;; 起票時は `:expected-result :failed' の Probe だったが、L-25〜L-28 の
+;; 修正で通常の期待に反転済み (回帰テストとして残す)。
 ;; 観察の記録は docs/issues.org の該当項目を参照 (2026-09-05 の探索的テスト)。
 
 (require 'ert)

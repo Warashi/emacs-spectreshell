@@ -2,8 +2,8 @@
 
 ;; 2026-09-05 の探索的テスト (worker 3 / 方向名 lifecycle) で実端末上に見つけた
 ;; 「プロセス終了後に状態が元へ戻らない」欠陥のうち、batch Emacs でも再現できる
-;; ものを固定したファイル。いずれも現状では失敗するので
-;; `:expected-result :failed' を付けてある。直したときに unexpected pass で気付ける。
+;; ものを固定したファイル。起票時は `:expected-result :failed' の Probe
+;; だったが、L-31 / P-7 の修正で通常の期待に反転済み。
 ;; 観察の記録は docs/issues.org の該当項目を参照 (2026-09-05 の探索的テスト)。
 
 (require 'ert)

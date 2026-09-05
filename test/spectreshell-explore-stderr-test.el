@@ -6,7 +6,8 @@
 ;; F-stderr-1〜6) を batch で固定する。
 ;; 子 Emacs を `call-process' で起こして stderr を別ファイルに分けるので、
 ;; 実端末なしで「モジュールが stderr へ書くか」を判定できる。
-;; 現状では書かれてしまうので `:expected-result :failed' を付けてある。
+;; 起票時は `:expected-result :failed' の Probe だったが、M-16 の修正で
+;; 通常の期待に反転済み (回帰テストとして残す)。
 ;; 観察の記録は docs/issues.org の該当項目を参照 (2026-09-05 の探索的テスト)。
 
 (require 'ert)
@@ -36,7 +37,7 @@ stderr だけ別ファイルへ分けられる。"
 
 (ert-deftest spectreshell-explore-stderr-test-harness-is-sane ()
   "対照: 普通の文字を feed した子 Emacs の stderr は空。
-これが失敗したら以下の `:expected-result :failed' 群は
+これが失敗したら以下の無音を主張するテスト群は
 「モジュールが警告を書いた」ではなく「子 Emacs 自体が壊れた」で
 失敗していることになるので、ハーネスの健全性検査として先に置く。"
   (should (equal (spectreshell-explore-stderr-test--feed-in-subprocess "hello") "")))

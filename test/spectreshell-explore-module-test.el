@@ -3,7 +3,8 @@
 ;; 2026-09-05 の探索的テスト (worker 8 / 方向名 module) で、実端末でしか
 ;; 再現していなかった確定テキストの破壊を「モジュール + spectreshell.el
 ;; だけ」(eshell も redisplay も介さない) の batch で再現したもの。
-;; いずれも現状では失敗するので `:expected-result :failed' を付けてある。
+;; 起票時は `:expected-result :failed' の Probe だったが、M-14 / M-15 / P-7
+;; の修正で通常の期待に反転済み (回帰テストとして残す)。
 ;; 観察の記録は docs/issues.org の該当項目を参照 (2026-09-05 の探索的テスト)。
 
 (require 'ert)

@@ -2,7 +2,8 @@
 
 ;; 2026-09-05 の探索的テスト (worker 5 / 方向名 apps) で実アプリを動かして
 ;; 見つけた欠陥のうち、batch Emacs でも再現できるものを固定したファイル。
-;; 現状では失敗するので `:expected-result :failed' を付けてある。
+;; 起票時は `:expected-result :failed' の Probe だったが、L-24 の修正で
+;; 通常の期待に反転済み (回帰テストとして残す)。
 ;; 観察の記録は docs/issues.org の該当項目を参照 (2026-09-05 の探索的テスト)。
 
 (require 'ert)

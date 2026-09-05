@@ -3,7 +3,9 @@
 ;; 2026-09-05 の探索的テスト (worker 6 / 方向名 geometry) で見つけた
 ;; 「ghostty-vt のセル幅と Emacs の表示幅 (char-width) が食い違う」ケースと、
 ;; 0 桁ウィンドウでの端末生成の失敗を、batch Emacs で固定したファイル。
-;; いずれも現状では失敗するので `:expected-result :failed' を付けてある。
+;; 起票時は `:expected-result :failed' の Probe だったが、L-33 / L-35 の
+;; 修正で通常の期待に反転済み。国旗の表示幅だけは描画側の未対応 (L-37)
+;; として `:expected-result :failed' のまま残る。
 ;; 観察の記録は docs/issues.org の該当項目を参照 (2026-09-05 の探索的テスト)。
 
 (require 'ert)
