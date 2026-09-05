@@ -128,6 +128,8 @@ spectreshell が pty 化するのは出力側だけ (=--force-pty-output=)
 に変えて対応 (0f650de、=test/spectreshell-eshell-test.el= の
 =spectreshell-eshell-test-piped-output-lines-start-at-column-zero=)。
 
+ただし =/dev/tty= が pty を指すのは GNU/Linux だけだった (L-23)。
+
 ** DONE L-22: 子プロセスから見える端末幅が COLUMNS と ioctl で 1 桁ずれる
 対象: =spectreshell-eshell.el= (=--process-environment= /
 =--variable-aliases-list=)
@@ -187,6 +189,74 @@ COLUMNS=unset LINES=unset
 COLUMNS を読まないコマンドの出力が 80 桁で折り返すのは、tty の Emacs
 ウィンドウが元々 79 桁ぶんしか文字を表示できない (80 桁目が継続グリフ
 用) ことによるもので、この課題とは別。
+
+** DONE L-23: macOS でパイプ最終段の stty が /dev/tty を開けず出力が壊れる
+対象: =spectreshell-eshell.el= (=--wrap-command-for-pty=)
+
+L-21 で =stty= の対象にした =/dev/tty= が macOS では開けず、CI
+(macos-26) の ERT 2 件が落ちていた。バッファに出ていたもの:
+
+#+begin_example
+/nix/store/.../coreutils-9.11/bin/cat: /dev/tty: Device not configured
+                    a
+                     b
+                      c
+#+end_example
+
+エラー行が混入し (=2>/dev/null= を付けているのに漏れる)、=stty= が走ら
+ないので出力が階段状になる。エラーが =cat:= 始まりなのは
+=sh -c SCRIPT PROGRAM ARGS= で =$0= が PROGRAM になるためで、=cat= 自身
+ではなくシェルがリダイレクトの失敗を報告している。
+
+=stty= の対象を fd 1 の複製に変え、stderr の捨て場をリダイレクト列の
+先頭へ移して対応 (ccefbbe、=test/spectreshell-eshell-test.el= の
+=spectreshell-eshell-test-wrap-command-sanitizes-pty-without-ctty=)。
+pty 化するのは出力側だけである以上、fd 1 はラッパが動く状況では必ず
+pty であり、制御端末の有無に依存しない。
+
+一次情報として確認した点:
+
+- Emacs 31.1 の =callproc.c= =emacs_spawn= は子で =setsid()= した後、
+  =pty_in= が真のときだけ =ioctl (std_in, TIOCSCTTY, 0)= を呼ぶ。
+  eshell (=esh-proc.el=) はパイプ最終段に =(pipe . nil)= を渡し、
+  =--force-pty-output= はその cdr だけを =pty= にするので
+  =(pipe . pty)= すなわち =pty_in= は偽になる。
+- 制御端末を得るもう一つの経路である「pty を =O_NOCTTY= 無しで開き直
+  す」ブロックは =DONT_REOPEN_PTY= で囲まれており、=configure.ac= は
+  darwin と各 BSD でこれを定義する。理由として「既に TIOCSCTTY したの
+  で制御端末になっている」と書かれているが、その前提は =pty_in= が真の
+  ときしか成り立たない。
+- Linux ではこの再 open が効く。=drivers/tty/tty_jobctrl.c= の
+  =tty_open_proc_set_tty= が、セッションリーダが制御端末を持たない状態
+  で =O_NOCTTY= 無しに開いた tty を制御端末にするため。
+- macOS (XNU) の =bsd/kern/tty.c= =ttyopen= はセッションに触れず、制御
+  端末の付与は =TIOCSCTTY= だけが行う。=bsd/kern/tty_tty.c=
+  =cttyopen= は制御端末が無ければ =ENXIO= を返し、その strerror が
+  "Device not configured"。
+- POSIX.1-2024 Shell Command Language 2.7: 複数のリダイレクトは先頭か
+  ら順に評価される。=</dev/tty 2>/dev/null= の順では open の失敗
+  メッセージがまだ pty である fd 2 に出る。同 2.8.1 により、特殊組み込
+  みでないコマンドのリダイレクト失敗はシェルを終了させないので、
+  =stty= だけが飛ばされて =exec= には進む。
+
+Linux でも =setsid= で制御端末を落とせば同じ症状を再現でき、修正で
+消えることを確認した (上記 ERT がその再現)。
+
+採らなかった案:
+
+- 入力側も pty にして =TIOCSCTTY= を得る案は、spectreshell が子への
+  入力を =process-send-string= だけで賄う設計 (=--force-pty-output=)
+  を崩すため採らない。
+- =/dev/tty= を残して stderr の捨て場だけ前に出す案は、エラー混入は
+  消えるが macOS の階段状が残る。
+- =/dev/tty= を試して失敗したら fd 1、という二段構えは、fd 1 だけで
+  足りる以上ラッパを複雑にするだけ。
+- =stty -F= / =-f= でデバイスを直接指定する案は、GNU と BSD で
+  オプション名が違うため採らない。
+- ラッパを捨てて Zig 側から slave を開いて =tcsetattr= する案は、
+  =/bin/sh= と =stty= への依存は消えるが、子の最初の ioctl より前に
+  サイズを与えるという現在の保証が失われる。将来 =stty= 非依存化が
+  必要になったときの候補として記録しておく。
 
 * ビルド・パッケージング
 
