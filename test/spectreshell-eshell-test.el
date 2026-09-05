@@ -115,6 +115,20 @@ BODY がエラーで抜けても確実に kill する。"
           (should (member (number-to-string n) lines)))))))
 
 ;; ---------------------------------------------------------------------
+;; パイプ最終段の改行 (ONLCR)
+;; ---------------------------------------------------------------------
+
+(ert-deftest spectreshell-eshell-test-piped-output-lines-start-at-column-zero ()
+  "パイプの最終段でも各行が左端から始まる (階段状にならない)。"
+  (spectreshell-eshell-test--with-eshell buf
+    (spectreshell-eshell-test--send buf "printf 'a\\nb\\nc\\n' | cat")
+    (should (spectreshell-eshell-test--wait-for-command buf))
+    (with-current-buffer buf
+      (let ((lines (mapcar #'string-trim-right (split-string (buffer-string) "\n"))))
+        (dolist (text '("a" "b" "c"))
+          (should (member text lines)))))))
+
+;; ---------------------------------------------------------------------
 ;; semi-char モードの出入り
 ;; ---------------------------------------------------------------------
 

@@ -320,10 +320,18 @@ ONLCR to turn a bare LF into a proper new line -- into a staircase.
 `term.el' (`term-exec-1') works around exactly this the same way: exec
 through a tiny `/bin/sh -c' wrapper that runs `stty ... sane' first,
 copied here (ROWS/COLS included so the child's very first ioctl
-already sees the right size, same as `term-exec-1')."
+already sees the right size, same as `term-exec-1').
+
+The `stty' is pointed at `/dev/tty' -- the child's controlling terminal,
+which is the pty Emacs just opened -- rather than left on its standard
+input the way `term-exec-1' can afford to: only the *output* side is
+forced to a pty here (`spectreshell-eshell--force-pty-output'), so on a
+pipeline's last stage standard input is eshell's plain pipe from the
+previous stage and an `stty' on it just fails with ENOTTY, leaving the
+staircase above unfixed for every piped command."
   (append
    (list "/bin/sh" "-c"
-         (format "stty -nl echo rows %d columns %d sane 2>%s;\
+         (format "stty -nl echo rows %d columns %d sane </dev/tty 2>%s;\
 if [ $1 = .. ]; then shift; fi; exec \"$@\""
                  rows cols null-device)
          "..")
