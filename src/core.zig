@@ -10,6 +10,19 @@ pub const Style = style.Style;
 pub const Span = style.Span;
 pub const StyleId = style.StyleId;
 
+/// history (scrollback) の上限を実質無制限にする値。ghostty の既定
+/// 10_000 バイトでは 80 桁で 2 ページ程度しか持てず、1 回の feed や
+/// resize で積まれた行が buildUpdate に届く前に PageList.grow の枝刈り
+/// で捨てられて、確定テキストからまとまって欠落していた (M-14)。
+/// Terminal.Options.max_scrollback は 0 が「scrollback なし」の意味な
+/// ので、無制限は最大値で表す。
+///
+/// buildUpdate は毎回 history を全部取り出して eraseDisplay(.scrollback)
+/// するため、ここを無制限にしても常駐量が増え続けることはない。ピークは
+/// 「1 回の feed / resize が積む行数」に比例するだけで、Emacs へ渡した
+/// 時点でページは解放される。
+const unlimited_scrollback: usize = std.math.maxInt(usize);
+
 /// スタイルテーブルの既定の上限。truecolor を細かく変える出力
 /// (グラデーション等) は理屈上いくらでも新しいスタイルを作れるので、
 /// 上限を超えたら ID を振り直して全行を送り直す。Emacs 側のキャッシュも
@@ -133,7 +146,11 @@ pub const Term = struct {
 
         self.* = .{
             .alloc = alloc,
-            .terminal = try .init(alloc, .{ .rows = rows, .cols = cols }),
+            .terminal = try .init(alloc, .{
+                .rows = rows,
+                .cols = cols,
+                .max_scrollback = unlimited_scrollback,
+            }),
             .stream = undefined,
             .styles = .init(alloc),
         };
@@ -1025,4 +1042,86 @@ test "スタイルが上限を超えると ID を振り直して全行を送り�
     try testing.expectEqual(@as(StyleId, 0), update.styles_first_id);
     // 振り直し回は dirty でない行も含めて全行が載る。
     try testing.expectEqual(@as(usize, 3), update.dirty.len);
+}
+
+/// 連番行の欠落を検査するテスト用ヘルパ。update から scrolled_off の
+/// 行を取り出し、行末の空白を除いた 10 進整数として集める。
+const SeqCollector = struct {
+    alloc: std.mem.Allocator,
+    nums: std.ArrayList(usize) = .empty,
+
+    fn deinit(self: *SeqCollector) void {
+        self.nums.deinit(self.alloc);
+    }
+
+    fn take(self: *SeqCollector, update: *Update) !void {
+        for (update.scrolled_off) |row| {
+            const trimmed = std.mem.trimRight(u8, row.text, " ");
+            if (trimmed.len == 0) continue;
+            const n = std.fmt.parseInt(usize, trimmed, 10) catch continue;
+            try self.nums.append(self.alloc, n);
+        }
+    }
+
+    /// 集めた連番が 1 から始まり 1 ずつ増えることを主張する。
+    fn expectContiguousFromOne(self: *const SeqCollector) !void {
+        try testing.expect(self.nums.items.len > 0);
+        for (self.nums.items, 0..) |n, i| {
+            if (n != i + 1) {
+                std.debug.print(
+                    "行が欠落: index {d} の値が {d} (期待 {d})\n",
+                    .{ i, n, i + 1 },
+                );
+                return error.TestExpectedEqual;
+            }
+        }
+    }
+};
+
+fn feedLines(t: *Term, alloc: std.mem.Allocator, from: usize, to: usize, seq: *SeqCollector) !void {
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(alloc);
+    for (from..to + 1) |i| try buf.print(alloc, "{d}\r\n", .{i});
+    var update = try t.feed(alloc, buf.items);
+    defer update.deinit();
+    try seq.take(&update);
+}
+
+test "1 回の大きな feed でも先頭の行が落ちない" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 21, 80);
+    defer t.deinit();
+
+    var seq: SeqCollector = .{ .alloc = alloc };
+    defer seq.deinit();
+
+    // 80 桁ではページ 1 枚が 576 行ぶんなので、既定の max_scrollback
+    // (10000 バイト) では 1200 行を 1 回で流すと先頭 576 行が捨てられる。
+    try feedLines(t, alloc, 1, 1200, &seq);
+    try seq.expectContiguousFromOne();
+}
+
+test "高さを戻すリサイズを挟んでも確定行が落ちない" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 21, 80);
+    defer t.deinit();
+
+    var seq: SeqCollector = .{ .alloc = alloc };
+    defer seq.deinit();
+
+    try feedLines(t, alloc, 1, 5000, &seq);
+    {
+        var update = try t.resize(alloc, 9, 80);
+        defer update.deinit();
+        try seq.take(&update);
+    }
+    try feedLines(t, alloc, 5001, 10000, &seq);
+    {
+        var update = try t.resize(alloc, 21, 80);
+        defer update.deinit();
+        try seq.take(&update);
+    }
+    try feedLines(t, alloc, 10001, 15000, &seq);
+
+    try seq.expectContiguousFromOne();
 }

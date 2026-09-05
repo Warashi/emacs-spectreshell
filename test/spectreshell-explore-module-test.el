@@ -52,7 +52,6 @@ RESIZES は ((バイト位置 . (ROWS COLS)) ...) で、位置ちょうどでチ
 実端末の F-concurrency-4 / F-concurrency-19 を eshell も redisplay も
 介さずに再現したもの。縮小だけ・リサイズ無し・戻すときに幅も変える場合は
 どれも欠落しないことは findings-module.org の表にある。"
-  :expected-result :failed
   (with-temp-buffer
     (let ((obj (spectreshell-start (current-buffer) 21 80 (lambda (_)) nil)))
       (spectreshell-explore-module-test--feed-with-resizes
@@ -70,7 +69,6 @@ RESIZES は ((バイト位置 . (ROWS COLS)) ...) で、位置ちょうどでチ
 \(ghostty のページ 1 枚分) がまるごと `:scrolled-off' に現れないまま消える。
 `read-process-output-max' は Emacs 31.1 では 65536 なので、速い子プロセス
 なら 1 回のフィルタ呼び出しでこの量に届く。"
-  :expected-result :failed
   (with-temp-buffer
     (let ((obj (spectreshell-start (current-buffer) 21 80 (lambda (_)) nil)))
       (spectreshell-feed obj (spectreshell-explore-module-test--lines 1200))

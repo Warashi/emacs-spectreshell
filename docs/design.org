@@ -158,7 +158,9 @@ underline (スタイル種別含む)・strikethrough・inverse・faint・
 - *スクロールバックは Emacs バッファに確定化する。*
   可視領域の上端から流れ出た行 (~:scrolled-off~) は確定テキストとして
   端末領域の直前に挿入し、以後変更しない。エミュレータ側の scrollback は
-  最小化する。isearch・コピー・ ~eshell-previous-prompt~ など Emacs の
+  更新のたびに全部取り出して空にすることで最小化する (バイト数の上限で
+  抑えるのではない。上限で枝刈りすると取り出す前の行が捨てられる)。
+  isearch・コピー・ ~eshell-previous-prompt~ など Emacs の
   機能が確定部分にそのまま効く。eat と同方式。
 - *alternate screen* (less, vim 等) の内容は確定化せず、
   終了時に領域ごと消去して元の画面を復元する。
