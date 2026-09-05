@@ -988,8 +988,7 @@ which button (or wheel direction) EVENT names."
 
 (defun spectreshell--track-mouse-drag (obj button mods)
   "Track a mouse drag already reported to OBJ as a BUTTON press with MODS.
-Reads events in a `read-event' loop with mouse-movement events enabled
--- the same idiom `mouse-drag-region' uses -- so
+Reads events in a `read-key' loop with mouse-movement events enabled, so
 that a single Emacs down-mouse command invocation still reports the
 live motion and eventual release ghostty-vt
 \(and whatever PTY-side app asked for SGR mouse motion, e.g. vim/less)
@@ -1000,7 +999,14 @@ onto `unread-command-events' so the normal command loop still sees it."
   (track-mouse
     (catch 'spectreshell--mouse-drag-done
       (while t
-        (let ((event (read-event)))
+        ;; `read-key' rather than `read-event': on a terminal frame the
+        ;; mouse arrives as an escape sequence that only `input-decode-map'
+        ;; turns into a mouse event, and `read-event' does not consult that
+        ;; keymap -- it would return a bare 27 here and no drag or release
+        ;; would ever be recognized.  DISABLE-FALLBACKS is on so that a
+        ;; press of another button mid-drag reaches the push-back arm below
+        ;; instead of being discarded as an unbound down event.
+        (let ((event (read-key nil t)))
           (cond
            ((and (consp event) (eq (car event) 'mouse-movement))
             (spectreshell--send-mouse obj button 'motion (event-start event) mods))

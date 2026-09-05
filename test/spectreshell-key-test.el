@@ -354,11 +354,11 @@ position (a marker is resolved to its integer position, since
         (kill-buffer buf)))))
 
 (defun spectreshell-key-test--drag-with-events (term events)
-  "TERM のドラッグ追跡 (button 1) を、read-event が EVENTS を順に返す
+  "TERM のドラッグ追跡 (button 1) を、read-key が EVENTS を順に返す
 状態で実行する。"
   (let ((remaining events))
-    (cl-letf (((symbol-function 'read-event)
-               (lambda () (pop remaining))))
+    (cl-letf (((symbol-function 'read-key)
+               (lambda (&rest _) (pop remaining))))
       (spectreshell--track-mouse-drag term 1 nil))))
 
 (ert-deftest spectreshell-key-test-mouse-drag-sends-motion-and-release ()
