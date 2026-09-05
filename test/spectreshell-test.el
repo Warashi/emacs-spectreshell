@@ -172,6 +172,25 @@ WINDOW にはそのウィンドウを束縛する。`with-temp-buffer' のバッ
            (with-current-buffer buffer ,@body))
        (kill-buffer buffer))))
 
+(ert-deftest spectreshell-test-window-view-in-region-keeps-its-row-on-scroll ()
+  "領域の中を映しているウィンドウは、スクロールしても同じ行を映し続ける。
+window-start も point と同じく確定化の挿入で押し出されるので、
+写像で追わないと見ている画面が出力のたびに前へ滑る。"
+  (spectreshell-test--with-displayed-buffer window
+    (let ((term (spectreshell-start buffer 5 10 #'ignore)))
+      (spectreshell-feed term "l1\r\nl2\r\nl3\r\nl4\r\nl5")
+      ;; 領域の 2 行目 ("l2") を窓の先頭にして読んでいる状態。
+      (set-window-start window (spectreshell--row-col-pos term 1 0))
+      (set-window-point window (spectreshell--row-col-pos term 1 0))
+      ;; 3 行スクロールさせる。"l2" は確定テキストへ出る。
+      (spectreshell-feed term "\r\nl6\r\nl7\r\nl8")
+      (should (string-prefix-p
+               "l2" (buffer-substring-no-properties
+                     (window-start window)
+                     (save-excursion (goto-char (window-start window))
+                                     (line-end-position)))))
+      (should (= (window-point window) (window-start window))))))
+
 (ert-deftest spectreshell-test-full-screen-region-is-aligned-to-window-start ()
   "端末の高さがウィンドウ本文と同じなら、領域の先頭が窓の先頭に来る。
 全画面 TUI (nvim 等) はカーソルを上端に置くことがあり、Emacs は

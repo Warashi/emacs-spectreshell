@@ -400,11 +400,12 @@ Return UPDATE unchanged, for callers that want to inspect it further."
       ;; the very rows the comparison is about), so after it there is no
       ;; way left to tell "was sitting at the cursor" from "was reading
       ;; the scrollback".
-      (let ((inhibit-read-only t)
-            (buffer-undo-list t)
-            (follow-point (spectreshell--cursor-followed-p obj (point)))
-            (follow-windows (spectreshell--following-windows obj))
-            (saved-point (spectreshell--save-point obj)))
+      (let* ((inhibit-read-only t)
+             (buffer-undo-list t)
+             (follow-point (spectreshell--cursor-followed-p obj (point)))
+             (follow-windows (spectreshell--following-windows obj))
+             (saved-point (spectreshell--save-line obj (point)))
+             (saved-views (spectreshell--save-window-views obj follow-windows)))
         ;; Styles first: the rows below are drawn from style IDs that this
         ;; call is what teaches OBJ about.
         (spectreshell--apply-styles obj update)
@@ -416,6 +417,7 @@ Return UPDATE unchanged, for callers that want to inspect it further."
           (spectreshell--trim-blank-tail obj))
         (spectreshell--move-point obj (plist-get update :cursor)
                                   follow-point follow-windows saved-point)
+        (spectreshell--restore-window-views obj saved-views)
         (spectreshell--align-windows obj)
         (when-let* ((title (plist-get update :title)))
           (setf (spectreshell-title obj) title)
@@ -790,13 +792,20 @@ with the prompt below it."
       (when (= (window-body-height window) (spectreshell-rows obj))
         (set-window-start window (marker-position (spectreshell-marker obj)))))))
 
-(defun spectreshell--save-point (obj)
-  "Record where point stands, for `spectreshell--restore-point' to undo OBJ\='s redraw.
-Point inside the terminal region is recorded as a line offset from the
+(defun spectreshell--region-position-p (obj pos)
+  "Return non-nil if POS lies inside OBJ\='s terminal region.
+The region\='s very end is outside it: that is where eshell\='s prompt and
+the command line being typed begin."
+  (and (>= pos (spectreshell-marker obj))
+       (< pos (spectreshell--region-end obj))))
+
+(defun spectreshell--save-line (obj pos)
+  "Record POS for `spectreshell--restore-line\=' to find again after OBJ redraws.
+A POS inside the terminal region is recorded as a line offset from the
 region\='s start, not as a buffer position: confirming scrolled-off rows
 inserts them at that start, which pushes every position below down by
 as many lines as the terminal scrolled, so restoring the position
-alone lands point on whatever content has since slid up into that row.
+alone lands on whatever content has since slid up into that row.
 
 The offset is measured from a marker left at the region\='s old start,
 i.e. at the head of the rows about to be inserted, which is what makes
@@ -804,42 +813,73 @@ the one offset serve both cases: the old row R ends up at line R of
 that marker whether it scrolled off (line R of the confirmed rows) or
 stayed in the region (row R-N of a region now starting N lines lower).
 
-Point at the region\='s very end counts as outside it -- that is where
-eshell\='s prompt and the command line being typed begin."
-  (if (and (>= (point) (spectreshell-marker obj))
-           (< (point) (spectreshell--region-end obj)))
-      (list (copy-marker (spectreshell-marker obj))
-            (count-lines (spectreshell-marker obj) (line-beginning-position))
-            (current-column))
-    (list (point-marker))))
+A POS outside the region is recorded as a plain marker, which is all
+it takes: nothing is inserted above the confirmed scrollback, and the
+text after the region is not this terminal\='s to move."
+  (save-excursion
+    (goto-char pos)
+    (if (spectreshell--region-position-p obj pos)
+        (list (copy-marker (spectreshell-marker obj))
+              (count-lines (spectreshell-marker obj) (line-beginning-position))
+              (current-column))
+      (list (point-marker)))))
 
-(defun spectreshell--restore-point (obj saved)
-  "Move point back to where SAVED recorded it in OBJ, and release its marker."
-  (pcase-let ((`(,marker ,line ,column) saved))
-    (cond
-     (line
-      (goto-char marker)
-      (forward-line line)
-      (move-to-column column)
-      ;; The row can be gone entirely (a resize or a compact region's
-      ;; blank tail), and walking past the region would put point on
-      ;; eshell's command line.
-      (goto-char (min (point) (spectreshell--region-end obj))))
-     (t (goto-char marker)))
-    (set-marker marker nil)))
+(defun spectreshell--restore-line (obj saved)
+  "Return the position SAVED recorded in OBJ, releasing its marker."
+  (prog1
+      (pcase-let ((`(,marker ,line ,column) saved))
+        (if line
+            (save-excursion
+              (goto-char marker)
+              (forward-line line)
+              (move-to-column column)
+              ;; The row can be gone entirely (a resize or a compact
+              ;; region's blank tail), and walking past the region would
+              ;; land on eshell's command line.
+              (min (point) (spectreshell--region-end obj)))
+          (marker-position marker)))
+    (set-marker (car saved) nil)))
+
+(defun spectreshell--save-window-views (obj follow-windows)
+  "Record the view of the windows showing OBJ that are parked in its region.
+Returns a list of (WINDOW START POINT) with START and POINT saved by
+`spectreshell--save-line\='.  Only windows whose `window-start\=' is inside
+the region are recorded: a start above it (in the confirmed
+scrollback) does not move in the first place, and a window in
+FOLLOW-WINDOWS is showing the terminal\='s own cursor, which is supposed
+to scroll the view along with the output rather than stay on the
+content it was reading."
+  (let (views)
+    (dolist (window (get-buffer-window-list (spectreshell-buffer obj) nil t))
+      (when (and (not (memq window follow-windows))
+                 (spectreshell--region-position-p obj (window-start window)))
+        (push (list window
+                    (spectreshell--save-line obj (window-start window))
+                    (spectreshell--save-line obj (window-point window)))
+              views)))
+    views))
+
+(defun spectreshell--restore-window-views (obj views)
+  "Put back VIEWS, what `spectreshell--save-window-views\=' recorded for OBJ."
+  (pcase-dolist (`(,window ,start ,point) views)
+    (let ((start-pos (spectreshell--restore-line obj start))
+          (point-pos (spectreshell--restore-line obj point)))
+      (when (window-live-p window)
+        (set-window-start window start-pos)
+        (set-window-point window point-pos)))))
 
 (defun spectreshell--move-point (obj cursor follow-point follow-windows saved-point)
   "Place point and `window-point' after an update drew CURSOR in OBJ.
 CURSOR is the :cursor (ROW . COL) cons from an update plist.
 FOLLOW-POINT and FOLLOW-WINDOWS are what
 `spectreshell--cursor-followed-p\=' answered before the update, and
-SAVED-POINT is `spectreshell--save-point\=''s record of where point stood
+SAVED-POINT is `spectreshell--save-line\=''s record of where point stood
 then: point is restored from it rather than simply left alone, because
 the redraw helpers move point as they rewrite rows."
   (pcase-let ((`(,row . ,col) cursor))
-    (let ((pos (spectreshell--row-col-pos obj row col)))
-      (spectreshell--restore-point obj saved-point)
-      (when follow-point (goto-char pos))
+    (let ((pos (spectreshell--row-col-pos obj row col))
+          (restored (spectreshell--restore-line obj saved-point)))
+      (goto-char (if follow-point pos restored))
       (dolist (window follow-windows)
         (set-window-point window pos))
       (setf (spectreshell-cursor-pos obj) pos
