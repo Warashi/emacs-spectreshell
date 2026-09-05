@@ -355,6 +355,20 @@ set-process-window-size をスタブして関数単体で検証する。"
         (spectreshell-eshell--window-size-change 'fake-window)
         (should (null pty-size))))))
 
+(ert-deftest spectreshell-eshell-test-background-job-leaves-command-line-usable ()
+  "背景ジョブ実行中もコマンドラインに文字を打てる。
+`cmd &' の間バッファ全体が semi-char モードになると、打った文字は
+背景ジョブの pty へ送られてコマンドラインに入らず、RET も
+`eshell-send-input\' に届かないので入力が黙って捨てられる。"
+  :expected-result :failed
+  (spectreshell-eshell-test--with-eshell buf
+    (spectreshell-eshell-test--send buf "sleep 5 &")
+    (should (spectreshell-eshell-test--wait-until
+             (lambda () (with-current-buffer buf spectreshell--current))))
+    (with-current-buffer buf
+      (goto-char (point-max))
+      (should (eq (key-binding "e") 'self-insert-command)))))
+
 (ert-deftest spectreshell-eshell-test-terminal-cols-match-eshell-columns ()
   "端末の桁数と eshell が export する COLUMNS が一致する。
 子プロセスは幅を ioctl (端末の桁数) と環境変数 COLUMNS の両方から
