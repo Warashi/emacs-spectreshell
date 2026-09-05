@@ -253,7 +253,7 @@ docs/design.org は「領域が端末サイズそのものであることが全�
 ない (F-regress-1。4 ビルドで point 246 / window-start 116 まで
 一致した)。
 
-** TODO L-24: 裸の矢印と F1〜F4 の SS3 で ESC が落ちる
+** DONE L-24: 裸の矢印と F1〜F4 の SS3 で ESC が落ちる
 対象: =spectreshell.el= (semi-char keymap の =M-<大文字>= 束縛)
 
 semi-char モードで Up を押すと、子には ESC の無い =O= =A= の 2 バイトが
@@ -282,6 +282,22 @@ ERT: =test/spectreshell-explore-apps-test.el= の
 =input-decode-map= を作って =read-key-sequence-vector= に =ESC O D= を
 読ませる。=M-O= を外したコピーのマップでは =[left]= になることを対照で
 確認済み。
+
+対応 (2026-09-05, a3e9c06): 根本は「=input-decode-map= の変換は、そこ
+までのキー列が有効なキーマップで未束縛のときしか働かない」こと。ESC
+サブキーマップに =[t]= の既定束縛を置いても =ESC O= は「束縛あり」に
+なり変換は起きない (batch で実測)。したがって =ESC O= (SS3) と =ESC [=
+(CSI) を空けるのが唯一の手で、=M-<英字>= のループを「ESC + 印字可能
+ASCII 全域」に統合したうえで =?O= =?\[= =?x= だけを除いた。代償として
+=M-O= ・ =M-[= は送れず、打つと次のキーを待ったうえで未定義キーになる。
+マニュアルにその旨を書いた (57389b0)。
+
+ERT: =spectreshell-explore-apps-test-ss3-arrow-survives-meta-letter-binding=
+/ =--ss3-arrows-all-survive= (=:expected-result :failed= を外した) と、
+生バイト列を =input-decode-map= 経由で打鍵して DECCKM に従う再エンコード
+になることを通しで見る
+=spectreshell-key-test-ss3-arrow-is-re-encoded-not-passed-through=
+(39915f5)。
 
 ** DONE L-25: eshell の minor mode が semi-char マップを横取りする
 対象: =spectreshell.el= (=minor-mode-map-alist= 上の優先順位)
