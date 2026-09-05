@@ -19,8 +19,8 @@ load-check: build
   emacs -Q --batch --eval '(let ((path (seq-find (function file-exists-p) (mapcar (function expand-file-name) (list "zig-out/lib/libspectreshell.so" "zig-out/lib/libspectreshell.dylib"))))) (unless path (error "load-check: module not found under zig-out/lib")) (module-load path) (message "module-load OK"))'
 
 # emacs-module 境界と spectreshell.el 描画エンジン・キー入力・eshell 統合の ERT テスト一式。
-# spectreshell-explore-*-test.el は探索的テストで見つけた未修正の不具合を
-# :expected-result :failed で固定した Probe。直したときに unexpected pass で知らせる
+# spectreshell-explore-*-test.el は探索的テストで見つけた不具合を固定した Probe。
+# 未修正のものは :expected-result :failed を付け、直したときに unexpected pass で知らせる
 test-el: build
   emacs -Q --batch -L . -L test -l test/spectreshell-module-test.el -l test/spectreshell-test.el -l test/spectreshell-key-test.el -l test/spectreshell-key-table-test.el -l test/spectreshell-eshell-test.el -l test/spectreshell-explore-recheck-test.el -l test/spectreshell-explore-input-test.el -l test/spectreshell-explore-lifecycle-test.el -l test/spectreshell-explore-apps-test.el -l test/spectreshell-explore-geometry-test.el -l test/spectreshell-explore-module-test.el -l test/spectreshell-explore-stderr-test.el -f ert-run-tests-batch-and-exit
 
