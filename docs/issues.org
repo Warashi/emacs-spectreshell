@@ -20,7 +20,7 @@
 
 * 機能・堅牢性
 
-** TODO M-14: 高速な出力の確定テキストがまとまって欠落する
+** DONE M-14: 高速な出力の確定テキストがまとまって欠落する
 対象: =src/core.zig= / 同梱の ghostty-vt (=PageList=)
 
 子が出した行が、確定テキストにもモジュールが返す =:scrolled-off= にも
@@ -96,6 +96,30 @@ ERT: =test/spectreshell-explore-module-test.el= の
 =--large-feed-drops-leading-lines= (どちらも =:expected-result :failed=)。
 前者は 25000 行を流すので、テストヘルパが読む =zig-out= の Debug ビルド
 では 28 秒かかる (Release なら 1 秒)。
+
+対応 (2026-09-05, b2a24d3): 原因は推測 H-module-1 のとおり。ghostty の
+既定 =max_scrollback = 10_000= (バイト) は =minMaxSize= で「アクティブ
++ 1 ページ」までしか上がらず、80x21 では実質 2 ページ。1 回の feed /
+resize で積まれた history がその上限を超えると =PageList.grow= が先頭
+ページを丸ごと捨て、=buildUpdate= が取り出す前に消えていた。
+=Term.init= の =max_scrollback= を =maxInt(usize)= にして無制限にした
+(0 は「scrollback なし」の意味なので最大値で表す)。ghostty 側で
+=maxSize()= を使うのは =page_size + item_size > maxSize()= の比較だけ
+なので溢れない。条件 1・2・3 とも解消。
+
+常駐量は増えない: =buildUpdate= は毎回 history を全部取り出して
+=eraseDisplay(.scrollback)= するので、ピークは 1 回の feed / resize が
+積む行数に比例するだけで Emacs へ渡した時点でページは解放される。
+design.org の「エミュレータ側の scrollback は最小化する」に、上限で
+枝刈りするのではなく毎回空にすることで最小化する旨を足した。
+
+条件 2 の反例 (60x12 → 80x24 でも欠ける) も同じ原因で説明がつく
+(高さ増で history から引き戻す前に枝刈りされていた)。
+
+Zig test: =core.zig= の「1 回の大きな feed でも先頭の行が落ちない」
+「高さを戻すリサイズを挟んでも確定行が落ちない」。
+ERT: =spectreshell-explore-module-test-height-grow-drops-lines= /
+=--large-feed-drops-leading-lines= (=:expected-result :failed= を外した)。
 
 ** TODO M-15: 幅を変えると確定テキストの改行が失われ空白で埋まって連結する
 対象: 同梱の ghostty-vt の reflow / =src/row.zig= (行の抽出)
