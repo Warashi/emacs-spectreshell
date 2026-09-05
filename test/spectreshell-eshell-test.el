@@ -376,7 +376,6 @@ READY で待機が抜けないよう、行頭の READY に限る。"
 専用の `term-mode' バッファに逃がすが、それでは spectreshell が全く
 関与できない (docs/design.org の \"visual command の別バッファ逃がしは
 不要になる\" という決定の裏付け)。"
-  (skip-unless (executable-find "less"))
   (spectreshell-eshell-test--with-eshell buf
     (let ((buffer-count-before (length (buffer-list))))
       ;; Emacs プロセスの CWD に依存しないよう、リポジトリルート基準の
