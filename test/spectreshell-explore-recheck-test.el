@@ -24,8 +24,9 @@
 実端末では C-c C-e のあと M-v を 1 回打つと point が端末領域の途中
 (領域の終端から 1 画面ぶん手前) に着地し、以後は出力が届くたびに
 point が前へ滑って指す行が変わる。`point-max' との差が一定のまま
-変わらないのが症状で、スクロールバックを見続けられない。"
-  :expected-result :failed
+変わらないのが症状で、スクロールバックを見続けられない。
+確定化は領域の先頭へ挿入するので、領域内の point はバッファ位置では
+なく「旧領域先頭からの行数」で追わなければ同じ行を指し続けられない。"
   (spectreshell-explore-recheck-test--with-terminal (term 5 10)
     (spectreshell-feed term "l1\r\nl2\r\nl3\r\nl4\r\nl5")
     ;; 領域の 3 行目 ("l3") へ point を置く。カーソル位置ではないので
