@@ -324,10 +324,14 @@ char モード非対応: 全キー送信は v1 のスコープ外。semi-char �
 Emacs 側に残るキー ( @code{C-c} ・ @code{C-x} ・ @code{M-x} ・ @code{C-u} ・ @code{C-g} ・
 @code{M-O} ・ @code{M-[} ) をプロセスへ送る手段は無い
 @item
-実行中プロセスへの IME 直接入力は対象外: ddskk 等での日本語入力は
+実行中プロセスへの Emacs 側 input method は対象外: ddskk 等は
 eshell のコマンドライン編集中 (プロセス非実行時) は無条件で動くが、
-実行中のプロセスへ直接入力する経路はない。 @code{C-y} (kill-ring からの
-bracketed paste) 経由での日本語送信は可能
+プロセス実行中の semi-char モードでは動かない (キーはバッファに
+挿入されず直接送信され、 @code{C-\} 自体も子プロセスへ送られる)。
+一方、文字が Emacs のキーイベントとして届きさえすれば
+(端末エミュレータ側の IME など)、その文字は UTF-8 のバイト列として
+そのまま子プロセスへ送られる。 @code{C-y} (kill-ring からの
+bracketed paste) 経由での日本語送信も可能
 @item
 OSC 52 クリップボード・画像 (kitty graphics/sixel) は未実装
 @item

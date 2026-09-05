@@ -215,11 +215,19 @@ eshell 用途では上記 2 モードで実用十分。設計上は semi-char �
   編集のままなので、ddskk は無条件でそのまま動く。* 端末エミュレーションが
   働くのは外部プロセスの実行中のみ、というのが本設計の前提であり、
   日常の大部分のユースケースはこれでカバーされる。
-- *実行中プロセスへの日本語直接入力は v1 スコープ外。*
+- *実行中プロセスでの Emacs 側 input method は v1 スコープ外。*
   ddskk は minor-mode keymap でバッファに直接挿入する方式のため、
-  キー直送の semi-char モードとは素朴には両立しない。
+  キー直送の semi-char モードとは素朴には両立しない。切り替えの
+  ~C-\~ 自体も semi-char では子プロセスへ送られる。
   回避経路として、日本語を kill-ring に用意して semi-char の ~C-y~
   (bracketed paste) で送る方法が v1 でも使える。
+- *文字が Emacs のキーイベントになりさえすれば送信は通る。*
+  semi-char は ~self-insert-command~ の remap でキーを受けるので、
+  端末エミュレータ側の IME 等が入力した非 ASCII 文字も
+  ~spectreshell--encode-key~ が UTF-8 のバイト列にして子へ渡す
+  (「あ」→ ~e3 81 82~)。「IME 直接入力は対象外」はあくまで
+  Emacs 側 input method の話であり、日本語が届かないという意味では
+  ない。
 - *将来拡張 (コミット捕捉ブリッジ)*: semi-char 中も skk の keymap を
   優先させ、プリエディット (▽▼) は端末カーソル位置に一時表示、
   確定された挿入テキストを after-change-functions で捕捉して
@@ -273,7 +281,7 @@ eat-eshell-mode と同様の接続方式:
 - OSC 52 クリップボード (セキュリティ方針の設計が必要)
 - 画像 (kitty graphics / sixel)
 - char モード
-- 実行中プロセスへの IME 直接入力 (前述のブリッジ)
+- 実行中プロセスでの Emacs 側 input method (前述のブリッジ)
 
 ** TERM / terminfo
 
@@ -343,4 +351,4 @@ CLAUDE.md の方針どおり、実装と同じ粒度でテストを書き、
 | 13 | Zig unit + ERT 統合テスト | 不具合の層の切り分けが速い | ERT のみ / 手動確認 |
 | 14 | 独自 face + ansi-color 継承 | テーマ連動と spectreshell 単位の上書きを両立 | ansi-color 直接使用 |
 | 15 | MIT ライセンス | GPL 互換要件を満たし ghostty と同一で単純 | GPL-3.0-or-later |
-| 16 | 実行中プロセスへの IME 直接入力は v1 対象外 | コマンドライン編集では ddskk が無条件で動くため。C-y ペーストで回避可能 | コミット捕捉ブリッジを v1 に含める |
+| 16 | 実行中プロセスでの Emacs 側 input method は v1 対象外 | コマンドライン編集では ddskk が無条件で動くため。C-y ペーストで回避可能 | コミット捕捉ブリッジを v1 に含める |
