@@ -283,7 +283,7 @@ ERT: =test/spectreshell-explore-apps-test.el= の
 読ませる。=M-O= を外したコピーのマップでは =[left]= になることを対照で
 確認済み。
 
-** TODO L-25: eshell の minor mode が semi-char マップを横取りする
+** DONE L-25: eshell の minor mode が semi-char マップを横取りする
 対象: =spectreshell.el= (=minor-mode-map-alist= 上の優先順位)
 
 =minor-mode-map-alist= の並びは実測で次のとおりで、eshell 側の minor
@@ -320,6 +320,17 @@ L-24 の SS3 経路で先に壊れるため、=M-O= の束縛を外して初め�
 ERT: =test/spectreshell-explore-input-test.el= の
 =spectreshell-explore-input-test-eshell-minor-modes-do-not-shadow=
 (=:expected-result :failed=)。
+
+対応 (2026-09-05, 4782b2f): semi-char マップを =minor-mode-map-alist=
+だけでなく =emulation-mode-map-alists= にも載せた
+(=spectreshell--emulation-mode-map-alist=)。こちらは全 minor mode の
+マップより先に探索されるので、eshell 側の minor mode の並び順に依存
+しない。=define-minor-mode= の =:keymap= 登録は同じマップの二重登録で
+無害なので意図的に残している。
+
+ERT: =spectreshell-explore-input-test-eshell-minor-modes-do-not-shadow=
+(=:expected-result :failed= を外した)。実端末での再確認は本環境に tmux
+が無いため未実施。
 
 ** TODO L-26: tty では M- 前置の ESC が落ち、ESC 単体も送れない
 対象: =spectreshell.el= (=spectreshell-send-key= / semi-char keymap)
