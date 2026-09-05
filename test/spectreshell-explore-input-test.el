@@ -51,7 +51,6 @@ tmux+terminfo 環境の `input-decode-map' は ESC [ 2 ~ / ESC [ 3 ~ を
   "tty の M-a は ESC + a の 2 イベントで届き、meta が落ちて \"a\" だけが送られる。
 `last-command-event' はキー列 [27 97] の最後の要素 97 なので、
 `spectreshell-send-key' からは alt 修飾が見えない。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 5 10 responses)
     (let ((buf (generate-new-buffer "spectreshell-explore-input-test")))
       (unwind-protect

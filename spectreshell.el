@@ -884,17 +884,47 @@ hasn't started a job yet).")
 ;; Input commands
 ;; ---------------------------------------------------------------------
 
+(defun spectreshell--esc-prefixed-key-p ()
+  "Non-nil when the running command was invoked by an ESC-prefixed key.
+A terminal frame delivers M-<char> as the two events ESC and <char>, and
+`last-command-event' is then the bare character with no `meta' modifier
+on it at all, so the meta can only be recovered from the whole key
+sequence.  Requiring the sequence to end with `last-command-event'
+itself keeps a direct call (with `last-command-event' let-bound, as the
+tests do) from picking up whatever key sequence happens to be current."
+  (let* ((keys (this-single-command-keys))
+         (n (length keys)))
+    (and (>= n 2)
+         (eq (aref keys (- n 2)) ?\e)
+         (eq (aref keys (1- n)) last-command-event))))
+
 (defun spectreshell-send-key ()
   "Encode `last-command-event' and send it to `spectreshell--current'.
 Bound throughout `spectreshell-semi-char-mode-map' (directly, and via
 the `self-insert-command' remap) to turn nearly every key into a
-`spectreshell--encode-key' call.  Does nothing if there is no current
+`spectreshell--encode-key' call.  An ESC-prefixed key sequence
+\(`spectreshell--esc-prefixed-key-p') contributes the `alt' modifier the
+event itself does not carry.  Does nothing if there is no current
 terminal, or if the event or the encoder has no bytes to send for it."
   (interactive)
   (when-let* ((obj spectreshell--current)
               (key+mods (spectreshell--event-to-key last-command-event))
-              (bytes (spectreshell--encode-key (spectreshell-term obj)
-                                                (car key+mods) (cdr key+mods))))
+              (bytes (spectreshell--encode-key
+                      (spectreshell-term obj) (car key+mods)
+                      (if (spectreshell--esc-prefixed-key-p)
+                          (delete-dups (cons 'alt (cdr key+mods)))
+                        (cdr key+mods)))))
+    (funcall (spectreshell-send-fn obj) bytes)))
+
+(defun spectreshell-send-escape ()
+  "Send one ESC byte to `spectreshell--current'.
+Bound to `ESC ESC' in `spectreshell-semi-char-mode-map'.  A key of its
+own is needed because a terminal frame's ESC is `meta-prefix-char':
+Emacs waits for the following key indefinitely, so a bare ESC can never
+complete a key sequence and vim/less/fzf could not be escaped from."
+  (interactive)
+  (when-let* ((obj spectreshell--current)
+              (bytes (spectreshell--encode-key (spectreshell-term obj) 'escape nil)))
     (funcall (spectreshell-send-fn obj) bytes)))
 
 (defun spectreshell--send-paste (string)
@@ -1145,17 +1175,26 @@ disable mouse-wheel scrolling entirely between jobs that want it."
     (dolist (letter (number-sequence ?a ?z))
       (unless (memq letter '(?c ?u ?x ?y))
         (define-key map (kbd (format "C-%c" letter)) #'spectreshell-send-key)))
-    ;; M-x is the only named meta exception.
-    (dolist (letter (number-sequence ?a ?z))
-      (unless (eq letter ?x)
-        (define-key map (kbd (format "M-%c" letter)) #'spectreshell-send-key)))
-    ;; M-<upper-case> needs its own bindings: with none, Emacs
-    ;; shift-translates `M-A' down to `M-a' before the lookup, so the upper
-    ;; case is gone before `spectreshell--event-to-key' sees the event.
-    ;; M-X is bound like the rest -- docs/design.org's exception names M-x,
-    ;; a different event.
-    (dolist (letter (number-sequence ?A ?Z))
-      (define-key map (kbd (format "M-%c" letter)) #'spectreshell-send-key))
+    ;; Meta over the whole printable ASCII range, bound in its ESC-prefixed
+    ;; form -- which is both how a terminal frame delivers M-<char> (two
+    ;; events) and how keymaps store a meta character's binding anyway, so
+    ;; one loop covers both frame types.  Digits and punctuation are in the
+    ;; range because Emacs's own commands on them (`digit-argument',
+    ;; `xref-find-definitions' on M-., `cycle-spacing' on M-SPC,
+    ;; `dabbrev-expand' on M-/) are useless in a terminal buffer and the
+    ;; last two edit the terminal region as ordinary text; upper case is in
+    ;; the range because with `M-A' unbound Emacs shift-translates it down
+    ;; to `M-a' and the case is gone before the event is ever seen.
+    ;; M-x is docs/design.org's named exception.  ESC O (SS3) and ESC [
+    ;; (CSI) must stay unbound, so M-O and M-[ cannot be sent: they are the
+    ;; prefixes the terminal itself sends for the arrows, F1-F4 and
+    ;; Home/End, and `input-decode-map' only gets to translate those while
+    ;; the sequence read so far has no binding in the active keymaps.
+    (dolist (char (number-sequence ?\s 126))
+      (unless (memq char '(?O ?\[ ?x))
+        (define-key map (vector ?\e char) #'spectreshell-send-key)))
+    ;; ESC ESC is the way to send a bare ESC; see `spectreshell-send-escape'.
+    (define-key map (vector ?\e ?\e) #'spectreshell-send-escape)
     ;; C-M-<letter> is bound without exceptions: docs/design.org names
     ;; C-c/C-x (as prefixes), M-x and C-y, and none of those is the same
     ;; event as its C-M- counterpart, so nothing in this range has a

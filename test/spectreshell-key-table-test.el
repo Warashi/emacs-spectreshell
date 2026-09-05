@@ -108,11 +108,27 @@ the fix as an unexpected pass."
   ("C-d" "\C-d")
   ("C-z" "\C-z")
 
-  ;; メタ。ESC 前置で送る。
+  ;; メタ。ESC 前置で送る。英字だけでなく数字・記号も送る。
   ("M-a" "\ea")
   ("M-f" "\ef")
   ("M-z" "\ez")
   ("M-A" "\eA")
+  ("M-1" "\e1")
+  ("M-." "\e.")
+  ("M-SPC" "\e ")
+  ("M-/" "\e/")
+
+  ;; 端末フレームの M-<char> は ESC + <char> の 2 イベントで届く。
+  ;; 修飾ビットが立つ 1 イベント形 (上の行) と違い、alt はキー列から
+  ;; 復元するしかないので別の行として持つ。
+  ("ESC a" "\ea")
+  ("ESC A" "\eA")
+  ("ESC 1" "\e1")
+  ("ESC C-a" "\e\C-a")
+  ("ESC DEL" "\e\d")
+  ;; ESC 単体は meta-prefix-char のため 1 打鍵では送れない。ESC ESC が
+  ;; その脱出口 (`spectreshell-send-escape')。
+  ("ESC ESC" "\e")
 
   ;; C-M-<letter>。ESC 前置 + 制御文字。
   ("C-M-a" "\e\C-a")

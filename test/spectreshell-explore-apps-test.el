@@ -34,13 +34,11 @@ tty の Emacs は smkx を出すので矢印は ESC O D で届くが、
 Emacs は ESC O の時点で完全な束縛を見つけてしまい、
 `input-decode-map' の変換に到達しない。結果として子プロセスへは
 ESC の落ちた \"OD\" が素の文字として届く。"
-  :expected-result :failed
   (should (equal (spectreshell-explore-apps-test--read-with-semi-char-map "\eOD")
                  [left])))
 
 (ert-deftest spectreshell-explore-apps-test-ss3-arrows-all-survive ()
   "上下左右の SS3 すべてが同じ理由で壊れる (M-A / M-B / M-C / M-D)。"
-  :expected-result :failed
   (dolist (pair '(("\eOA" . [up]) ("\eOB" . [down])
                   ("\eOC" . [right]) ("\eOD" . [left])))
     (should (equal (spectreshell-explore-apps-test--read-with-semi-char-map (car pair))
