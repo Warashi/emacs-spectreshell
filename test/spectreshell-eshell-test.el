@@ -644,5 +644,24 @@ exits."
             (should-not (string-search "stty:" (buffer-string)))))
       (kill-buffer buffer))))
 
+(ert-deftest spectreshell-eshell-test-wrap-command-hides-failing-stty ()
+  "`stty' が失敗しても、その診断がユーザーに見える出力に混じらない。
+Emacs は pty を確保できなければ黙ってパイプに落とすので、ラッパが付く
+のに fd 1 が端末でないことがありうる。そのとき `stty' は ENOTTY で
+失敗するが、子の出力は素通しでなければならない。"
+  (let* ((wrapped (spectreshell-eshell--wrap-command-for-pty
+                   (list "printf" "ok\\n") 24 80))
+         (stderr-file (make-temp-file "spectreshell-wrap-test-stderr")))
+    (unwind-protect
+        (let ((out (with-output-to-string
+                     (with-current-buffer standard-output
+                       (apply #'call-process (car wrapped) nil
+                              (list t stderr-file) nil (cdr wrapped))))))
+          (should (equal out "ok\n"))
+          (should (equal "" (with-temp-buffer
+                              (insert-file-contents stderr-file)
+                              (buffer-string)))))
+      (delete-file stderr-file))))
+
 (provide 'spectreshell-eshell-test)
 ;;; spectreshell-eshell-test.el ends here
