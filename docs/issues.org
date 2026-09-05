@@ -695,7 +695,7 @@ invisible のフィールドが無い。
 縮退することと下線色が無視されることは、=spectreshell--underline-value=
 の docstring どおりの仕様。
 
-** TODO L-35: 本文 1 桁のウィンドウで端末生成・リサイズが args-out-of-range になる
+** DONE L-35: 本文 1 桁のウィンドウで端末生成・リサイズが args-out-of-range になる
 対象: =spectreshell.el= (=spectreshell--create=) / =spectreshell-eshell.el=
 (=--window-size-change=)
 
@@ -727,6 +727,28 @@ batch の最小再現は =(spectreshell-start (current-buffer) 3 0 …)= と
 ERT: =test/spectreshell-explore-geometry-test.el= の
 =spectreshell-explore-geometry-test-zero-column-terminal=
 (=:expected-result :failed=)。
+
+対応 (2026-09-05, 171ad31 / 13dbd44 / 5c2c461): 3 段で扱った。
+
+1. =spectreshell-start= と =spectreshell-resize= は rows / cols が正の
+   整数でなければ、どちらの寸法かを名指ししたエラーを signal する
+   (=spectreshell--check-size=)。モジュールの =args-out-of-range= は数字
+   しか出ず、1 への clamp は「読めない画面のままジョブが走り続ける」
+   ことになるので採らない。
+2. =spectreshell-eshell--window-size-change= は本文 0 行 / 0 桁のウィン
+   ドウを無視して直前のサイズを保つ。redisplay の中で signal しても
+   =safe_call= に消されて端末が古いサイズで取り残されるだけなので、
+   何もしないほうがよい。
+
+Probe の主張は「0 桁の端末生成が成功する」から「明確なエラーになる」
+へ変更した (=:type 'error :exclude-subtypes t= でモジュール由来の
+signal と区別)。
+
+ERT: =spectreshell-explore-geometry-test-zero-column-terminal=
+(=:expected-result :failed= を外した)、
+=spectreshell-test-resize-rejects-non-positive-size=、
+=spectreshell-eshell-test.el= の 0 桁ウィンドウ無視のテスト。
+=window-min-width= を下げた実操作は未確認。
 
 ** TODO L-36: docs の記述が実測と食い違う
 対象: =docs/spectreshell.org= / =README.org=
