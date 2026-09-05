@@ -663,5 +663,26 @@ Emacs は pty を確保できなければ黙ってパイプに落とすので、
                               (buffer-string)))))
       (delete-file stderr-file))))
 
+(ert-deftest spectreshell-eshell-test-wrap-command-hides-missing-stty ()
+  "`stty' が PATH に無くても、その診断が出力に混じらず子は起動する。
+ラッパは `stty' の存在を前提にできない。見つからないときに直せるのは
+階段状の出力だけで、コマンドそのものは動かなければならない。"
+  (let* ((printf (executable-find "printf"))
+         (wrapped (spectreshell-eshell--wrap-command-for-pty
+                   (list printf "ok\\n") 24 80))
+         (stderr-file (make-temp-file "spectreshell-wrap-test-stderr")))
+    (should printf)
+    (unwind-protect
+        (let* ((process-environment (cons "PATH=" process-environment))
+               (out (with-output-to-string
+                      (with-current-buffer standard-output
+                        (apply #'call-process (car wrapped) nil
+                               (list t stderr-file) nil (cdr wrapped))))))
+          (should (equal out "ok\n"))
+          (should (equal "" (with-temp-buffer
+                              (insert-file-contents stderr-file)
+                              (buffer-string)))))
+      (delete-file stderr-file))))
+
 (provide 'spectreshell-eshell-test)
 ;;; spectreshell-eshell-test.el ends here
