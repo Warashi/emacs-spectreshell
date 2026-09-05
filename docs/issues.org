@@ -228,7 +228,7 @@ L-21 / L-23 で =stty= の対象を決めたときと同じ構造の帰結。
 
 ERT: なし。batch の Probe は作られておらず、上記の実端末手順のみ。
 
-** TODO M-18: 全画面アプリでカーソルが上端にあると端末領域がウィンドウに収まらない
+** DONE M-18: 全画面アプリでカーソルが上端にあると端末領域がウィンドウに収まらない
 対象: =spectreshell.el= (ウィンドウのスクロール)
 
 =nvim -u NONE FILE= を開くと、21 行の端末領域のうち画面に見えるのが
@@ -252,6 +252,20 @@ docs/design.org は「領域が端末サイズそのものであることが全�
 8a839f0 以前から一貫して存在する欠陥で、P-1 の対応 (d8699ff) の退行では
 ない (F-regress-1。4 ビルドで point 246 / window-start 116 まで
 一致した)。
+
+対応 (2026-09-05, c902345): =spectreshell--align-windows= を追加し、
+領域の行数が =window-body-height= と一致する (全画面) ウィンドウでは
+更新のたびに =set-window-start= を領域先頭へ合わせる。eshell 側の rows
+算出も同じ関数なので判定が揃う。semi-char モードかつ
+=spectreshell--current= かつ非 compact に限定し、P-1 (emacs モードでの
+スクロールバック閲覧) の条件と揃えた。design.org に記録。
+
+副作用: semi-char モード中に全画面アプリ (マウス非対応) をホイールで
+スクロールすると、次の出力で window-start が領域先頭へ戻る。
+
+ERT: =spectreshell-test.el= に整列する / emacs モードでは動かさない
+の 2 本を追加。=set-window-start= は次の再表示で効くため、nvim での
+実際の見え方は batch では未確認 (tmux 無し)。
 
 ** DONE L-24: 裸の矢印と F1〜F4 の SS3 で ESC が落ちる
 対象: =spectreshell.el= (semi-char keymap の =M-<大文字>= 束縛)
