@@ -1475,26 +1475,35 @@ cwd なので、そこに =^x= があるだけで =stty= はそのファイル�
 退行は =--wrap-command-erase-survives-glob-in-cwd= で固定した
 (6b49022)。
 
-退行検出は =--wrap-command-restores-erase= の ERT (936378d)。darwin
-では =PATH= の先頭に =/bin= を置いて実機と同じ BSD の =stty= を解決
-させる。nix の checkPhase は =PATH= の先頭が GNU coreutils なので、
-そのままでは macOS でも実機の経路を通らず、修正前から緑になってしまう。
-=/bin/stty= が無ければ skip ではなく失敗にする (L-38 の教訓)。
+退行検出は =--wrap-command-restores-erase= の ERT (936378d・718597c)。
+問題は nix の checkPhase が実機と同じ =stty= を引かないことだった:
+sandbox に =/bin/stty= は無く、stdenv の initialPath にある GNU
+coreutils の =stty= が引かれるので、そのままでは macOS でも修正前から
+緑になる。macos-26 実機の =nix flake check= でも、落ちたのは
+=/bin/stty= を要求した =should= だけだった (2026-09-06)。
+
+対処として、darwin の =nativeCheckInputs= に =darwin.adv_cmds= を入れ
+た (c3186ba)。Apple の同じソースから =stty= をビルドしているパッケージ
+で (nixpkgs の =pkgs/os-specific/darwin/by-name/ad/adv_cmds=)、
+=nativeCheckInputs= は stdenv の initialPath より前に来るので
+(=setup.sh= の =_PATH=)、これで解決結果が入れ替わる。sandbox に穴を
+開ける =__impureHostDeps= は採らなかった: nixpkgs の =doc/= にも nix の
+マニュアルにも記載が無く、nixpkgs 全体でも 13 ファイルでしか使われて
+いない内部的な属性のため。ERT 側は =/bin/stty= を直接指すのをやめ、
+PATH の =stty= が GNU なら darwin では失敗させる (=stty --version= の
+出力で判定)。
 
 未確認 (macOS 実機待ち):
 
-- 修正前のコミット (936378d) で =nix flake check= が macos-26 で赤に
-  なること。darwin の nix sandbox が =/bin/stty= に届くかは Linux から
-  確認できないため、CI だけでなく実機の =nix flake check= でも見る。
-  修正後 (14484f6) も赤で、しかも失敗が =/bin/stty= の
-  =file-executable-p= なら、それは修正ではなく sandbox の話。その場合
-  は darwin の =__impureHostDeps= に =/bin/stty= を足す線を Nix の
-  公式マニュアルで確かめてから試す (stdenv が =/bin/sh= に使っている
-  のと同じ仕組みのはずだが未確認)。
-- 修正後に =true | sh -c 'stty -a <&1'= の =erase= が =^?= になること
-  (=sh= を最終段に置く。L-23 の確認手順の誤りを参照)。
+- =darwin.adv_cmds= が macos-26 でビルドでき、 =$out/bin/stty= を出す
+  こと。Linux からは評価もビルドもできない。駄目なら perl で
+  =f_sane= を模した偽 =stty= を PATH に置く案に落とす
+- 修正前のコミット (936378d) で =nix flake check= が macos-26 で赤に、
+  修正後 (718597c) で緑になること
+- 実機で =true | sh -c 'stty -a <&1'= の =erase= が =^?= になること
+  (=sh= を最終段に置く。L-23 の確認手順の誤りを参照)
 - vim / nvim で実際に backspace が効くこと。vim が =c_cc[VERASE]= を
-  読むことはソース読解によるもので、実物では未検証。
+  読むことはソース読解によるもので、実物では未検証
 
 * ビルド・パッケージング
 
