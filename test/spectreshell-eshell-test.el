@@ -842,33 +842,34 @@ CRLF になること) と、端末を開けなかった旨のエラーが出力�
             (should-not (string-search "stty:" (buffer-string)))))
       (kill-buffer buffer))))
 
+(defun spectreshell-eshell-test--gnu-stty-p ()
+  "Return non-nil if the `stty\' on PATH is GNU coreutils\'."
+  (with-temp-buffer
+    (ignore-errors (call-process "stty" nil t nil "--version"))
+    (and (string-search "GNU coreutils" (buffer-string)) t)))
+
 (ert-deftest spectreshell-eshell-test-wrap-command-restores-erase ()
   "ラッパを通した子の pty は erase 文字として DEL (^?) を持つ。
 Emacs は子の pty の VERASE を無効にして渡すので、そのままでは vim が
 backspace のキーコード (t_kb) を termios から決められず、画面に ^? が
-出る。darwin では PATH の先頭に /bin を置き、実機と同じ BSD の stty を
-ラッパに解決させる: nix の checkPhase は PATH の先頭が GNU coreutils
-で、GNU の sane は c_cc も戻すため、そのままでは実機が通る経路を一度も
-通らない。"
+出る。darwin ではその VERASE を戻せる `stty\' が無い (Apple の sane は
+flag word しか写さない) ので、ラッパが自分で erase を渡す必要がある。
+
+darwin で GNU の `stty\' が引かれていたら、このテストは守りたい経路を
+一度も通っていない。skip ではなく失敗にする。"
   (let ((wrapped (spectreshell-eshell--wrap-command-for-pty
                   (list "/bin/sh" "-c" "stty -a <&1") 24 80))
         (buffer (generate-new-buffer " *spectreshell-erase-test*")))
-    ;; skip ではなく失敗にする: darwin で BSD の stty を通らないなら、
-    ;; このテストは守りたいものを一度も見ていない。
     (when (eq system-type 'darwin)
-      (should (file-executable-p "/bin/stty")))
+      (should-not (spectreshell-eshell-test--gnu-stty-p)))
     (unwind-protect
-        (let* ((process-environment
-                (if (eq system-type 'darwin)
-                    (cons (concat "PATH=/bin:" (getenv "PATH")) process-environment)
-                  process-environment))
-               (proc (make-process
-                      :name "spectreshell-erase-test"
-                      :buffer buffer
-                      :command wrapped
-                      :connection-type '(pipe . pty)
-                      :coding 'no-conversion
-                      :noquery t)))
+        (let ((proc (make-process
+                     :name "spectreshell-erase-test"
+                     :buffer buffer
+                     :command wrapped
+                     :connection-type '(pipe . pty)
+                     :coding 'no-conversion
+                     :noquery t)))
           (should (spectreshell-eshell-test--wait-until
                    (lambda () (not (process-live-p proc)))))
           (with-current-buffer buffer
