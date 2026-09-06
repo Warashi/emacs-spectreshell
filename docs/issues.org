@@ -1377,6 +1377,51 @@ Linux でも =setsid= で制御端末を落とせば同じ症状を再現でき�
   サイズを与えるという現在の保証が失われる。将来 =stty= 非依存化が
   必要になったときの候補として記録しておく。
 
+macOS 実機での確認 (2026-09-06、GUI Emacs と =emacs -nw= の両方):
+
+- =printf 'a\nb\nc\n' | cat= と =ls | cat= の各行が左端から始まり、
+  =/dev/tty= や "Device not configured" の行は出ない。
+- =sh -c 'echo COLUMNS=${COLUMNS-unset} LINES=${LINES-unset}' | cat= は
+  =COLUMNS=80 LINES=33= (L-22 の回帰なし)。
+- 単独コマンド (=ls= 、 =printf 'x\ny\n'=) に回帰なし。
+- =true | sh -c 'stty -a <&1'= (最終段の =stty=) は =onlcr= が有効で、
+  =47 rows; 169 columns= が window の大きさと一致した。これが修正の
+  直接の証拠。
+
+再現条件: =/bin/sh= の実体は =/var/select/sh -> /bin/bash= 、
+=stty= は =/bin/stty= (BSD 版、 =stty -a= の出力が =lflags:= /
+=cchars:= 形式)。PATH の先頭に nix の coreutils があると =sane= の
+挙動が下記のとおり変わるので、 =which stty= を条件として残す。
+eshell 上で =sh= と打ったときに解決されるのは
+=/run/current-system/sw/bin/sh= で、ラッパが固定で使う =/bin/sh= とは
+別物。
+
+確認手順の誤りが 1 つあった。 =sh -c 'stty -a <&1' | cat= の形では
+=sh= はパイプの最初の段で、その fd 1 は =cat= へのパイプなので、
+"stdin isn't a terminal" が出るのは正しい挙動であり、この修正の効き
+を測れない。pty 化されるのは最終段の出力側だけ (上記) なので、確認は
+=true | sh -c ...= のように =sh= を最終段に置く必要がある。
+=sh -c 'exec 3</dev/tty' | cat= が成功して「前提が逆だった」と一度
+記録したのも同じ誤りで、最終段に置いた
+=true | sh -c 'exec 3</dev/tty && echo ok'= は
+"/dev/tty: Device not configured" で失敗する。前提は本項の分析どおり
+で、これは L-39 として起票した。なお =:= は eshell の組み込みに無く
+"command not found" になるので、最初の段には =true= を使う。
+
+=nix flake check= も macos-26 で通り、CI も緑 (2026-09-06)。
+
+副産物: 最終段の =stty -a= で =erase = <undef>= 、 =kill = <undef>= 。
+Emacs 31.1 =sysdep.c= の =child_setup_tty= が子の pty の =VERASE= /
+=VKILL= を =CDISABLE= にしており (559-560 行)、GNU coreutils の
+=stty.c= =sane_mode= は =control_info= の全項目を =saneval=
+(=erase= は =CERASE= 、 =kill= は =CKILL=) に戻すが、macOS の
+=stty= (adv_cmds-237 =stty/key.c= =f_sane=) は =cfmakesane= の結果
+から =c_cflag= / =c_iflag= / =c_lflag= / =c_oflag= だけを写し、
+=c_cc= には触れない。つまり macOS では =sane= を通しても erase/kill
+が無効のまま子に渡る。vim が backspace を =^?= と表示する件
+(brainium の TODO) の原因候補として記録し、ラッパへの =erase ^? kill
+^U= の追加は再現を固めてから判断する (本項では対応しない)。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
