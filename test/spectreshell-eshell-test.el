@@ -842,6 +842,68 @@ CRLF になること) と、端末を開けなかった旨のエラーが出力�
             (should-not (string-search "stty:" (buffer-string)))))
       (kill-buffer buffer))))
 
+(defun spectreshell-eshell-test--gnu-stty-p ()
+  "Return non-nil if the `stty\' on PATH is GNU coreutils\'."
+  (with-temp-buffer
+    (ignore-errors (call-process "stty" nil t nil "--version"))
+    (and (string-search "GNU coreutils" (buffer-string)) t)))
+
+(ert-deftest spectreshell-eshell-test-wrap-command-restores-erase ()
+  "ラッパを通した子の pty は erase 文字として DEL (^?) を持つ。
+Emacs は子の pty の VERASE を無効にして渡すので、そのままでは vim が
+backspace のキーコード (t_kb) を termios から決められず、画面に ^? が
+出る。darwin ではその VERASE を戻せる `stty\' が無い (Apple の sane は
+flag word しか写さない) ので、ラッパが自分で erase を渡す必要がある。
+
+darwin で GNU の `stty\' が引かれていたら、このテストは守りたい経路を
+一度も通っていない。skip ではなく失敗にする。"
+  (let ((wrapped (spectreshell-eshell--wrap-command-for-pty
+                  (list "/bin/sh" "-c" "stty -a <&1") 24 80))
+        (buffer (generate-new-buffer " *spectreshell-erase-test*")))
+    (when (eq system-type 'darwin)
+      (should-not (spectreshell-eshell-test--gnu-stty-p)))
+    (unwind-protect
+        (let ((proc (make-process
+                     :name "spectreshell-erase-test"
+                     :buffer buffer
+                     :command wrapped
+                     :connection-type '(pipe . pty)
+                     :coding 'no-conversion
+                     :noquery t)))
+          (should (spectreshell-eshell-test--wait-until
+                   (lambda () (not (process-live-p proc)))))
+          (with-current-buffer buffer
+            (should (string-search "erase = ^?" (buffer-string)))))
+      (kill-buffer buffer))))
+
+(ert-deftest spectreshell-eshell-test-wrap-command-erase-survives-glob-in-cwd ()
+  "子の作業ディレクトリの中身に関わらず erase は ^? になる。
+ラッパの `stty\' 引数はシェルの単語として解釈されるので、 =^?= の =?= は
+1 文字にマッチする glob になる。子の cwd は eshell の cwd、つまり利用者
+の持ち物なので、 =^x= のようなファイルが 1 つあるだけで `stty\' は
+=erase ^x= を渡され、erase が別の文字になる (診断は null device 行き
+なので黙って起きる)。"
+  (let ((dir (make-temp-file "spectreshell-glob-test" t))
+        (buffer (generate-new-buffer " *spectreshell-glob-test*")))
+    (unwind-protect
+        (let* ((default-directory (file-name-as-directory dir))
+               (proc (progn
+                       (write-region "" nil (expand-file-name "^x" dir))
+                       (make-process
+                        :name "spectreshell-glob-test"
+                        :buffer buffer
+                        :command (spectreshell-eshell--wrap-command-for-pty
+                                  (list "/bin/sh" "-c" "stty -a <&1") 24 80)
+                        :connection-type '(pipe . pty)
+                        :coding 'no-conversion
+                        :noquery t))))
+          (should (spectreshell-eshell-test--wait-until
+                   (lambda () (not (process-live-p proc)))))
+          (with-current-buffer buffer
+            (should (string-search "erase = ^?" (buffer-string)))))
+      (kill-buffer buffer)
+      (delete-directory dir t))))
+
 (ert-deftest spectreshell-eshell-test-wrap-command-hides-failing-stty ()
   "`stty' が失敗しても、その診断がユーザーに見える出力に混じらない。
 Emacs は pty を確保できなければ黙ってパイプに落とすので、ラッパが付く

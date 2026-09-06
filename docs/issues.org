@@ -1446,6 +1446,65 @@ M-17 (最終段に入力が届かない) と同じ構造 (入力側を pty に�
 の帰結なので、対処を考えるなら一緒に扱う。L-23 で「入力側も pty にし
 て TIOCSCTTY を得る案」を採らなかった理由はそちらを参照。
 
+** WAIT L-40: macOS では子の pty の erase が undef で vim の backspace が効かない
+対象: =spectreshell-eshell.el= (=--wrap-command-for-pty=)
+
+macOS 実機で spectreshell から vim を起動すると backspace が効かず、
+画面に =^?= が出る、という気付きが発端。原因は L-23 の副産物として
+記録した termios の =c_cc= で、入力エンコーダ (L-38) とは無関係:
+
+- Emacs 31.1 =sysdep.c= の =child_setup_tty= が子の pty の =VERASE= /
+  =VKILL= を =CDISABLE= にする (559-560 行)。
+- GNU coreutils の =stty= の =sane= は =c_cc= も =saneval= に戻すが、
+  macOS の =stty= (adv_cmds-237 =stty/key.c= の =f_sane=) は
+  =cfmakesane= の結果から flag word だけを写し、 =c_cc= に触らない。
+- vim は起動時に termios の =c_cc[VERASE]= を読んで =t_kb= にする
+  (=src/os_unix.c= の =get_stty= / =get_tty_info=)。erase が undef
+  なら DEL を backspace と認識しない。
+
+Linux での実測 (2026-09-06、aarch64): ラッパ無しの =(pipe . pty)= の
+子は =erase = <undef>= / =kill = <undef>= 、ラッパ (GNU の =sane=)
+越しなら =erase = ^?= 。つまり Linux では起きず、darwin 固有。
+
+対処: ラッパの =stty= に =erase '^?' kill '^U'= を足した (af53505・
+14484f6)。 =sane= の後ろに置くのは、GNU の =sane= が =c_cc= を戻すため
+前に置くと上書きされるから (Linux で実測: =erase ^H sane= は =^?= に
+なる)。単一引用符で囲むのは =?= が glob だから: 子の cwd は eshell の
+cwd なので、そこに =^x= があるだけで =stty= はそのファイル名を受け取る
+(Linux で実測: =erase = ^X= 。診断は null device 行きで黙って起きる)。
+退行は =--wrap-command-erase-survives-glob-in-cwd= で固定した
+(6b49022)。
+
+退行検出は =--wrap-command-restores-erase= の ERT (936378d・718597c)。
+問題は nix の checkPhase が実機と同じ =stty= を引かないことだった:
+sandbox に =/bin/stty= は無く、stdenv の initialPath にある GNU
+coreutils の =stty= が引かれるので、そのままでは macOS でも修正前から
+緑になる。macos-26 実機の =nix flake check= でも、落ちたのは
+=/bin/stty= を要求した =should= だけだった (2026-09-06)。
+
+対処として、darwin の =nativeCheckInputs= に =darwin.adv_cmds= を入れ
+た (c3186ba)。Apple の同じソースから =stty= をビルドしているパッケージ
+で (nixpkgs の =pkgs/os-specific/darwin/by-name/ad/adv_cmds=)、
+=nativeCheckInputs= は stdenv の initialPath より前に来るので
+(=setup.sh= の =_PATH=)、これで解決結果が入れ替わる。sandbox に穴を
+開ける =__impureHostDeps= は採らなかった: nixpkgs の =doc/= にも nix の
+マニュアルにも記載が無く、nixpkgs 全体でも 13 ファイルでしか使われて
+いない内部的な属性のため。ERT 側は =/bin/stty= を直接指すのをやめ、
+PATH の =stty= が GNU なら darwin では失敗させる (=stty --version= の
+出力で判定)。
+
+未確認 (macOS 実機待ち):
+
+- =darwin.adv_cmds= が macos-26 でビルドでき、 =$out/bin/stty= を出す
+  こと。Linux からは評価もビルドもできない。駄目なら perl で
+  =f_sane= を模した偽 =stty= を PATH に置く案に落とす
+- 修正前のコミット (936378d) で =nix flake check= が macos-26 で赤に、
+  修正後 (718597c) で緑になること
+- 実機で =true | sh -c 'stty -a <&1'= の =erase= が =^?= になること
+  (=sh= を最終段に置く。L-23 の確認手順の誤りを参照)
+- vim / nvim で実際に backspace が効くこと。vim が =c_cc[VERASE]= を
+  読むことはソース読解によるもので、実物では未検証
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き

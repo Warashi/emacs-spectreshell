@@ -6,6 +6,7 @@
   texinfo,
   perl,
   less,
+  darwin,
   callPackage,
   runCommand,
   writeShellScriptBin,
@@ -113,7 +114,13 @@ stdenv.mkDerivation (finalAttrs: {
     emacs31-nox
     perl
     less
-  ];
+  ]
+  # darwin では Apple の stty (adv_cmds) を PATH の先頭に置く。stdenv の
+  # initialPath にある GNU coreutils の stty は sane で c_cc も戻すのに
+  # 対し、Apple のものは flag word しか写さない (L-40)。実機の eshell が
+  # 解決するのは /bin/stty で、sandbox には無いため、同じソースから
+  # ビルドしたものを入れて実機と同じ経路を走らせる。
+  ++ lib.optionals stdenv.hostPlatform.isDarwin [ darwin.adv_cmds ];
 
   # Zig のユニットテストと ERT (module 境界 / 描画 / キー入力 / eshell
   # 統合) をパッケージビルドの一部として走らせる。ERT のテストヘルパーは
