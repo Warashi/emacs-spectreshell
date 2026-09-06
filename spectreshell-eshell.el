@@ -422,7 +422,9 @@ Emacs disables the child pty's VERASE/VKILL (`child_setup_tty' in
 undefined and a full-screen program that reads `c_cc[VERASE]' for its
 backspace key (vim's `get_stty') no longer recognizes DEL.  They come
 after `sane' because GNU's `sane', which does reset `c_cc', would
-otherwise overwrite them.
+otherwise overwrite them, and in single quotes because `?' would
+otherwise be a glob: the child's working directory is the user's, and a
+file named `^x' in it is enough to hand `stty' that name instead.
 
 The `stty' is given a duplicate of file descriptor 1 as its standard
 input.  Only the *output* side is forced to a pty here
@@ -457,7 +459,7 @@ placeholder argument, so an ARG that happens to look like one is just an
 ordinary argument."
   (append
    (list "/bin/sh" "-c"
-         (format "stty 2>%s <&1 sane rows %d columns %d erase ^? kill ^U; exec \"$0\" \"$@\""
+         (format "stty 2>%s <&1 sane rows %d columns %d erase '^?' kill '^U'; exec \"$0\" \"$@\""
                  null-device rows cols))
    command))
 
