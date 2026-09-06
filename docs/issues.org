@@ -1446,6 +1446,46 @@ M-17 (最終段に入力が届かない) と同じ構造 (入力側を pty に�
 の帰結なので、対処を考えるなら一緒に扱う。L-23 で「入力側も pty にし
 て TIOCSCTTY を得る案」を採らなかった理由はそちらを参照。
 
+** WAIT L-40: macOS では子の pty の erase が undef で vim の backspace が効かない
+対象: =spectreshell-eshell.el= (=--wrap-command-for-pty=)
+
+macOS 実機で spectreshell から vim を起動すると backspace が効かず、
+画面に =^?= が出る、という気付きが発端。原因は L-23 の副産物として
+記録した termios の =c_cc= で、入力エンコーダ (L-38) とは無関係:
+
+- Emacs 31.1 =sysdep.c= の =child_setup_tty= が子の pty の =VERASE= /
+  =VKILL= を =CDISABLE= にする (559-560 行)。
+- GNU coreutils の =stty= の =sane= は =c_cc= も =saneval= に戻すが、
+  macOS の =stty= (adv_cmds-237 =stty/key.c= の =f_sane=) は
+  =cfmakesane= の結果から flag word だけを写し、 =c_cc= に触らない。
+- vim は起動時に termios の =c_cc[VERASE]= を読んで =t_kb= にする
+  (=src/os_unix.c= の =get_stty= / =get_tty_info=)。erase が undef
+  なら DEL を backspace と認識しない。
+
+Linux での実測 (2026-09-06、aarch64): ラッパ無しの =(pipe . pty)= の
+子は =erase = <undef>= / =kill = <undef>= 、ラッパ (GNU の =sane=)
+越しなら =erase = ^?= 。つまり Linux では起きず、darwin 固有。
+
+対処: ラッパの =stty= に =erase ^? kill ^U= を足した (af53505)。
+=sane= の後ろに置くのは、GNU の =sane= が =c_cc= を戻すため前に置くと
+上書きされるから (Linux で実測: =erase ^H sane= は =^?= になる)。
+
+退行検出は =--wrap-command-restores-erase= の ERT (936378d)。darwin
+では =PATH= の先頭に =/bin= を置いて実機と同じ BSD の =stty= を解決
+させる。nix の checkPhase は =PATH= の先頭が GNU coreutils なので、
+そのままでは macOS でも実機の経路を通らず、修正前から緑になってしまう。
+=/bin/stty= が無ければ skip ではなく失敗にする (L-38 の教訓)。
+
+未確認 (macOS 実機待ち):
+
+- 修正前のコミット (936378d) で =nix flake check= が macos-26 で赤に
+  なること。darwin の nix sandbox が =/bin/stty= に届くかは Linux から
+  確認できないため、CI だけでなく実機の =nix flake check= でも見る。
+- 修正後に =true | sh -c 'stty -a <&1'= の =erase= が =^?= になること
+  (=sh= を最終段に置く。L-23 の確認手順の誤りを参照)。
+- vim / nvim で実際に backspace が効くこと。vim が =c_cc[VERASE]= を
+  読むことはソース読解によるもので、実物では未検証。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
