@@ -1422,6 +1422,30 @@ Emacs 31.1 =sysdep.c= の =child_setup_tty= が子の pty の =VERASE= /
 (brainium の TODO) の原因候補として記録し、ラッパへの =erase ^? kill
 ^U= の追加は再現を固めてから判断する (本項では対応しない)。
 
+** TODO L-39: macOS ではパイプ最終段の子が /dev/tty を開けず、パスフレーズを読むコマンドが動かない
+対象: =spectreshell-eshell.el= (=--force-pty-output= /
+=--wrap-command-for-pty=)
+
+L-23 の分析の帰結を macOS 実機で確認した (2026-09-06):
+=true | sh -c 'exec 3</dev/tty && echo ok'= が
+"/dev/tty: Device not configured" (ENXIO) で失敗する。最終段の子は
+出力側だけが pty (=(pipe . pty)=) なので =emacs_spawn= が
+=TIOCSCTTY= を呼ばず、darwin は =DONT_REOPEN_PTY= で再 open もしない
+ため、制御端末を持たない。Linux では =tty_open_proc_set_tty= の再
+open で制御端末になるので open は成功するが、M-17 のとおり入力は届か
+ない。macOS は open の段階で失敗する点が違い、子が出すエラーの形と
+(=/dev/tty= を必須としない子の) 挙動が変わる。
+
+未確認の推論: =ssh= / =sudo= / =gpg= など =/dev/tty= を開いてパスフ
+レーズを読むコマンドをパイプの最終段に置くと、macOS では読めずに失敗
+するはず。実際に試してはいない。単独コマンドは eshell が stdin も pty
+にするので (L-38 の less の項)、 =pty_in= が真になり影響しないはず
+(これも未確認)。
+
+M-17 (最終段に入力が届かない) と同じ構造 (入力側を pty にしない設計)
+の帰結なので、対処を考えるなら一緒に扱う。L-23 で「入力側も pty にし
+て TIOCSCTTY を得る案」を採らなかった理由はそちらを参照。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
