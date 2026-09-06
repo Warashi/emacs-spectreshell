@@ -1466,9 +1466,14 @@ Linux での実測 (2026-09-06、aarch64): ラッパ無しの =(pipe . pty)= の
 子は =erase = <undef>= / =kill = <undef>= 、ラッパ (GNU の =sane=)
 越しなら =erase = ^?= 。つまり Linux では起きず、darwin 固有。
 
-対処: ラッパの =stty= に =erase ^? kill ^U= を足した (af53505)。
-=sane= の後ろに置くのは、GNU の =sane= が =c_cc= を戻すため前に置くと
-上書きされるから (Linux で実測: =erase ^H sane= は =^?= になる)。
+対処: ラッパの =stty= に =erase '^?' kill '^U'= を足した (af53505・
+14484f6)。 =sane= の後ろに置くのは、GNU の =sane= が =c_cc= を戻すため
+前に置くと上書きされるから (Linux で実測: =erase ^H sane= は =^?= に
+なる)。単一引用符で囲むのは =?= が glob だから: 子の cwd は eshell の
+cwd なので、そこに =^x= があるだけで =stty= はそのファイル名を受け取る
+(Linux で実測: =erase = ^X= 。診断は null device 行きで黙って起きる)。
+退行は =--wrap-command-erase-survives-glob-in-cwd= で固定した
+(6b49022)。
 
 退行検出は =--wrap-command-restores-erase= の ERT (936378d)。darwin
 では =PATH= の先頭に =/bin= を置いて実機と同じ BSD の =stty= を解決
@@ -1481,6 +1486,11 @@ Linux での実測 (2026-09-06、aarch64): ラッパ無しの =(pipe . pty)= の
 - 修正前のコミット (936378d) で =nix flake check= が macos-26 で赤に
   なること。darwin の nix sandbox が =/bin/stty= に届くかは Linux から
   確認できないため、CI だけでなく実機の =nix flake check= でも見る。
+  修正後 (14484f6) も赤で、しかも失敗が =/bin/stty= の
+  =file-executable-p= なら、それは修正ではなく sandbox の話。その場合
+  は darwin の =__impureHostDeps= に =/bin/stty= を足す線を Nix の
+  公式マニュアルで確かめてから試す (stdenv が =/bin/sh= に使っている
+  のと同じ仕組みのはずだが未確認)。
 - 修正後に =true | sh -c 'stty -a <&1'= の =erase= が =^?= になること
   (=sh= を最終段に置く。L-23 の確認手順の誤りを参照)。
 - vim / nvim で実際に backspace が効くこと。vim が =c_cc[VERASE]= を
