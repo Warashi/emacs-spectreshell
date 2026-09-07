@@ -219,7 +219,7 @@ window-start も point と同じく確定化の挿入で押し出されるので
       (should (= (window-point window) (window-start window))))))
 
 (ert-deftest spectreshell-test-full-screen-region-is-aligned-to-window-start ()
-  "端末の高さがウィンドウ本文と同じなら、領域の先頭が窓の先頭に来る。
+  "alt screen に入った端末は、領域の先頭が窓の先頭に来る。
 全画面 TUI (nvim 等) はカーソルを上端に置くことがあり、Emacs は
 point が見える最小しかスクロールしないので、そのままだと領域の
 下側が画面の外に落ちる。"
@@ -228,9 +228,38 @@ point が見える最小しかスクロールしないので、そのままだ�
     (let ((term (spectreshell-start buffer (window-body-height window) 10 #'ignore)))
       (spectreshell-semi-char-mode 1)
       (setq spectreshell--current term)
-      ;; 上端にカーソルを置く全画面アプリ相当。
-      (spectreshell-feed term "top\x1b[H")
+      ;; alt screen に入って上端にカーソルを置く全画面アプリ相当。
+      (spectreshell-feed term "\x1b[?1049htop\x1b[H")
       (should (= (window-start window) (marker-position (spectreshell-marker term)))))))
+
+(ert-deftest spectreshell-test-plain-output-does-not-align-window-start ()
+  "alt screen に入らないコマンドの出力は、窓の先頭を動かさない。
+フォアグラウンドの端末の行数は常にウィンドウ本文と同じなので、
+高さだけで整列すると ls のような普通のコマンドでもスクロールバックと
+プロンプトが画面外へ追い出される (M-19)。"
+  (spectreshell-test--with-displayed-buffer window
+    (insert (make-string 10 ?\n))
+    (let ((term (spectreshell-start buffer (window-body-height window) 10 #'ignore)))
+      (spectreshell-semi-char-mode 1)
+      (setq spectreshell--current term)
+      (set-window-start window (point-min))
+      (spectreshell-feed term "top\x1b[H")
+      (should (= (window-start window) (point-min))))))
+
+(ert-deftest spectreshell-test-leaving-alt-screen-stops-aligning ()
+  "alt screen を出た後の出力は、窓の先頭を動かさない。
+全画面アプリが終わって普通の出力へ戻ったら整列も止まらないと、
+M-19 が alt screen を出た端末で再発する。"
+  (spectreshell-test--with-displayed-buffer window
+    (insert (make-string 10 ?\n))
+    (let ((term (spectreshell-start buffer (window-body-height window) 10 #'ignore)))
+      (spectreshell-semi-char-mode 1)
+      (setq spectreshell--current term)
+      (spectreshell-feed term "\x1b[?1049htop")
+      (spectreshell-feed term "\x1b[?1049l")
+      (set-window-start window (point-min))
+      (spectreshell-feed term "done\x1b[H")
+      (should (= (window-start window) (point-min))))))
 
 (ert-deftest spectreshell-test-scrollback-view-keeps-window-start ()
   "emacs モードでスクロールバックを見ている間は window-start を動かさない。
