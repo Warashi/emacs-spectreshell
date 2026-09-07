@@ -340,6 +340,32 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
+** TODO M-19: 通常のコマンドの出力が実行中ウィンドウ全体を占める
+対象: =spectreshell.el= (=spectreshell--align-windows=)
+
+=ls= や =git log= のような全画面アプリでないコマンドを実行すると、
+実行中はそれまでのスクロールバックとプロンプトが画面外へ追い出され、
+端末領域だけがウィンドウを占める。コマンドが終了すると元に戻る。
+
+M-18 の対応 (c902345) で入れた =spectreshell--align-windows= の退行。
+整列の条件は「領域の行数が =window-body-height= と一致する」だが、
+フォアグラウンドジョブの端末は非 compact で、その rows は
+=spectreshell-eshell--terminal-size= が同じ =window-body-height= から
+算出している。つまりこの条件はフォアグラウンドである限り常に成立し、
+「全画面アプリかどうか」を全く判定していない。
+
+対応方針: alt screen に入っているかどうかで判定する。nvim / htop /
+less / fzf は alt screen に入るので M-18 の整列は保たれ、通常の出力は
+point 追従のスクロールに戻る。
+
+alt screen を使わずに画面を描くアプリ (nom = nix-output-monitor など)
+は整列の対象外になる。nom は README が「Terminal clearing and
+reprinting」とだけ書いており alt screen 使用の明記は無いが、ビルドログを
+スクロールバックへ流す設計から使わない側と推定する (未実測)。これらは
+カーソルを描画領域の下端付近に置くため M-18 の症状が出にくく、
+「領域の高さ = ウィンドウ高さ」で拾おうとすると本項目の退行そのものに
+なるので、対象外とする。
+
 ** DONE M-18: 全画面アプリでカーソルが上端にあると端末領域がウィンドウに収まらない
 対象: =spectreshell.el= (ウィンドウのスクロール)
 
@@ -374,6 +400,8 @@ docs/design.org は「領域が端末サイズそのものであることが全�
 
 副作用: semi-char モード中に全画面アプリ (マウス非対応) をホイールで
 スクロールすると、次の出力で window-start が領域先頭へ戻る。
+
+追補: この整列条件は全画面アプリを判定できていなかった (M-19)。
 
 ERT: =spectreshell-test.el= に整列する / emacs モードでは動かさない
 の 2 本を追加。=set-window-start= は次の再表示で効くため、nvim での
