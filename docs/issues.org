@@ -340,7 +340,7 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
-** TODO M-19: 通常のコマンドの出力が実行中ウィンドウ全体を占める
+** DONE M-19: 通常のコマンドの出力が実行中ウィンドウ全体を占める
 対象: =spectreshell.el= (=spectreshell--align-windows=)
 
 =ls= や =git log= のような全画面アプリでないコマンドを実行すると、
@@ -365,6 +365,25 @@ reprinting」とだけ書いており alt screen 使用の明記は無いが、�
 カーソルを描画領域の下端付近に置くため M-18 の症状が出にくく、
 「領域の高さ = ウィンドウ高さ」で拾おうとすると本項目の退行そのものに
 なるので、対象外とする。
+
+対応 (2026-09-07, 919c719): =spectreshell= 構造体に =alt-screen= を足し、
+=--enter-alt-screen= / =--leave-alt-screen= で更新して
+=spectreshell--align-windows= の条件に加えた。=alt-saved= を流用しない
+のは、空の領域で alt screen に入ると =""= が入り non-nil になるため。
+ERT を 2 本追加 (非 alt では window-start を動かさない / alt screen を
+出た後も動かさない)、既存の整列テストは alt screen に入る形に変えた。
+design.org にも反映。
+
+実端末での確認 (2026-09-07, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、
+Emacs 31.1、80x24):
+- =sh -c 'seq 1 5; sleep 8'= の実行中、修正後はプロンプト行と
+  スクロールバックが見えたまま (モードラインは =Top=)。同じ条件で
+  =alt-screen= の判定だけを外すと出力 5 行が画面上端に来てプロンプトが
+  消え (=Bot=)、報告された症状を再現した。
+- =nvim -u NONE /tmp/m19.txt= では 1〜19 行 + ステータス行が見え、M-18 の
+  整列は保たれている。
+- nvim を =:q= で抜けた後の =sh -c 'seq 1 3; sleep 8'= でもプロンプトが
+  見えたまま (=Top=) で、alt screen を出た端末で再発しない。
 
 ** DONE M-18: 全画面アプリでカーソルが上端にあると端末領域がウィンドウに収まらない
 対象: =spectreshell.el= (ウィンドウのスクロール)
