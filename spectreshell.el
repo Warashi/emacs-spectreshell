@@ -182,6 +182,12 @@ constructor directly outside this file."
   cols
   send-fn
   alt-saved
+  ;; Non-nil while the child is on the alternate screen; see
+  ;; `spectreshell--align-windows'.  Not derived from `alt-saved': a
+  ;; terminal that entered the alt screen with an empty region saves the
+  ;; empty string, which is non-nil, so the two are only accidentally
+  ;; equivalent.
+  alt-screen
   title
   styles
   face-generation
@@ -746,7 +752,8 @@ ALT-SCREEN is the :alt-screen value from an update plist: `entered',
   "Snapshot OBJ's primary-screen region and blank it for the alt screen.
 The snapshot is restored by `spectreshell--leave-alt-screen'."
   (clrhash (spectreshell-row-cache obj))
-  (setf (spectreshell-alt-saved obj)
+  (setf (spectreshell-alt-screen obj) t
+        (spectreshell-alt-saved obj)
         (buffer-substring (spectreshell-marker obj) (spectreshell--region-end obj)))
   (delete-region (spectreshell-marker obj) (spectreshell--region-end obj))
   (spectreshell--pad-rows obj (1- (spectreshell-rows obj))))
@@ -767,7 +774,8 @@ The snapshot is restored by `spectreshell--leave-alt-screen'."
   ;; transition has the same update's :cursor put a fresh one back right
   ;; after; a process that died in the alt screen leaves none, and
   ;; `spectreshell--used-rows' must fall back to the visible output.
-  (setf (spectreshell-alt-saved obj) nil
+  (setf (spectreshell-alt-screen obj) nil
+        (spectreshell-alt-saved obj) nil
         (spectreshell-cursor-rowcol obj) nil))
 
 ;; ---------------------------------------------------------------------
@@ -803,11 +811,17 @@ output."
 
 (defun spectreshell--align-windows (obj)
   "Put OBJ\='s region at the top of every window it exactly fills.
-A region as tall as a window\='s body is a full-screen application\='s
-whole screen, and Emacs scrolls only as far as it takes to bring point
--- the terminal\='s cursor -- into view, so a TUI that keeps its cursor
+Emacs scrolls only as far as it takes to bring point -- the terminal\='s
+cursor -- into view, so a full-screen application that keeps its cursor
 near the top (nvim right after opening a file) has everything below the
 cursor row pushed off the window.
+
+Only while the child is on the alternate screen, which is what says it
+is drawing a screen of its own.  The height test alone does not: a
+foreground job\='s region is always exactly as tall as the window,
+because that is where its row count came from, so aligning on height
+would put every `ls\=' at the top of the window too and push the
+scrollback and the prompt out of sight (M-19).
 
 Only for the terminal that keys are reaching in semi-char mode, which
 is `spectreshell--cursor-followed-p\=''s condition as well: aligning
@@ -817,6 +831,7 @@ job\='s, deliberately shorter than the screen and sharing the window
 with the prompt below it."
   (when (and spectreshell-semi-char-mode
              (eq obj spectreshell--current)
+             (spectreshell-alt-screen obj)
              (not (spectreshell-compact obj)))
     (dolist (window (get-buffer-window-list (spectreshell-buffer obj) nil t))
       (when (= (window-body-height window) (spectreshell-rows obj))
