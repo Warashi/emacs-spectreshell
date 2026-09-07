@@ -354,9 +354,11 @@ M-18 の対応 (c902345) で入れた =spectreshell--align-windows= の退行。
 算出している。つまりこの条件はフォアグラウンドである限り常に成立し、
 「全画面アプリかどうか」を全く判定していない。
 
-対応方針: alt screen に入っているかどうかで判定する。nvim / htop /
-less / fzf は alt screen に入るので M-18 の整列は保たれ、通常の出力は
-point 追従のスクロールに戻る。
+対応方針: alt screen に入っているかどうかで判定する。alt screen に入る
+アプリでは M-18 の整列が保たれ、通常の出力は point 追従のスクロールに
+戻る。実測したのは nvim と less の 2 つ (下記)。htop や fzf は一般に
+alt screen を使う実装だが手元に無く未実測で、fzf は =--height= 付きだと
+alt screen に入らないので整列の対象外になる。
 
 alt screen を使わずに画面を描くアプリ (nom = nix-output-monitor など)
 は整列の対象外になる。nom は README が「Terminal clearing and
@@ -381,7 +383,8 @@ Emacs 31.1、80x24):
   =alt-screen= の判定だけを外すと出力 5 行が画面上端に来てプロンプトが
   消え (=Bot=)、報告された症状を再現した。
 - =nvim -u NONE /tmp/m19.txt= では 1〜19 行 + ステータス行が見え、M-18 の
-  整列は保たれている。
+  整列は保たれている。=less /tmp/m19.txt= も 1〜20 行 + ファイル名行で
+  領域全体が見える。
 - nvim を =:q= で抜けた後の =sh -c 'seq 1 3; sleep 8'= でもプロンプトが
   見えたまま (=Top=) で、alt screen を出た端末で再発しない。
 
