@@ -379,10 +379,12 @@ READY で待機が抜けないよう、行頭の READY に限る。"
   (spectreshell-eshell-test--with-eshell buf
     (let ((buffer-count-before (length (buffer-list))))
       ;; Emacs プロセスの CWD に依存しないよう、リポジトリルート基準の
-      ;; 絶対パスで less に渡す。
+      ;; 絶対パスで less に渡す。ASCII だけのファイルにするのは、C ロケール
+      ;; (nix の sandbox) の less が非 ASCII を含むファイルに "may be a
+      ;; binary file" の確認を出し、後で送る q がそれに消費されるため。
       (spectreshell-eshell-test--send
        buf (format "less %s"
-                    (expand-file-name "docs/design.org" spectreshell-test--repo-root)))
+                    (expand-file-name "LICENSE" spectreshell-test--repo-root)))
       (should (spectreshell-eshell-test--wait-until
                (lambda () (with-current-buffer buf
                             (and spectreshell-eshell--process
