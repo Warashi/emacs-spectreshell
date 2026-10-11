@@ -55,6 +55,22 @@
     (should (not (multibyte-string-p (plist-get update :responses))))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-synchronized-feed-returns-only-responses ()
+  "mode 2026 の中で終わった feed は :synchronized t と :responses だけを返す。"
+  (let* ((term (spectreshell--create 5 10))
+         (update (spectreshell--feed term "\x1b[?2026hHi\x1b[6n")))
+    (should (equal update '(:synchronized t :responses "\x1b[1;3R")))
+    (spectreshell--release term)))
+
+(ert-deftest spectreshell-module-test-flush-draws-pending-frame ()
+  "--flush は保留中の描画を通常の update plist で返す。"
+  (let* ((term (spectreshell--create 1 10))
+         (_ (spectreshell--feed term "\x1b[?2026hHi"))
+         (update (spectreshell--flush term)))
+    (should-not (plist-get update :synchronized))
+    (should (string-prefix-p "Hi" (nth 1 (car (plist-get update :dirty)))))
+    (spectreshell--release term)))
+
 (ert-deftest spectreshell-module-test-encode-key-arrow-up-decckm-off ()
   "DECCKM オフ (既定) では上矢印キーは ESC [ A にエンコードされる。"
   (let ((term (spectreshell--create 5 10)))
@@ -77,13 +93,15 @@
     (spectreshell--release term)))
 
 (ert-deftest spectreshell-module-test-release-then-feed-signals-not-crashes ()
-  "release 後に feed / resize / encode-key / encode-paste を呼ぶと
+  "release 後に feed / resize / flush / encode-key / encode-paste を呼ぶと
 signal されるだけでクラッシュしない。--release 自体は二重に呼んでも安全。"
   (let ((term (spectreshell--create 5 10)))
     (spectreshell--release term)
     (should-error (spectreshell--feed term "x")
                   :type 'spectreshell-terminal-released)
     (should-error (spectreshell--resize term 5 5)
+                  :type 'spectreshell-terminal-released)
+    (should-error (spectreshell--flush term)
                   :type 'spectreshell-terminal-released)
     (should-error (spectreshell--encode-key term 'up nil)
                   :type 'spectreshell-terminal-released)

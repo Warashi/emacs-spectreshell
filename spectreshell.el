@@ -38,6 +38,7 @@
 (declare-function spectreshell--create "libspectreshell" (rows cols))
 (declare-function spectreshell--feed "libspectreshell" (term bytes))
 (declare-function spectreshell--resize "libspectreshell" (term rows cols))
+(declare-function spectreshell--flush "libspectreshell" (term))
 (declare-function spectreshell--release "libspectreshell" (term))
 (declare-function spectreshell--encode-key "libspectreshell" (term key modifiers))
 (declare-function spectreshell--encode-paste "libspectreshell" (term text))
@@ -203,7 +204,10 @@ constructor directly outside this file."
   ;; The buffer position cannot answer that: a row the terminal never
   ;; dirtied has no line in the region, so the position clamps to the
   ;; region's end and the row number is lost.
-  cursor-rowcol)
+  cursor-rowcol
+  ;; Non-nil while drawing is held back for synchronized output; see
+  ;; `spectreshell--hold-synchronized'.
+  sync-timer)
 
 (defvar spectreshell--face-generation 0
   "Counter bumped whenever cached `face' values may have gone stale.
@@ -294,7 +298,46 @@ Return a new `spectreshell' object to pass to the other
 (defun spectreshell-feed (obj bytes)
   "Feed BYTES (a unibyte string) to OBJ's terminal and update its buffer.
 Return the raw update plist from `spectreshell--feed' (docs/module-api.org)."
-  (spectreshell--apply-update obj (spectreshell--feed (spectreshell-term obj) bytes)))
+  (let ((update (spectreshell--feed (spectreshell-term obj) bytes)))
+    (if (plist-get update :synchronized)
+        (spectreshell--hold-synchronized obj update)
+      (spectreshell--cancel-sync-timer obj)
+      (spectreshell--apply-update obj update))))
+
+;; ---------------------------------------------------------------------
+;; Synchronized output (mode 2026)
+;; ---------------------------------------------------------------------
+
+(defvar spectreshell-synchronized-timeout 1.0
+  "Seconds to hold back drawing for a frame left open in synchronized output.
+The same limit as ghostty's own (`sync_reset_ms' in termio/Thread.zig).")
+
+(defun spectreshell--hold-synchronized (obj update)
+  "Leave OBJ's buffer as it is while the child is inside a synchronized frame.
+UPDATE is the `(:synchronized t ...)' plist from `spectreshell--feed';
+only its responses are acted on.  The timer is armed once per hold and
+not pushed back by later held feeds: when every read ends inside some
+frame, no feed ever closes one, and drawing would otherwise stall for as
+long as the output keeps coming."
+  (unless (spectreshell-sync-timer obj)
+    (setf (spectreshell-sync-timer obj)
+          (run-at-time spectreshell-synchronized-timeout nil
+                       #'spectreshell--flush-synchronized obj)))
+  (when-let* ((response (plist-get update :responses)))
+    (funcall (spectreshell-send-fn obj) response))
+  update)
+
+(defun spectreshell--cancel-sync-timer (obj)
+  "Stop OBJ's synchronized-output timeout, if one is armed."
+  (when-let* ((timer (spectreshell-sync-timer obj)))
+    (cancel-timer timer)
+    (setf (spectreshell-sync-timer obj) nil)))
+
+(defun spectreshell--flush-synchronized (obj)
+  "Draw what OBJ held back, ending the child's synchronized output."
+  (setf (spectreshell-sync-timer obj) nil)
+  (when (buffer-live-p (spectreshell-buffer obj))
+    (spectreshell--apply-update obj (spectreshell--flush (spectreshell-term obj)))))
 
 (defun spectreshell-resize (obj rows cols)
   "Resize OBJ's terminal to ROWS x COLS and update its buffer accordingly.
@@ -305,6 +348,7 @@ pty was last told.
 Return the raw update plist from `spectreshell--resize'."
   (spectreshell--check-size rows cols)
   (let ((update (spectreshell--resize (spectreshell-term obj) rows cols)))
+    (spectreshell--cancel-sync-timer obj)
     (setf (spectreshell-rows obj) rows
           (spectreshell-cols obj) cols)
     ;; Reflow moves content between rows, and shrinking drops rows
@@ -332,7 +376,13 @@ drag point away from what is being typed.
 If the process died while the alternate screen was still active (a
 clean exit would have sent ?1049l first), the saved primary screen is
 restored just as leaving the alt screen would have, so the user's
-pre-TUI screen content is not silently lost."
+pre-TUI screen content is not silently lost.
+
+A frame still held back for synchronized output is drawn first: it may
+already have pushed lines into the scrollback."
+  (when (spectreshell-sync-timer obj)
+    (spectreshell--cancel-sync-timer obj)
+    (spectreshell--flush-synchronized obj))
   (let (end)
     (with-current-buffer (spectreshell-buffer obj)
       (save-restriction

@@ -12,6 +12,7 @@ Phase 3 (spectreshell.el) 以降はこのドキュメントを参照する。
 | ~(spectreshell--create ROWS COLS)~ | ROWS, COLS: 1〜65535 の整数 | TERM (user-ptr, finalizer 付き) |
 | ~(spectreshell--feed TERM BYTES)~ | TERM: user-ptr、BYTES: unibyte 文字列 | 更新情報 plist |
 | ~(spectreshell--resize TERM ROWS COLS)~ | TERM、ROWS/COLS: 1〜65535 の整数 | 更新情報 plist (全行 dirty) |
+| ~(spectreshell--flush TERM)~ | TERM | 更新情報 plist |
 | ~(spectreshell--encode-key TERM KEY MODIFIERS)~ | TERM、KEY、MODIFIERS | unibyte 文字列 or nil |
 | ~(spectreshell--encode-paste TERM TEXT)~ | TERM、TEXT: 文字列 | unibyte 文字列 |
 | ~(spectreshell--encode-mouse TERM BUTTON ACTION ROW COL MODIFIERS)~ | TERM、BUTTON、ACTION、ROW/COL: 整数、MODIFIERS | unibyte 文字列 or nil |
@@ -20,7 +21,7 @@ Phase 3 (spectreshell.el) 以降はこのドキュメントを参照する。
 TERM は ~spectreshell--create~ が返す user-ptr。他のモジュールの
 user-ptr や整数など、うちの Term でない値を渡すと
 ~wrong-type-argument~ が signal される。 ~spectreshell--release~ 済みの
-TERM に ~--feed~ / ~--resize~ / ~--encode-key~ / ~--encode-paste~ /
+TERM に ~--feed~ / ~--resize~ / ~--flush~ / ~--encode-key~ / ~--encode-paste~ /
 ~--encode-mouse~ を呼ぶと ~spectreshell-terminal-released~ (~error~ の
 子コンディション) が signal される。 ~--release~ 自体は二重に呼んでも
 安全 (2回目は no-op)。
@@ -29,7 +30,7 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
 ~wrong-type-argument~ が、範囲外 (0 以下または 65536 以上) だと
 ~args-out-of-range~ が signal される。
 
-* ~--feed~ / ~--resize~ の戻り値 plist
+* ~--feed~ / ~--resize~ / ~--flush~ の戻り値 plist
 
 #+begin_src elisp
 (:dirty ((ROW TEXT SPANS) ...)
@@ -72,6 +73,14 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
   あった場合のみ ~entered~ / ~left~ シンボルを持つ。変化なしならキー
   ごと省略される。
 - *~:title~*: OSC 0/2 でタイトルが変更された場合のみ含まれる。
+
+** 描画の保留 (mode 2026)
+
+~--feed~ が mode 2026 (synchronized output) の中で終わると、戻り値は
+~(:synchronized t :responses "raw-bytes-or-omitted")~ だけになる。
+保留した変更は、mode 2026 が閉じた ~--feed~ の戻り値にまとめて載る。
+~--resize~ と ~--flush~ は mode 2026 を解除してから通常の plist を返す。
+~--flush~ はアプリが mode 2026 を閉じないまま止まったときに使う。
 
 ** SPANS
 

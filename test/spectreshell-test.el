@@ -87,6 +87,49 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
     (should (string-prefix-p "あ" (buffer-string)))
     (should (member '(:foreground "red3") (get-text-property (point-min) 'face)))))
 
+(ert-deftest spectreshell-test-synchronized-frame-is-drawn-once-closed ()
+  "mode 2026 で囲んだフレームが feed 境界で割れても、閉じるまでは直前の
+画面が残り、閉じた feed で新しい画面にまとめて置き換わる。"
+  (spectreshell-test--with-terminal (term 2 10)
+    (spectreshell-feed term "old 1\r\nold 2")
+    (spectreshell-feed term "\x1b[?2026h\x1b[2K\x1b[1F\x1b[2Knew 1")
+    (should (string-prefix-p "old 1     \nold 2" (buffer-string)))
+    (spectreshell-feed term "\r\nnew 2\x1b[?2026l")
+    (should (string-prefix-p "new 1     \nnew 2" (buffer-string)))))
+
+(ert-deftest spectreshell-test-synchronized-feed-still-sends-responses ()
+  "描画を保留している間も、端末への問い合わせには応答する。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-feed term "\x1b[?2026h\x1b[6n")
+    (should (equal responses '("\x1b[1;1R")))))
+
+(ert-deftest spectreshell-test-synchronized-output-times-out ()
+  "mode 2026 を閉じないまま出力が止まっても、タイムアウト後には描く。"
+  (let ((spectreshell-synchronized-timeout 0.05))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term "\x1b[?2026hab")
+      (should-not (string-prefix-p "ab" (buffer-string)))
+      (sleep-for 0.2)
+      (should (string-prefix-p "ab" (buffer-string))))))
+
+(ert-deftest spectreshell-test-synchronized-timeout-is-not-extended-by-feeds ()
+  "保留が続く feed が来続けても、タイムアウトは最初の保留から数える。
+フレームの継ぎ目が毎回 feed の途中に来ると、閉じた feed が来ない。"
+  (let ((spectreshell-synchronized-timeout 0.1))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term "\x1b[?2026ha")
+      (sleep-for 0.06)
+      (spectreshell-feed term "\x1b[?2026l\x1b[?2026hb")
+      (sleep-for 0.06)
+      (should (string-prefix-p "ab" (buffer-string))))))
+
+(ert-deftest spectreshell-test-finalize-draws-pending-frame ()
+  "保留中に確定化すると、保留していた描画を反映してから確定する。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-feed term "\x1b[?2026hab")
+    (spectreshell-finalize term)
+    (should (equal "ab\n" (buffer-string)))))
+
 (ert-deftest spectreshell-test-carriage-return-overwrites-line ()
   "\\r による上書きは同じ行の内容を新しい内容で置き換える。"
   (spectreshell-test--with-terminal (term 1 20)

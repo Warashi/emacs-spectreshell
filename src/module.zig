@@ -203,6 +203,13 @@ fn scrolledOffValue(env: *emacs.Env, arena: std.mem.Allocator, r: core.Row) !*em
 fn buildUpdatePlist(env: *emacs.Env, arena: std.mem.Allocator, update: *const core.Update) !*emacs.Value {
     var items: std.ArrayList(*emacs.Value) = .empty;
 
+    if (update.synchronized) {
+        try items.append(arena, emacs.intern(env, ":synchronized"));
+        try items.append(arena, emacs.t(env));
+        try appendResponses(env, arena, &items, update);
+        return emacs.list(env, items.items);
+    }
+
     {
         var rows: std.ArrayList(*emacs.Value) = .empty;
         for (update.dirty) |d| try rows.append(arena, try dirtyRowValue(env, arena, d));
@@ -245,10 +252,7 @@ fn buildUpdatePlist(env: *emacs.Env, arena: std.mem.Allocator, update: *const co
     try items.append(arena, emacs.intern(env, ":cursor-visible"));
     try items.append(arena, if (update.cursor.visible) emacs.t(env) else emacs.nilv(env));
 
-    if (update.responses.len > 0) {
-        try items.append(arena, emacs.intern(env, ":responses"));
-        try items.append(arena, emacs.makeUnibyteString(env, update.responses));
-    }
+    try appendResponses(env, arena, &items, update);
 
     switch (update.alt_screen) {
         .unchanged => {},
@@ -268,6 +272,12 @@ fn buildUpdatePlist(env: *emacs.Env, arena: std.mem.Allocator, update: *const co
     }
 
     return emacs.list(env, items.items);
+}
+
+fn appendResponses(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayList(*emacs.Value), update: *const core.Update) !void {
+    if (update.responses.len == 0) return;
+    try items.append(arena, emacs.intern(env, ":responses"));
+    try items.append(arena, emacs.makeUnibyteString(env, update.responses));
 }
 
 // ---------------------------------------------------------------------
@@ -408,7 +418,7 @@ fn collectMouseMods(env: *emacs.Env, arena: std.mem.Allocator, mods_list: *emacs
 }
 
 // ---------------------------------------------------------------------
-// spectreshell--create / --feed / --resize / --encode-key / --encode-paste
+// spectreshell--create / --feed / --resize / --flush / --encode-key / --encode-paste
 // / --encode-mouse / --release の実装本体
 // ---------------------------------------------------------------------
 
@@ -448,6 +458,17 @@ fn resizeImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
     const a = arena.allocator();
 
     const update = try term.resize(a, rows, cols);
+    return buildUpdatePlist(env, a, &update);
+}
+
+fn flushImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
+    const term = try getTerm(env, args[0]);
+
+    var arena = scratchArena();
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const update = try term.flush(a);
     return buildUpdatePlist(env, a, &update);
 }
 
@@ -526,6 +547,11 @@ fn resizeFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopa
     return finish(env, resizeImpl(env, args[0..@intCast(nargs)]));
 }
 
+fn flushFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
+    _ = data;
+    return finish(env, flushImpl(env, args[0..@intCast(nargs)]));
+}
+
 fn encodeKeyFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
     _ = data;
     return finish(env, encodeKeyImpl(env, args[0..@intCast(nargs)]));
@@ -576,6 +602,7 @@ pub fn registerAll(env: *emacs.Env) void {
     defalias(env, "spectreshell--create", 2, 2, createFn, "Create a ROWS x COLS spectreshell terminal object.");
     defalias(env, "spectreshell--feed", 2, 2, feedFn, "Feed BYTES to TERM and return the update plist.");
     defalias(env, "spectreshell--resize", 3, 3, resizeFn, "Resize TERM to ROWS x COLS and return the update plist.");
+    defalias(env, "spectreshell--flush", 1, 1, flushFn, "End TERM's synchronized output (mode 2026) and return the update plist.");
     defalias(env, "spectreshell--encode-key", 3, 3, encodeKeyFn, "Encode KEY with MODIFIERS for TERM into PTY bytes.");
     defalias(env, "spectreshell--encode-paste", 2, 2, encodePasteFn, "Encode TEXT as a paste for TERM into PTY bytes.");
     defalias(env, "spectreshell--encode-mouse", 6, 6, encodeMouseFn, "Encode a mouse BUTTON/ACTION at ROW/COL with MODIFIERS for TERM.");

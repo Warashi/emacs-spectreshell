@@ -118,6 +118,9 @@ pub const Update = struct {
     styles_first_id: StyleId,
     /// 真なら受け手は覚えている ID をすべて捨てる (テーブルを振り直した)。
     styles_reset: bool,
+    /// 真なら mode 2026 の中で feed が終わったため描画を保留している。
+    /// responses 以外は空で、保留した変更は次に描く update にまとめて載る。
+    synchronized: bool = false,
 
     pub fn deinit(self: *Update) void {
         for (self.dirty) |*d| d.deinit(self.alloc);
@@ -186,7 +189,39 @@ pub const Term = struct {
     /// self.stream に永続化してあり、呼び出しごとに作り直さない。
     pub fn feed(self: *Term, alloc: std.mem.Allocator, bytes: []const u8) !Update {
         try self.feedWithoutDel(bytes);
+        if (self.terminal.modes.get(.synchronized_output)) return self.deferredUpdate(alloc);
         return self.buildUpdate(alloc);
+    }
+
+    /// mode 2026 を解除して描く。アプリが mode 2026 を閉じないまま
+    /// 止まったときに、呼び出し側のタイムアウトから使う。
+    pub fn flush(self: *Term, alloc: std.mem.Allocator) !Update {
+        self.terminal.modes.set(.synchronized_output, false);
+        return self.buildUpdate(alloc);
+    }
+
+    /// buildUpdate を通らないので、dirty フラグも scrollback も消費されず
+    /// 次の buildUpdate にそのまま残る。
+    fn deferredUpdate(self: *Term, alloc: std.mem.Allocator) !Update {
+        return .{
+            .alloc = alloc,
+            .dirty = &.{},
+            .scrolled_off = &.{},
+            .cursor = .{ .row = 0, .col = 0, .index = 0, .visible = false },
+            .responses = try self.takeResponses(alloc),
+            .alt_screen = .unchanged,
+            .styles = &.{},
+            .styles_first_id = @intCast(self.styles.count()),
+            .styles_reset = false,
+            .title = null,
+            .synchronized = true,
+        };
+    }
+
+    fn takeResponses(self: *Term, alloc: std.mem.Allocator) ![]u8 {
+        const responses = try alloc.dupe(u8, self.responses.items);
+        self.responses.clearRetainingCapacity();
+        return responses;
     }
 
     /// DEL (0x7F) を落としてからパーサへ渡す。ECMA-48 では DEL は常に
@@ -206,6 +241,9 @@ pub const Term = struct {
 
     pub fn resize(self: *Term, alloc: std.mem.Allocator, rows: u16, cols: u16) !Update {
         try self.terminal.resize(self.alloc, cols, rows);
+        // ghostty 本体も resize で mode 2026 を解除する (termio/Termio.zig)。
+        // 保留したままだと、新しいサイズで描き直す機会がアプリ次第になる。
+        self.terminal.modes.set(.synchronized_output, false);
         return self.buildUpdate(alloc);
     }
 
@@ -434,9 +472,8 @@ pub const Term = struct {
             .visible = self.render.cursor.visible,
         };
 
-        const responses = try alloc.dupe(u8, self.responses.items);
+        const responses = try self.takeResponses(alloc);
         errdefer alloc.free(responses);
-        self.responses.clearRetainingCapacity();
 
         var title: ?[]u8 = null;
         errdefer if (title) |t| alloc.free(t);
@@ -625,6 +662,105 @@ test "スクロールアウトした行は重複なく抽出される" {
         defer update.deinit();
         try testing.expectEqual(@as(usize, 0), update.scrolled_off.len);
     }
+}
+
+test "mode 2026 の中で終わった feed は描画を保留し、閉じた feed でまとめて返す" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 1, 10);
+    defer t.deinit();
+
+    {
+        var update = try t.feed(alloc, "abc");
+        defer update.deinit();
+    }
+
+    {
+        var update = try t.feed(alloc, "\x1b[?2026h\x1b[2K\r");
+        defer update.deinit();
+        try testing.expect(update.synchronized);
+        try testing.expectEqual(@as(usize, 0), update.dirty.len);
+    }
+
+    var update = try t.feed(alloc, "XY\x1b[?2026l");
+    defer update.deinit();
+    try testing.expect(!update.synchronized);
+    try testing.expectEqual(@as(usize, 1), update.dirty.len);
+    try testing.expectEqualStrings("XY        ", update.dirty[0].text);
+}
+
+test "保留中にスクロールアウトした行は閉じた feed で返る" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 3, 5);
+    defer t.deinit();
+
+    {
+        var update = try t.feed(alloc, "\x1b[?2026h1\r\n2\r\n3\r\n4\r\n");
+        defer update.deinit();
+        try testing.expectEqual(@as(usize, 0), update.scrolled_off.len);
+    }
+
+    var update = try t.feed(alloc, "\x1b[?2026l");
+    defer update.deinit();
+    try testing.expectEqual(@as(usize, 2), update.scrolled_off.len);
+    try testing.expectEqualStrings("1    ", update.scrolled_off[0].text);
+    try testing.expectEqualStrings("2    ", update.scrolled_off[1].text);
+}
+
+test "保留中も端末への応答は返す" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 1, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[?2026h\x1b[6n");
+    defer update.deinit();
+    try testing.expect(update.synchronized);
+    try testing.expectEqualStrings("\x1b[1;1R", update.responses);
+}
+
+test "flush は mode 2026 を解除して描く" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 1, 10);
+    defer t.deinit();
+
+    {
+        var update = try t.feed(alloc, "\x1b[?2026hab");
+        defer update.deinit();
+        try testing.expect(update.synchronized);
+    }
+
+    {
+        var update = try t.flush(alloc);
+        defer update.deinit();
+        try testing.expect(!update.synchronized);
+        try testing.expectEqualStrings("ab        ", update.dirty[0].text);
+    }
+
+    var update = try t.feed(alloc, "c");
+    defer update.deinit();
+    try testing.expect(!update.synchronized);
+    try testing.expectEqualStrings("abc       ", update.dirty[0].text);
+}
+
+test "resize は mode 2026 を解除して描く" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 1, 10);
+    defer t.deinit();
+
+    {
+        var update = try t.feed(alloc, "\x1b[?2026hab");
+        defer update.deinit();
+    }
+
+    {
+        var update = try t.resize(alloc, 1, 12);
+        defer update.deinit();
+        try testing.expect(!update.synchronized);
+        try testing.expectEqualStrings("ab          ", update.dirty[0].text);
+    }
+
+    var update = try t.feed(alloc, "c");
+    defer update.deinit();
+    try testing.expect(!update.synchronized);
 }
 
 test "alt screen への出入りが通知される" {
