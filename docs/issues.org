@@ -340,6 +340,28 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
+** TODO M-20: nom の大きいビルドで進捗表示が高速に点滅する
+対象: =src/core.zig= / =spectreshell.el= (出力の反映)
+
+nix-output-monitor (nom) で依存グラフの大きいビルドを流すと、進捗
+ブロックが高速に点滅する。GUI と =-nw= (Ghostty 直接、ssh 先を含む)
+の両方で起きる。
+
+nom は 1 フレームを mode 2026 (synchronized output) で囲み、
+「=ESC[2K= / =ESC[1F= で前フレームの行を消す → 描き直す」を 1 回の
+write で出す (=script -T= で pty の read 単位を記録して確認)。4095
+バイトを超えるフレームは pty の 1 回の read の上限で割れて届く
+(依存 40 個の試験ビルドで 5107 バイトのフレームが 4095 + 1020 に
+割れた)。割れていないフレームを 1 つずつ =spectreshell-feed= すると
+各時点のバッファは完全なフレームになっていた。
+
+推定 (未実測): 割れた前半だけの更新を反映した時点で redisplay が走り、
+行が消えたフレームと描き直したフレームが交互に見えている。
+
+対応方針: mode 2026 が有効なまま feed が終わったら更新の反映を保留し、
+フレームが閉じた feed でまとめて反映する。保留が 1 秒続いたら
+(ghostty 本体の =sync_reset_ms= と同じ) mode を解除して描く。
+
 ** DONE M-19: 通常のコマンドの出力が実行中ウィンドウ全体を占める
 対象: =spectreshell.el= (=spectreshell--align-windows=)
 
