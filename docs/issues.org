@@ -340,7 +340,7 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
-** TODO M-20: nom の大きいビルドで進捗表示が高速に点滅する
+** WAIT M-20: nom の大きいビルドで進捗表示が高速に点滅する
 対象: =src/core.zig= / =spectreshell.el= (出力の反映)
 
 nix-output-monitor (nom) で依存グラフの大きいビルドを流すと、進捗
@@ -361,6 +361,19 @@ write で出す (=script -T= で pty の read 単位を記録して確認)。409
 対応方針: mode 2026 が有効なまま feed が終わったら更新の反映を保留し、
 フレームが閉じた feed でまとめて反映する。保留が 1 秒続いたら
 (ghostty 本体の =sync_reset_ms= と同じ) mode を解除して描く。
+
+対応 (2026-10-11, 1b41b57): モジュールの =feed= が
+mode 2026 の中で終わったら =(:synchronized t :responses ...)= だけを
+返し、dirty フラグと scrollback は次の更新に持ち越す。=--flush= と
+=--resize= は mode を解除して描く。Elisp 側は保留中の更新を反映せず、
+最初の保留から 1 秒のタイマーで =--flush= し、確定化の前にも描く。
+
+batch での確認: 上記の試験ビルドの記録を、全フレームを中央で 2 つに
+割って =spectreshell-feed= に流し、=∑= の行 (nom のブロック最終行) が
+一度描かれた後に消えている時点を数えた。修正前は 1494 回の feed 中
+686 回、修正後は 0 回。
+
+実端末 (Ghostty 直接、GUI / =-nw= / ssh 先) での目視確認は未実施。
 
 ** DONE M-19: 通常のコマンドの出力が実行中ウィンドウ全体を占める
 対象: =spectreshell.el= (=spectreshell--align-windows=)

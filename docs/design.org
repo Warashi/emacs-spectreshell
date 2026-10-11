@@ -165,6 +165,14 @@ underline (スタイル種別含む)・strikethrough・inverse・faint・
   抑えるのではない。上限で枝刈りすると取り出す前の行が捨てられる)。
   isearch・コピー・ ~eshell-previous-prompt~ など Emacs の
   機能が確定部分にそのまま効く。eat と同方式。
+- *synchronized output (mode 2026)*: mode 2026 の中で feed が終わったら
+  バッファへの反映を保留し、mode が閉じた feed でまとめて反映する。
+  pty の read 単位 (Linux で約 4KB) を超えるフレームは割れて届き、
+  前半だけを反映すると消去途中の画面が redisplay されて点滅する
+  (M-20)。保留はモジュールで行い、dirty フラグと scrollback を消費
+  しないことで次の反映に持ち越す。保留が 1 秒続いたら mode を解除して
+  描く (ghostty 本体と同じ値)。打ち切りは最初の保留から数え、後続の
+  保留では延ばさない。resize と確定化でも保留を解いて描く。
 - *alternate screen* (less, vim 等) の内容は確定化せず、
   終了時に領域ごと消去して元の画面を復元する。
 - *face*: ~spectreshell-color-0~ 〜 ~spectreshell-color-15~ 等の
