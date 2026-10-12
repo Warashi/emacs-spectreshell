@@ -1194,6 +1194,14 @@ M-21 以降、GUI では RI が 1 文字ずつ単独の幅で測られて縮み�
 を保ったまま 1 セル幅になる (Xvfb、Noto Color Emoji で 20px → 10px)。
 端末の 4 セルとの差は 2 セルから 3 セルに広がる。
 
+Ghostty アプリは =grapheme-width-method= の既定が =unicode= で
+(=src/config/Config.zig=)、端末の生成時に 2027 を有効にする
+(=src/termio/Termio.zig=)。そのため国旗は 2 セルで表示される。4 セル
+になるのは、この設定層を通らない ghostty-vt を使う spectreshell の側。
+切り口の候補 (未検証): spectreshell でも 2027 を既定で有効にする。
+ZWJ と肌色修飾のずれ (L-33 では Emacs 側が +4 / +2 桁)、および M-21
+による国旗の縮小との組み合わせを確かめる必要がある。
+
 ERT: =test/spectreshell-explore-geometry-test.el= の
 =spectreshell-explore-geometry-test-regional-indicator-width=
 (=:expected-result :failed=)。この Probe は =current-column= (表示幅)
