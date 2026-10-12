@@ -340,7 +340,7 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
-** TODO M-21: GUI の Emacs で nom のツリーが右端で 1 文字ぶん折り返す
+** WAIT M-21: GUI の Emacs で nom のツリーが右端で 1 文字ぶん折り返す
 対象: =spectreshell.el= (=spectreshell--decorate-row=)
 
 GUI の Emacs で nix-output-monitor (nom) を動かすと、⏱ ⏸ ⚠ を含む行
@@ -367,6 +367,24 @@ Noto Sans CJK) での実測。値はグリフ幅 / =char-width= × セル幅 (px
 サイズの丸めで収まらないことがある (15pt で ⏱ が 0.5 倍でも 14px > 13px)
 ので、縮めた後の幅を実測して確かめる。国旗など細すぎる側 (L-37) と
 tty は対象外。
+
+対応 (2026-10-12, c78ccbe): =spectreshell--decorate-row= の最後で非
+ASCII の文字ごとに =string-pixel-width= で幅を測り、はみ出す文字に
+=(height 目標/実幅)= を付ける。縮めた幅がまだ超えていれば 0.9 倍ずつ
+下げる。結果は文字ごとにキャッシュし、選択中のフレームのフォントが
+変わったら捨てる。
+
+制約: 幅は描画時に選択中のフレームで測る。tty と GUI のフレームが混在
+すると、描画時に選択されていた側の結果になる。確定したスクロールバック
+にも =display= が残るので、yank すると縮小ごと他のバッファへ持ち出され
+る (face と同じ扱い)。
+
+Xvfb での確認: 上記のフォントで、80 桁の端末に「⏱ ⏸ ⚠ を含む行」と
+「❌ を含む行」を桁いっぱいに描き、=count-screen-lines= で数えた。
+9 / 12 / 14 / 15 / 16 / 20pt のすべてで、修正前は 2 行 (❌ の行は
+12 / 15pt を除く)、修正後は 1 行。
+
+実環境 (普段使いの GUI Emacs で nom) での目視確認は未実施。
 
 ** WAIT M-20: nom の大きいビルドで進捗表示が高速に点滅する
 対象: =src/core.zig= / =spectreshell.el= (出力の反映)
