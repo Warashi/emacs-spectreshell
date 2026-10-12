@@ -1190,6 +1190,10 @@ Emacs 上で 2 桁、端末上では 4 セルになる。L-33 でカーソル *�
 - 逆写像: マウス座標のバッファ位置 → セル列は今も =current-column= 系で
   解いているので、国旗を含む行ではクリック位置が数セルずれる。
 
+M-21 以降、GUI では RI が 1 文字ずつ単独の幅で測られて縮み、国旗は合成
+を保ったまま 1 セル幅になる (Xvfb、Noto Color Emoji で 20px → 10px)。
+端末の 4 セルとの差は 2 セルから 3 セルに広がる。
+
 ERT: =test/spectreshell-explore-geometry-test.el= の
 =spectreshell-explore-geometry-test-regional-indicator-width=
 (=:expected-result :failed=)。この Probe は =current-column= (表示幅)
