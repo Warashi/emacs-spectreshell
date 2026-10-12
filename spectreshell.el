@@ -681,7 +681,66 @@ is safe to add properties to it directly."
                'help-echo uri
                'spectreshell-hyperlink-uri uri)
          text))))
+  (spectreshell--fit-overwide-glyphs text)
   text)
+
+;; ---------------------------------------------------------------------
+;; Overwide glyphs
+;; ---------------------------------------------------------------------
+
+(defvar spectreshell--fit-height-cache (make-hash-table)
+  "Map a character to its `spectreshell--fit-height' result, or `none'.
+Valid only for the frame font recorded in `spectreshell--fit-height-font'.")
+
+(defvar spectreshell--fit-height-font nil
+  "The selected frame's font when `spectreshell--fit-height-cache' was filled.")
+
+(defun spectreshell--pixel-width (string)
+  "Return STRING's pixel width in the selected frame, or nil on a text terminal."
+  (and (display-graphic-p) (string-pixel-width string)))
+
+(defun spectreshell--fit-height (char)
+  "Return the `display' height that fits CHAR's glyph in its cells, or nil.
+CHAR occupies `char-width' cells of `frame-char-width' pixels in the
+terminal, but a GUI frame may pick a wider glyph for it (an emoji font
+for a symbol whose `char-width' is 1) and stretch the line by the
+excess, wrapping a full-width row.  nil when the glyph already fits or
+there is no GUI frame to measure in.  Results are cached per selected
+frame font."
+  (let ((font (frame-parameter nil 'font)))
+    (unless (equal font spectreshell--fit-height-font)
+      (clrhash spectreshell--fit-height-cache)
+      (setq spectreshell--fit-height-font font)))
+  (let ((cached (gethash char spectreshell--fit-height-cache)))
+    (if cached
+        (and (not (eq cached 'none)) cached)
+      (let* ((string (string char))
+             (target (* (char-width char) (frame-char-width)))
+             (width (spectreshell--pixel-width string))
+             (height (and width (> target 0) (> width target)
+                          (/ (float target) width)))
+             (tries 0))
+        ;; The ratio alone can leave the glyph a pixel too wide, since the
+        ;; scaled font size is rounded, so check the scaled width itself.
+        (while (and height
+                    (< tries 10)
+                    (> (spectreshell--pixel-width
+                        (propertize string 'display (list 'height height)))
+                       target))
+          (setq height (* height 0.9)
+                tries (1+ tries)))
+        (puthash char (or height 'none) spectreshell--fit-height-cache)
+        height))))
+
+(defun spectreshell--fit-overwide-glyphs (text)
+  "Shrink TEXT's characters whose glyph overflows their cells.
+Only the `display' property changes, so TEXT keeps one character per
+cell for the column arithmetic elsewhere."
+  (let ((i 0))
+    (while (setq i (string-match "[^[:ascii:]]" text i))
+      (when-let* ((height (spectreshell--fit-height (aref text i))))
+        (put-text-property i (1+ i) 'display (list 'height height) text))
+      (setq i (1+ i)))))
 
 ;; ---------------------------------------------------------------------
 ;; Style span -> face conversion
