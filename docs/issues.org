@@ -340,6 +340,34 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
+** TODO M-21: GUI の Emacs で nom のツリーが右端で 1 文字ぶん折り返す
+対象: =spectreshell.el= (=spectreshell--decorate-row=)
+
+GUI の Emacs で nix-output-monitor (nom) を動かすと、⏱ ⏸ ⚠ を含む行
+だけが右端で 1 文字ぶん折り返す。これらの =char-width= は 1 で
+ghostty-vt と桁数は一致するが、絵文字フォントで約 2 セル幅のグリフが
+選ばれ、GUI の Emacs はグリフのピクセル幅だけ行を伸ばす (Ghostty は隣
+のセルに重ねるので伸びない)。フォントの差し替えや =char-width= の変更
+では直らない。
+
+Xvfb 上の GUI Emacs 31.1 (DejaVu Sans Mono + Noto Color Emoji +
+Noto Sans CJK) での実測。値はグリフ幅 / =char-width= × セル幅 (px):
+
+#+begin_example
+12pt: ⏱ 20/10  ⏸ 20/10  ⚠ 10/10  ❌ 20/20  漢 16/20
+14pt: ⏱ 24/11  ⏸ 24/11  ⚠ 11/11  ❌ 24/22  漢 19/22
+#+end_example
+
+=char-width= 2 の絵文字 (❌) もサイズによっては 1〜2px はみ出す。CJK
+はこの組み合わせでははみ出さない。
+
+対応方針: GUI フレームでの描画時に、グリフの実幅が =char-width= ×
+セル幅を超える文字にだけ =display= の =height= を付けて収める。記号を
+列挙せず、フォントで実測して決める。縮小率を幅の比で決めるとフォント
+サイズの丸めで収まらないことがある (15pt で ⏱ が 0.5 倍でも 14px > 13px)
+ので、縮めた後の幅を実測して確かめる。国旗など細すぎる側 (L-37) と
+tty は対象外。
+
 ** WAIT M-20: nom の大きいビルドで進捗表示が高速に点滅する
 対象: =src/core.zig= / =spectreshell.el= (出力の反映)
 
