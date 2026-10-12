@@ -453,6 +453,71 @@ rows / cols も更新されないままであるべき。"
                           (get-text-property (point-min) 'face))))
       (set-face-foreground 'spectreshell-color-1 original))))
 
+(defmacro spectreshell-test--with-glyph-widths (widths &rest body)
+  "セル幅 10px の GUI フレームで、文字のピクセル幅を WIDTHS として BODY を評価する。
+WIDTHS は (CHAR . FN) の alist で、FN は `display' の height 倍率を受けて
+描いた幅を返す。WIDTHS に無い文字は `char-width' × 10px。"
+  (declare (indent 1))
+  `(let ((spectreshell--fit-height-cache (make-hash-table)))
+     (cl-letf (((symbol-function 'frame-char-width) (lambda (&rest _) 10))
+               ((symbol-function 'spectreshell--pixel-width)
+                (lambda (string)
+                  (let* ((ch (aref string 0))
+                         (height (or (plist-get (get-text-property 0 'display string)
+                                                'height)
+                                     1.0))
+                         (fn (alist-get ch ,widths)))
+                    (if fn (funcall fn height) (* 10 (char-width ch)))))))
+       ,@body)))
+
+(defun spectreshell-test--drawn-width (char)
+  "CHAR の最初の出現位置に付いた `display' を反映した、差し替え後の幅を返す。"
+  (save-excursion
+    (goto-char (point-min))
+    (search-forward (string char))
+    (spectreshell--pixel-width (buffer-substring (1- (point)) (point)))))
+
+(ert-deftest spectreshell-test-overwide-glyph-shrinks-to-its-cells ()
+  "GUI でグリフが char-width ぶんのセルからはみ出す文字だけが、セルに収まるよう縮む。"
+  (spectreshell-test--with-glyph-widths
+      `((?⏱ . ,(lambda (h) (* 20 h)))
+        (?❌ . ,(lambda (h) (* 22 h)))
+        (?漢 . ,(lambda (h) (* 16 h))))
+    (spectreshell-test--with-terminal (term 1 20)
+      (spectreshell-feed term "a⏱⚠❌漢")
+      (should (= (spectreshell-test--drawn-width ?⏱) 10))
+      (should (<= (spectreshell-test--drawn-width ?❌) 20))
+      (should (< 0.8 (plist-get (get-text-property (+ (point-min) 3) 'display) 'height)))
+      (dolist (pos (list (point-min) (+ (point-min) 2) (+ (point-min) 4)))
+        (should-not (get-text-property pos 'display)))
+      (should (equal (buffer-substring-no-properties (point-min) (+ (point-min) 5))
+                     "a⏱⚠❌漢")))))
+
+(ert-deftest spectreshell-test-overwide-glyph-fits-despite-rounding ()
+  "縮小後の幅がフォントサイズの丸めで目標を超える場合も、セルに収まるまで縮む。"
+  (spectreshell-test--with-glyph-widths
+      `((?⏱ . ,(lambda (h) (if (< h 1) (1+ (* 20 h)) 20))))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term "⏱")
+      (should (<= (spectreshell-test--drawn-width ?⏱) 10)))))
+
+(ert-deftest spectreshell-test-overwide-glyph-skips-zero-width ()
+  "char-width 0 の文字は、描いた幅が 0 でなくても縮めない。"
+  (spectreshell-test--with-glyph-widths
+      `((#x301 . ,(lambda (h) (* 5 h))))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term "é")
+      (should-not (text-property-not-all (point-min) (line-end-position)
+                                         'display nil)))))
+
+(ert-deftest spectreshell-test-overwide-glyph-untouched-without-gui ()
+  "GUI でないフレームでは、どの文字にも縮小の display を付けない。"
+  (let ((spectreshell--fit-height-cache (make-hash-table)))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term "⏱❌")
+      (should-not (text-property-not-all (point-min) (line-end-position)
+                                         'display nil)))))
+
 (ert-deftest spectreshell-test-24bit-color-sets-literal-rgb-foreground ()
   "24bit 色 (\\e[38;2;R;G;Bm) はそのまま \"#rrggbb\" として foreground に載る。"
   (spectreshell-test--with-terminal (term 1 10)
