@@ -346,6 +346,10 @@ eshell のコマンドライン編集中 (プロセス非実行時) は無条件
 そのまま子プロセスへ送られる。 @code{C-y} (kill-ring からの
 bracketed paste) 経由での日本語送信も可能
 @item
+GUI フレームでは、選ばれたグリフが端末のセル幅を超える文字
+(絵文字フォントで描かれる ⏱ など) を縮めて表示し、行の折り返しを
+防ぐ。幅は選択中のフレームで測る
+@item
 OSC 52 クリップボード・画像 (kitty graphics/sixel) は未実装
 @item
 TRAMP / リモート @code{default-directory} は対象外: リモートでは常に
