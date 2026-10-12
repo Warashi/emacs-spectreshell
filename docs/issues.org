@@ -340,7 +340,7 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
-** WAIT M-21: GUI の Emacs で nom のツリーが右端で 1 文字ぶん折り返す
+** DONE M-21: GUI の Emacs で nom のツリーが右端で 1 文字ぶん折り返す
 対象: =spectreshell.el= (=spectreshell--decorate-row=)
 
 GUI の Emacs で nix-output-monitor (nom) を動かすと、⏱ ⏸ ⚠ を含む行
@@ -384,7 +384,8 @@ Xvfb での確認: 上記のフォントで、80 桁の端末に「⏱ ⏸ ⚠ �
 9 / 12 / 14 / 15 / 16 / 20pt のすべてで、修正前は 2 行 (❌ の行は
 12 / 15pt を除く)、修正後は 1 行。
 
-実環境 (普段使いの GUI Emacs で nom) での目視確認は未実施。
+実環境 (普段使いの GUI Emacs で nom) での目視確認は未実施のまま閉じた。
+折り返しが残っていたら別項目として起票する。
 
 ** WAIT M-20: nom の大きいビルドで進捗表示が高速に点滅する
 対象: =src/core.zig= / =spectreshell.el= (出力の反映)
