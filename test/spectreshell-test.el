@@ -472,7 +472,7 @@ rows / cols も更新されないままであるべき。"
 WIDTHS は (CHAR . FN) の alist で、FN は `display' の height 倍率を受けて
 描いた幅を返す。WIDTHS に無い文字は `char-width' × 10px。"
   (declare (indent 1))
-  `(let ((spectreshell--fit-height-cache (make-hash-table)))
+  `(let ((spectreshell--glyph-fit-cache (make-hash-table)))
      (cl-letf (((symbol-function 'frame-char-width) (lambda (&rest _) 10))
                ((symbol-function 'spectreshell--pixel-width)
                 (lambda (string)
@@ -572,7 +572,7 @@ WIDTHS は (CHAR . FN) の alist で、FN は `display' の height 倍率を受�
 
 (ert-deftest spectreshell-test-overwide-glyph-untouched-without-gui ()
   "GUI でないフレームでは、どの文字にも縮小の display を付けない。"
-  (let ((spectreshell--fit-height-cache (make-hash-table)))
+  (let ((spectreshell--glyph-fit-cache (make-hash-table)))
     (spectreshell-test--with-terminal (term 1 10)
       (spectreshell-feed term "⏱❌")
       (should-not (text-property-not-all (point-min) (line-end-position)
