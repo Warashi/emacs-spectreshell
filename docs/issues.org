@@ -340,6 +340,38 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
+** TODO M-22: GUI の Emacs で M-21 が縮めた文字の幅がセルに数 px 足りず、後続の文字が左へずれる
+対象: =spectreshell.el= (=spectreshell--fit-height= / =spectreshell--fit-overwide-glyphs=)
+
+M-21 は縮めた後の幅が「目標 (=char-width= × セル幅) 以下」になるまで
+倍率を 0.9 倍ずつ下げるだけなので、目標より狭くなる場合がある。不足
+は縮めた文字ごとに積み上がり、行ごとに右側の文字や罫線の x 座標が
+左へずれて、Ghostty と並べた見た目や上下の行の桁揃えが崩れる。M-21
+が対象にしない元から狭いグリフ (CJK など) も同じ向きにずれる。
+
+Xvfb 上の GUI Emacs 31.1 (DejaVu Sans Mono + Noto Color Emoji +
+Noto Sans CJK) で、文字の後ろに置いた ASCII の x 座標
+(=pos-visible-in-window-p=) を測った。値は縮めた後の幅 / 目標 (px):
+
+#+begin_example
+14pt: ❌ 21/22
+15pt: ⏱ 11/13   16pt: ⏱ 11/13
+9〜20pt: 漢 12/14 17/20 19/22 21/26 22/26 28/34 (縮めない)
+#+end_example
+
+=display= の =min-width= は文字の後ろへ指定幅まで余白を足す。=height=
+と併用でき、=((height H) (min-width ((PX))))= で上の全ケースの後続文字
+が目標の x に一致した。=string-pixel-width= と =window-text-pixel-size=
+は余白を数えないので、確認は描画位置で行う。隣り合う文字が同じ
+=min-width= のリストを共有すると 1 つの塊として扱われるので、文字ごと
+に新しいリストを渡す。
+
+対応方針: 倍率は目標 / 実幅を最初に試し、収まらなければ 0 から倍率の
+範囲を二分探索して目標以下で最大の倍率にする (幅を揃えるのは
+=min-width= なので、探索はグリフを大きく保つためだけに行う)。不足は
+=min-width= で埋め、実幅が目標に満たない文字は =min-width= だけを付け
+る。ちょうど収まる文字には何も付けない。国旗 (L-37) と tty は対象外。
+
 ** DONE M-21: GUI の Emacs で nom のツリーが右端で 1 文字ぶん折り返す
 対象: =spectreshell.el= (=spectreshell--decorate-row=)
 
