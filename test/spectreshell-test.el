@@ -453,6 +453,20 @@ rows / cols も更新されないままであるべき。"
                           (get-text-property (point-min) 'face))))
       (set-face-foreground 'spectreshell-color-1 original))))
 
+(defun spectreshell-test--display-spec (display name)
+  "DISPLAY (単独の仕様、または仕様のリスト) から NAME の仕様を返す。無ければ nil。"
+  (cond ((null display) nil)
+        ((symbolp (car display)) (and (eq (car display) name) display))
+        (t (assq name display))))
+
+(defun spectreshell-test--display-height (display)
+  "DISPLAY の `height' 倍率を返す。無ければ nil。"
+  (cadr (spectreshell-test--display-spec display 'height)))
+
+(defun spectreshell-test--display-min-width (display)
+  "DISPLAY の `min-width' のピクセル幅を返す。無ければ nil。"
+  (car (car (cadr (spectreshell-test--display-spec display 'min-width)))))
+
 (defmacro spectreshell-test--with-glyph-widths (widths &rest body)
   "セル幅 10px の GUI フレームで、文字のピクセル幅を WIDTHS として BODY を評価する。
 WIDTHS は (CHAR . FN) の alist で、FN は `display' の height 倍率を受けて
@@ -463,43 +477,89 @@ WIDTHS は (CHAR . FN) の alist で、FN は `display' の height 倍率を受�
                ((symbol-function 'spectreshell--pixel-width)
                 (lambda (string)
                   (let* ((ch (aref string 0))
-                         (height (or (plist-get (get-text-property 0 'display string)
-                                                'height)
+                         (height (or (spectreshell-test--display-height
+                                      (get-text-property 0 'display string))
                                      1.0))
                          (fn (alist-get ch ,widths)))
                     (if fn (funcall fn height) (* 10 (char-width ch)))))))
        ,@body)))
 
-(defun spectreshell-test--drawn-width (char)
-  "CHAR の最初の出現位置に付いた `display' を反映した、差し替え後の幅を返す。"
+(defun spectreshell-test--display-at (char)
+  "CHAR の最初の出現位置に付いた `display' を返す。"
   (save-excursion
     (goto-char (point-min))
     (search-forward (string char))
-    (spectreshell--pixel-width (buffer-substring (1- (point)) (point)))))
+    (get-text-property (1- (point)) 'display)))
+
+(defun spectreshell-test--drawn-width (char)
+  "CHAR の最初の出現位置に付いた `display' を反映した、描画後の幅を返す。
+`min-width' の余白は実機の `string-pixel-width' に数えられないので、ここで足す。"
+  (save-excursion
+    (goto-char (point-min))
+    (search-forward (string char))
+    (max (spectreshell--pixel-width (buffer-substring (1- (point)) (point)))
+         (or (spectreshell-test--display-min-width
+              (get-text-property (1- (point)) 'display))
+             0))))
 
 (ert-deftest spectreshell-test-overwide-glyph-shrinks-to-its-cells ()
   "GUI でグリフが char-width ぶんのセルからはみ出す文字だけが、セルに収まるよう縮む。"
   (spectreshell-test--with-glyph-widths
-      `((?⏱ . ,(lambda (h) (* 20 h)))
-        (?❌ . ,(lambda (h) (* 22 h)))
-        (?漢 . ,(lambda (h) (* 16 h))))
+      `((?⏱ . ,(lambda (h) (floor (* 20 h))))
+        (?❌ . ,(lambda (h) (floor (* 22 h)))))
     (spectreshell-test--with-terminal (term 1 20)
-      (spectreshell-feed term "a⏱⚠❌漢")
+      (spectreshell-feed term "a⏱⚠❌")
       (should (= (spectreshell-test--drawn-width ?⏱) 10))
-      (should (<= (spectreshell-test--drawn-width ?❌) 20))
-      (should (< 0.8 (plist-get (get-text-property (+ (point-min) 3) 'display) 'height)))
-      (dolist (pos (list (point-min) (+ (point-min) 2) (+ (point-min) 4)))
+      (should (= (spectreshell-test--drawn-width ?❌) 20))
+      (should (< 0.8 (spectreshell-test--display-height
+                      (spectreshell-test--display-at ?❌))))
+      (dolist (pos (list (point-min) (+ (point-min) 2)))
         (should-not (get-text-property pos 'display)))
-      (should (equal (buffer-substring-no-properties (point-min) (+ (point-min) 5))
-                     "a⏱⚠❌漢")))))
+      (should (equal (buffer-substring-no-properties (point-min) (+ (point-min) 4))
+                     "a⏱⚠❌")))))
 
-(ert-deftest spectreshell-test-overwide-glyph-fits-despite-rounding ()
-  "縮小後の幅がフォントサイズの丸めで目標を超える場合も、セルに収まるまで縮む。"
+(ert-deftest spectreshell-test-overwide-glyph-exact-fit-has-no-padding ()
+  "縮めた幅がちょうどセルに収まる文字には、余白の min-width を付けない。"
   (spectreshell-test--with-glyph-widths
-      `((?⏱ . ,(lambda (h) (if (< h 1) (1+ (* 20 h)) 20))))
+      `((?⏱ . ,(lambda (h) (floor (* 20 h)))))
     (spectreshell-test--with-terminal (term 1 10)
       (spectreshell-feed term "⏱")
-      (should (<= (spectreshell-test--drawn-width ?⏱) 10)))))
+      (should-not (spectreshell-test--display-min-width
+                   (spectreshell-test--display-at ?⏱))))))
+
+(ert-deftest spectreshell-test-overwide-glyph-padded-to-cell-despite-rounding ()
+  "縮小後の幅がフォントサイズの丸めで目標に届かない場合、余白で目標の幅にそろえる。
+倍率は目標以下で最大にし、グリフを必要以上に小さくしない。"
+  (spectreshell-test--with-glyph-widths
+      `((?⏱ . ,(lambda (h) (if (< h 0.5) (floor (* 20 h)) 11))))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term "⏱")
+      (let ((display (spectreshell-test--display-at ?⏱)))
+        (should (= (spectreshell-test--drawn-width ?⏱) 10))
+        (should (equal (spectreshell-test--display-min-width display) 10))
+        (should (< 0.49 (spectreshell-test--display-height display) 0.5))))))
+
+(ert-deftest spectreshell-test-narrow-glyph-is-padded-not-shrunk ()
+  "グリフが char-width ぶんのセルより狭い文字は、縮めずに余白で目標の幅にそろえる。"
+  (spectreshell-test--with-glyph-widths
+      `((?漢 . ,(lambda (h) (floor (* 16 h)))))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term "漢")
+      (let ((display (spectreshell-test--display-at ?漢)))
+        (should-not (spectreshell-test--display-height display))
+        (should (equal (spectreshell-test--display-min-width display) 20))
+        (should (= (spectreshell-test--drawn-width ?漢) 20))))))
+
+(ert-deftest spectreshell-test-padding-is-not-shared-between-characters ()
+  "隣り合う文字の min-width は別のリストにする。共有すると 1 つの塊として余白が足される。"
+  (spectreshell-test--with-glyph-widths
+      `((?漢 . ,(lambda (h) (floor (* 16 h)))))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term "漢漢")
+      (should (spectreshell-test--display-min-width
+               (get-text-property (point-min) 'display)))
+      (should-not (eq (cadr (get-text-property (point-min) 'display))
+                      (cadr (get-text-property (1+ (point-min)) 'display)))))))
 
 (ert-deftest spectreshell-test-overwide-glyph-skips-zero-width ()
   "char-width 0 の文字は、描いた幅が 0 でなくても縮めない。"
