@@ -340,7 +340,7 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
-** TODO M-22: GUI の Emacs で M-21 が縮めた文字の幅がセルに数 px 足りず、後続の文字が左へずれる
+** DONE M-22: GUI の Emacs で M-21 が縮めた文字の幅がセルに数 px 足りず、後続の文字が左へずれる
 対象: =spectreshell.el= (=spectreshell--fit-height= / =spectreshell--fit-overwide-glyphs=)
 
 M-21 は縮めた後の幅が「目標 (=char-width= × セル幅) 以下」になるまで
@@ -371,6 +371,25 @@ Noto Sans CJK) で、文字の後ろに置いた ASCII の x 座標
 =min-width= なので、探索はグリフを大きく保つためだけに行う)。不足は
 =min-width= で埋め、実幅が目標に満たない文字は =min-width= だけを付け
 る。ちょうど収まる文字には何も付けない。国旗 (L-37) と tty は対象外。
+
+対応 (2026-10-17, f61251f): =spectreshell--glyph-fit= が文字ごとに
+=(HEIGHT . PAD)= を返し、=spectreshell--fit-glyphs= が =display= に変換
+する。倍率は目標 / 実幅を先に試し、収まらなければ 0 から倍率の範囲を
+0.005 刻みまで二分探索する。実幅が目標より狭い (縮めた後を含む) 文字
+には =(min-width ((目標px)))= を付け、ちょうど収まる文字には何も付けな
+い。結果は M-21 と同じく文字ごとにキャッシュし、フレームのフォントが
+変わったら捨てる。倍率の初期値でほぼ収まるので、探索が走るのは稀。
+
+制約: M-21 と同じく、幅は描画時に選択中のフレームで測り、確定した
+スクロールバックにも =display= が残るので yank すると余白ごと持ち出さ
+れる。
+
+Xvfb での確認: 上記のフォントで、=spectreshell-start= した 80 桁の端末
+に「⏱⏸⚠❌漢Z」を描き、Z の x 座標を =pos-visible-in-window-p= で測った。
+修正前は 9 / 12 / 14 / 15 / 16 / 20pt で 2 / 3 / 4 / 9 / 8 / 6px 左に
+ずれ、修正後はすべて一致した。桁いっぱいの行は 1 行のまま。国旗 (L-37)
+は合成を保ち、12pt は 10px のまま、15pt は 11px から 12px になった (4
+セルとの差は残る)。実環境の目視確認は未実施。
 
 ** DONE M-21: GUI の Emacs で nom のツリーが右端で 1 文字ぶん折り返す
 対象: =spectreshell.el= (=spectreshell--decorate-row=)
