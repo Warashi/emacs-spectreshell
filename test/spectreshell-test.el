@@ -1064,7 +1064,6 @@ Ghostty と同じ形で答える。"
 (ert-deftest spectreshell-test-color-queries-answer-theme-colors ()
   "OSC 10 / 11 には `default' の前景・背景で、OSC 4 の 0〜15 には
 `spectreshell-color-N' の前景で、Ghostty と同じ形で答える。"
-  :expected-result :failed
   (spectreshell-test--with-colors _calls
     (set-face-attribute 'default nil :foreground "#ffeedd" :background "#010203")
     (set-face-attribute 'spectreshell-color-1 nil :foreground "#cd0000")
@@ -1084,7 +1083,6 @@ Ghostty と同じ形で答える。"
 
 (ert-deftest spectreshell-test-color-queries-follow-theme-change ()
   "色は feed ごとには引き直さず、テーマを替えたときに引き直した色で答える。"
-  :expected-result :failed
   (spectreshell-test--with-colors calls
     (set-face-attribute 'spectreshell-color-1 nil :foreground "#cd0000")
     (spectreshell-test--with-terminal (term 1 10 responses)

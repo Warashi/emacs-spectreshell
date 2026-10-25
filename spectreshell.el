@@ -839,6 +839,64 @@ forgotten instead."
 (add-hook 'window-selection-change-functions #'spectreshell--report-color-scheme)
 
 ;; ---------------------------------------------------------------------
+;; Colors (OSC 10 / 11 / 4)
+;; ---------------------------------------------------------------------
+
+(defvar spectreshell--colors-given (make-hash-table :test 'eq :weakness 'key)
+  "Colors last given to each terminal's module, keyed by terminal.
+The values are argument lists for `spectreshell--set-colors'.")
+
+(defun spectreshell--colors (buffer)
+  "Return (FG BG PALETTE), the colors BUFFER's terminal is drawn with.
+FG and BG are the `default' face's, and PALETTE lists the foregrounds
+of `spectreshell-color-0' to 15, the faces `spectreshell--resolve-color'
+draws with, on the frame `spectreshell--buffer-frame' picks.  Each is the
+`color-values' of the color, or nil if it has none (a tty's
+unspecified-fg and -bg)."
+  (let ((frame (spectreshell--buffer-frame buffer)))
+    (cl-flet ((rgb (color) (and color (color-values color frame))))
+      (list (rgb (face-foreground 'default frame t))
+            (rgb (face-background 'default frame t))
+            (mapcar (lambda (i)
+                      (rgb (face-foreground
+                            (intern (format "spectreshell-color-%d" i))
+                            frame 'default)))
+                    (number-sequence 0 15))))))
+
+(defun spectreshell--update-colors (obj)
+  "Give OBJ's module the current colors if they differ from the last given."
+  (let ((colors (spectreshell--colors (spectreshell-buffer obj))))
+    (unless (equal colors (gethash obj spectreshell--colors-given))
+      (apply #'spectreshell--set-colors (spectreshell-term obj) colors)
+      (puthash obj colors spectreshell--colors-given))))
+
+(defun spectreshell--track-colors (obj)
+  "Give OBJ's module the colors on its first feed.
+Member of `spectreshell--before-feed-functions'.  Later changes come
+from `spectreshell--report-colors', so that faces are not looked up
+for every feed."
+  (unless (gethash obj spectreshell--colors-given)
+    (spectreshell--update-colors obj)))
+
+(add-hook 'spectreshell--before-feed-functions #'spectreshell--track-colors)
+
+(defun spectreshell--report-colors (&rest _)
+  "Give every tracked terminal the colors, which may have changed.
+Terminals that have been finalized, or whose buffer is gone, are
+forgotten instead."
+  (let (objs)
+    (maphash (lambda (obj _) (push obj objs)) spectreshell--colors-given)
+    (dolist (obj objs)
+      (if (marker-buffer (spectreshell-marker obj))
+          (spectreshell--update-colors obj)
+        (remhash obj spectreshell--colors-given)))))
+
+(add-hook 'enable-theme-functions #'spectreshell--report-colors)
+(add-hook 'disable-theme-functions #'spectreshell--report-colors)
+(add-hook 'window-buffer-change-functions #'spectreshell--report-colors)
+(add-hook 'window-selection-change-functions #'spectreshell--report-colors)
+
+;; ---------------------------------------------------------------------
 ;; Style table
 ;; ---------------------------------------------------------------------
 
