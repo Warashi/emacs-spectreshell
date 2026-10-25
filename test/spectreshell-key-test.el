@@ -331,6 +331,27 @@ ZWJ 列は 5 文字で 2 セル、単独の regional indicator は 1 文字で 2
                               nil (+ (spectreshell-marker term) index)))
                        (cons 0 cell)))))))
 
+(ert-deftest spectreshell-key-test-mouse-posn-coords-without-grapheme-mode ()
+  "mode 2027 を無効にした国旗の後ろのクリックは、RI ごとに 2 セルと数えたセル列になる。"
+  (spectreshell-test--with-terminal (term 3 10)
+    (spectreshell-feed term (encode-coding-string
+                             "\e[?2027l\N{U+1F1EF}\N{U+1F1F5}x" 'utf-8))
+    (should (equal (spectreshell--posn-terminal-coords
+                    term (spectreshell-key-test--posn
+                          nil (+ (spectreshell-marker term) 2)))
+                   '(0 . 4)))))
+
+(ert-deftest spectreshell-key-test-mouse-posn-coords-past-grapheme-row-end ()
+  "書記素のある行でも、行末より右のクリックは最後のセル (cols - 1) に丸める。"
+  (spectreshell-test--with-terminal (term 3 10)
+    (spectreshell-feed term (encode-coding-string "\N{U+1F1EF}\N{U+1F1F5}x" 'utf-8))
+    (should (equal (spectreshell--posn-terminal-coords
+                    term (spectreshell-key-test--posn
+                          nil (save-excursion
+                                (goto-char (spectreshell-marker term))
+                                (line-end-position))))
+                   '(0 . 9)))))
+
 (ert-deftest spectreshell-key-test-row-cell-column-uses-pos-row ()
   "セル列は point ではなく POS のある行のセル情報で解く。"
   (spectreshell-test--with-terminal (term 2 10)

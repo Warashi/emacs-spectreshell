@@ -166,6 +166,15 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
     (should-not (text-property-not-all (point-min) (point-max)
                                        'spectreshell-cells nil))))
 
+(ert-deftest spectreshell-test-ascii-rewrite-drops-cells ()
+  "書記素のある行を ASCII だけで書き直すと、`spectreshell-cells' が消える。"
+  (spectreshell-test--with-terminal (term 1 6)
+    (spectreshell-feed term (encode-coding-string "\N{U+1F1EF}\N{U+1F1F5}" 'utf-8))
+    (should (get-text-property (spectreshell-marker term) 'spectreshell-cells))
+    (spectreshell-feed term "\rabcdef")
+    (should-not (text-property-not-all (spectreshell-marker term) (point-max)
+                                       'spectreshell-cells nil))))
+
 (ert-deftest spectreshell-test-scrolled-off-row-keeps-colors ()
   "確定化した行にも SGR の色が残る。"
   (spectreshell-test--with-terminal (term 1 5)
@@ -597,6 +606,15 @@ WIDTHS は (CHAR . FN) の alist で、FN は `display' の height 倍率を受�
       (let ((display (spectreshell-test--display-at #x1F1EF)))
         (should-not (spectreshell-test--display-height display))
         (should (equal (spectreshell-test--display-min-width display) 20))))))
+
+(ert-deftest spectreshell-test-glyph-fit-cache-separates-cell-counts ()
+  "同じ書記素でもセル数が違えば、幅揃えの結果を別に覚える。"
+  (spectreshell-test--with-glyph-widths
+      `((#x1F1EF . ,(lambda (h) (floor (* 15 h)))))
+    (dolist (grapheme (list #x1F1EF "\N{U+1F1EF}\N{U+1F1F5}"))
+      (should (car (spectreshell--glyph-fit grapheme 1)))
+      (should (equal (spectreshell--glyph-fit grapheme 2) '(nil . 20)))
+      (should (car (spectreshell--glyph-fit grapheme 1))))))
 
 (ert-deftest spectreshell-test-grapheme-shares-one-display ()
   "書記素の全文字が 1 つの display 値を共有し、隣の書記素とは共有しない。

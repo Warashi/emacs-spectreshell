@@ -294,6 +294,14 @@ UTF-8 マルチバイト文字列として戻る。"
       (should (not (multibyte-string-p cells))))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-cells-follow-grapheme-mode ()
+  "子が mode 2027 を無効にすると、国旗の CELLS は RI ごとの 2 セルになる。"
+  (let* ((term (spectreshell--create 1 6))
+         (update (spectreshell--feed
+                  term (encode-coding-string "\e[?2027l\N{U+1F1EF}\N{U+1F1F5}" 'utf-8))))
+    (should (equal (nth 3 (car (plist-get update :dirty))) (unibyte-string 2 2 1 1)))
+    (spectreshell--release term)))
+
 (ert-deftest spectreshell-module-test-scrolled-off-row-carries-cells ()
   ":scrolled-off の各要素は (TEXT SPANS CELLS) になる。"
   (let* ((term (spectreshell--create 1 4))
