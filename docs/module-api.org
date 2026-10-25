@@ -76,6 +76,9 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
   - ~(clipboard KIND DATA)~: OSC 52 の書き込み。KIND は種別の 1 文字
     (省略時は ~"c"~)、DATA は子が送った base64 のまま。読み取り
     (DATA が ~?~) は載せない。
+  - ~(notification TITLE BODY)~: OSC 777 (~notify;TITLE;BODY~) と、
+    ConEmu 拡張でない OSC 9 (BODY のみ。TITLE は ~""~) の通知。どちらも
+    子が送ったままのバイト列。
 - *~:alt-screen~*: このバッチで alternate screen への出入りが
   あった場合のみ ~entered~ / ~left~ シンボルを持つ。変化なしならキー
   ごと省略される。
