@@ -603,8 +603,9 @@ the child\'s environment from this list after copying that one."
 (defun spectreshell-eshell--gather-process-output-advice (orig command args)
   "Run ORIG (`eshell-gather-process-output' COMMAND ARGS) under spectreshell.
 Always exports `spectreshell-term-name'/`spectreshell-terminfo-directory'
-into the child's environment (real shells export TERM unconditionally,
-not only for the foreground job).  When attaching, COLUMNS/LINES are
+and `spectreshell-eshell--client-environment' into the child's
+environment (real shells export TERM unconditionally, not only for the
+foreground job).  When attaching, COLUMNS/LINES are
 additionally unset for the child (see
 `spectreshell-eshell--process-environment'); the `let' of
 `eshell-variable-aliases-list' takes effect even though `em-dirs.el'
@@ -655,8 +656,9 @@ A global minor mode: while on, `eshell-gather-process-output' (and
 therefore every eshell buffer's external commands, present and future)
 is advised to attach spectreshell to whichever pipeline stage would
 otherwise write straight to the buffer (docs/design.org).  That process
-gets a pty, TERM/TERMINFO in its environment (and COLUMNS/LINES
-unset, so the pty\'s size is the only size it sees), and drives the buffer
+gets a pty, TERM/TERMINFO and the emacsclient\'s TERM_PROGRAM/
+TERM_PROGRAM_VERSION in its environment (and COLUMNS/LINES unset, so
+the pty\'s size is the only size it sees), and drives the buffer
 through spectreshell's VT emulation instead of eshell's own plain-text
 output filter for as long as it runs."
   :global t
