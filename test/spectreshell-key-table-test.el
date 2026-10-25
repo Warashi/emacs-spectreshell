@@ -207,5 +207,19 @@ the fix as an unexpected pass."
   ("C-M-<up>" "\e[1;7A")
   ("C-<right>" "\e[1;5C"))
 
+;; ---------------------------------------------------------------------
+;; 既知の穴 (docs/issues.org M-27)
+;; ---------------------------------------------------------------------
+
+(spectreshell-key-table-test--deftests :failed
+  ;; C-\ は次の 1 キーを Emacs に渡さず、そのまま子へ送る。
+  ("C-\\ C-\\" "\x1c")
+  ("C-\\ C-c" "\C-c")
+  ("C-\\ C-c" "\e[99;5u" "\e[>5u")
+  ("C-\\ C-u" "\C-u")
+  ("C-\\ C-y" "\C-y")
+  ("C-\\ M-x" "\ex")
+  ("C-\\ ESC x" "\ex"))
+
 (provide 'spectreshell-key-table-test)
 ;;; spectreshell-key-table-test.el ends here

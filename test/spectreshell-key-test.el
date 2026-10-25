@@ -115,6 +115,42 @@ shift を残すことで kitty/CSIu 有効時も shift ビットが立つ
       (should (null (spectreshell-send-key))))))
 
 ;; ---------------------------------------------------------------------
+;; C-\ (次の 1 キーをそのまま送る)
+;; ---------------------------------------------------------------------
+
+(defun spectreshell-key-test--send-next-key (feed event)
+  "FEED を食わせた端末で、read-key が EVENT を返すときの C-\\ の送信列。
+C-x は `key-translation-map' の C-x 8 のプレフィックスでもあり、
+`execute-kbd-macro' の中の `read-key' は次の打鍵まで読み込んでしまう
+\(実端末では `read-key-delay' の後に C-x だけで返る) ので、`read-key'
+を差し替えて 1 イベントを返させる。"
+  (spectreshell-test--with-terminal (term 5 10 responses)
+    (let ((spectreshell--current term))
+      (when feed (spectreshell-feed term feed))
+      (setq responses nil)
+      (cl-letf (((symbol-function 'read-key) (lambda (&rest _) event)))
+        (spectreshell-send-next-key))
+      (apply #'concat (reverse responses)))))
+
+(ert-deftest spectreshell-key-test-send-next-key-sends-keys-left-to-emacs ()
+  "C-\\ の次の C-x / M-O / M-[ は Emacs に渡らず子へ送られる。
+M-O / M-[ は kkp 下で 1 イベントとして届く形。"
+  :expected-result :failed
+  (should (equal (spectreshell-key-test--send-next-key nil ?\C-x) "\C-x"))
+  (should (equal (spectreshell-key-test--send-next-key "\e[>5u" ?\C-x) "\e[120;5u"))
+  (should (equal (spectreshell-key-test--send-next-key nil ?\M-O) "\eO"))
+  (should (equal (spectreshell-key-test--send-next-key "\e[>5u" ?\M-O) "\e[111:79;4u"))
+  (should (equal (spectreshell-key-test--send-next-key nil ?\M-\[) "\e["))
+  (should (equal (spectreshell-key-test--send-next-key "\e[>5u" ?\M-\[) "\e[91;3u")))
+
+(ert-deftest spectreshell-key-test-send-next-key-noop-without-current-terminal ()
+  "spectreshell--current が nil でも次のキーを読んで捨て、エラーにならない。"
+  :expected-result :failed
+  (with-temp-buffer
+    (cl-letf (((symbol-function 'read-key) (lambda (&rest _) ?\C-x)))
+      (should (null (spectreshell-send-next-key))))))
+
+;; ---------------------------------------------------------------------
 ;; C-y (paste)
 ;; ---------------------------------------------------------------------
 
