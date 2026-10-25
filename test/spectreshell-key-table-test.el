@@ -203,5 +203,15 @@ the fix as an unexpected pass."
   ("C-M-<up>" "\e[1;7A")
   ("C-<right>" "\e[1;5C"))
 
+;; ---------------------------------------------------------------------
+;; 既知の穴 (docs/issues.org M-25)
+;; ---------------------------------------------------------------------
+
+(spectreshell-key-table-test--deftests :failed
+  ;; kitty keyboard 有効時も、Shift で打つ英大文字は直結の Ghostty と同じく
+  ;; 平文で送る。flags 1 は Copilot CLI、flags 5 は Claude Code の値。
+  ("A" "A" "\e[>1u")
+  ("A" "A" "\e[>5u"))
+
 (provide 'spectreshell-key-table-test)
 ;;; spectreshell-key-table-test.el ends here
