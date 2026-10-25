@@ -17,13 +17,14 @@ Phase 3 (spectreshell.el) 以降はこのドキュメントを参照する。
 | ~(spectreshell--encode-paste TERM TEXT)~ | TERM、TEXT: 文字列 | unibyte 文字列 |
 | ~(spectreshell--encode-mouse TERM BUTTON ACTION ROW COL MODIFIERS)~ | TERM、BUTTON、ACTION、ROW/COL: 整数、MODIFIERS | unibyte 文字列 or nil |
 | ~(spectreshell--set-color-scheme TERM SCHEME)~ | TERM、SCHEME: ~dark~ / ~light~ | unibyte 文字列 or nil |
+| ~(spectreshell--set-colors TERM FG BG PALETTE)~ | TERM、FG/BG: 色 or nil、PALETTE: 色 or nil の 16 要素のリスト | nil (副作用のみ) |
 | ~(spectreshell--release TERM)~ | TERM | nil (副作用のみ) |
 
 TERM は ~spectreshell--create~ が返す user-ptr。他のモジュールの
 user-ptr や整数など、うちの Term でない値を渡すと
 ~wrong-type-argument~ が signal される。 ~spectreshell--release~ 済みの
 TERM に ~--feed~ / ~--resize~ / ~--flush~ / ~--encode-key~ / ~--encode-paste~ /
-~--encode-mouse~ / ~--set-color-scheme~ を呼ぶと ~spectreshell-terminal-released~ (~error~ の
+~--encode-mouse~ / ~--set-color-scheme~ / ~--set-colors~ を呼ぶと ~spectreshell-terminal-released~ (~error~ の
 子コンディション) が signal される。 ~--release~ 自体は二重に呼んでも
 安全 (2回目は no-op)。
 
@@ -189,6 +190,21 @@ unibyte 文字列。
 
 戻り値は、子が mode 2031 を有効にしていて SCHEME が前回と違うときだけ、
 子へ送る同じ形の通知 (unibyte 文字列)。それ以外は ~nil~ 。
+
+* ~--set-colors~ の FG / BG / PALETTE
+
+子の色の問い合わせに答える値。色は ~color-values~ と同じ 16bit の
+~(R G B)~ (各 0〜65535)。TERM はこれを覚え、OSC 10 (FG) ・ OSC 11 (BG) ・
+OSC 4 の 0〜15 (PALETTE) に Ghostty と同じく
+=\e]N;rgb:RRRR/GGGG/BBBB= (OSC 4 は =\e]4;I;rgb:...=) を問い合わせと同じ
+終端 (BEL / ST) で、 ~--feed~ の ~:responses~ に返す。 ~nil~ の色と、
+一度も渡していない色には答えない。OSC 4 の 16〜255 は渡さなくても、描画と
+同じ xterm の 256 色の値で答える。子による色の設定・リセットは答えに
+効かない。
+
+成分が範囲外のとき、色が 3 要素でないとき、PALETTE が 16 要素でないときは
+~args-out-of-range~ を、整数でない成分は ~wrong-type-argument~ を signal
+する。
 
 * 文字列の扱い (unibyte / multibyte)
 
