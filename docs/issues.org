@@ -2472,7 +2472,7 @@ Ghostty と同じ形で答える。mode 2031 が有効なら、=background-mode=
 =background-mode= が追従すること (追従しなければ通知も出ない)、Copilot
 CLI / Claude Code が応答や通知で表示を変えること。実環境の確認は未実施。
 
-** TODO L-51: tty で OSC 8 のリンクをクリックすると daemon のホストで開き、子のマウス追跡中は release が子に届かない
+** DONE L-51: tty で OSC 8 のリンクをクリックすると daemon のホストで開き、子のマウス追跡中は release が子に届かない
 対象: =spectreshell.el= (=spectreshell--track-mouse-drag= / =spectreshell-hyperlink=)
 
 Copilot CLI は OSC 8 のリンクを出す (記録した実行)。直結では Ghostty
@@ -2513,6 +2513,27 @@ Emacs の tty の再表示で外側の端末へ OSC 8 を出す方法は見つ�
 - 開く場所: daemon のホストで開くことをマニュアルに書く。URL を手元に
   渡す手段として、リンクの action で M-24 の経路を使い URL をクリップ
   ボードへ送る選択肢を候補にする。
+
+対応 (2026-10-26, 850d4ed): =spectreshell--track-mouse-drag= の
+=read-key= の間だけ =mouse-1-click-follows-link= を nil に束縛した。
+release は =mouse-2= に変わらず、同じボタンの release として子へ送る。
+子がマウスを追跡していないときは今までどおり =push-button= でリンクを
+開く。開く場所はマニュアル (5549231) に、ssh 先の daemon では ssh 先で
+開こうとすることを書いた。URL をクリップボードへ送る案は実装していない。
+
+確認:
+
+- batch: mode 1000+1006 の端末に OSC 8 のリンクを描き、semi-char で
+  =down-mouse-1= / =mouse-1= を =execute-kbd-macro= で流すと、
+  =\e[<0;3;1M= と =\e[<0;3;1m= が子へ届き、=browse-url= は呼ばれない
+  ことを固定した (修正前は press だけで =browse-url= が呼ばれた)。
+- pty (=/tmp/parity-scripts/ptyrun.py= と =osc8.el=、=emacs -nw -Q= に
+  =xterm-mouse-mode=): リンクの上の SGR の press / release で、追跡中は
+  press と release の 2 つが子へ送られて =browse-url= は呼ばれず、
+  追跡していないときは =push-button= で =browse-url= が呼ばれた。
+
+未確認: Ghostty → ssh → =emacsclient -t= で Copilot CLI のリンクを
+クリックしたときの Copilot CLI 側の反応。実環境の確認は未実施。
 
 ** TODO L-52: 子から見える端末が外側の Ghostty より小さい
 対象: =spectreshell-eshell.el= (=--terminal-size=) / マニュアル
