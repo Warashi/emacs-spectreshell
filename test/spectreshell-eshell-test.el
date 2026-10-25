@@ -755,7 +755,6 @@ emacsclient のフレームを batch で模すため。BODY の後で元の値�
   "emacsclient の環境にある TERM_PROGRAM(_VERSION) が子へそのまま渡る。
 直結では ssh 先のアプリが外側の端末から送られた値を見るので、daemon
 自身の環境の値ではなくクライアントの値が見えることを検査する。"
-  :expected-result :failed
   (spectreshell-eshell-test--with-frame-parameters
       '((environment "TERM_PROGRAM=ghostty" "TERM_PROGRAM_VERSION=1.3.1"))
     (should (equal (spectreshell-eshell-test--term-program-seen-by-child
@@ -766,7 +765,6 @@ emacsclient のフレームを batch で模すため。BODY の後で元の値�
   "emacsclient の環境に無い TERM_PROGRAM(_VERSION) は子に渡らない。
 daemon の値は daemon を起動した端末のもので、今見ている端末とは関係が
 無い。直結で ssh が送らなかったときと同じく、どちらも未設定になる。"
-  :expected-result :failed
   (spectreshell-eshell-test--with-frame-parameters
       '((environment "HOME=/nonexistent"))
     (should (equal (spectreshell-eshell-test--term-program-seen-by-child
@@ -777,7 +775,6 @@ daemon の値は daemon を起動した端末のもので、今見ている端�
   "client のフレームから作ったフレームでも、client の環境の値が子へ渡る。
 `make-frame' は `environment' を引き継がず `client' だけを引き継ぐので、
 そのフレームで始めたコマンドにも同じ端末の値が見えることを検査する。"
-  :expected-result :failed
   (let ((client (make-pipe-process :name "spectreshell-test-client" :noquery t)))
     (unwind-protect
         (progn

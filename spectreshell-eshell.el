@@ -533,6 +533,33 @@ it to describe."
 Both are entries without a \"=VALUE\" part, which is how
 `process-environment' spells \"unset this for the subprocess\".")
 
+(defconst spectreshell-eshell--client-variables
+  '("TERM_PROGRAM" "TERM_PROGRAM_VERSION")
+  "Environment variables a child takes from the emacsclient's environment.")
+
+(defun spectreshell-eshell--client-environment ()
+  "Return `spectreshell-eshell--client-variables' as the client has them.
+The client is the emacsclient of the selected frame, which is the frame
+the command was started from.  Its environment is the frame\'s
+`environment' parameter (`server--create-frame'), or for a frame made
+from a client frame (which inherits only `client'), that client
+process\'s `env' property.  A variable the client lacks is returned as
+an unset entry, so the daemon\'s own value -- which describes whatever
+terminal started the daemon -- does not reach the child either.
+
+Returns nil for a frame without a client: Emacs\'s own environment is
+then that of the terminal Emacs runs in.  `getenv' with a FRAME
+argument is not used because it falls back to `process-environment'
+for such a frame, which would make the two cases indistinguishable."
+  (let* ((client (frame-parameter nil 'client))
+         (env (or (frame-parameter nil 'environment)
+                  (and (processp client) (process-get client 'env)))))
+    (when env
+      (mapcar (lambda (var)
+                (let ((value (getenv-internal var env)))
+                  (if (stringp value) (concat var "=" value) var)))
+              spectreshell-eshell--client-variables))))
+
 (defun spectreshell-eshell--process-environment (attach)
   "Return `process-environment' plus spectreshell's TERM/TERMINFO exports.
 `eshell-gather-process-output' rebuilds `process-environment' for the
@@ -543,6 +570,8 @@ result around a call to it is enough to reach the child even though
 eshell never asks anyone else for extra variables directly.  Prepended
 \(rather than appended) so these values win over any same-named
 variable already inherited from Emacs's own environment.
+`spectreshell-eshell--client-environment' is included the same way, so
+the client\'s values also win over an `export' in eshell, as TERM does.
 
 When ATTACH is non-nil the child gets a pty, and
 `spectreshell-eshell--pty-unset-variables' are unset on top of that, so
@@ -553,6 +582,7 @@ but can never update an already-exec\'d child\'s environment."
   (append (list (concat "TERM=" (spectreshell-eshell--effective-term-name)))
           (when spectreshell-terminfo-directory
             (list (concat "TERMINFO=" spectreshell-terminfo-directory)))
+          (spectreshell-eshell--client-environment)
           (when attach spectreshell-eshell--pty-unset-variables)
           process-environment))
 
