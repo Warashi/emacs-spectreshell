@@ -896,6 +896,19 @@ test "DECRQM は SGR pixel 座標 (?1016) に設定の前後とも 0 (未対応)
     try testing.expectEqualStrings("\x1b[?1016;0$y\x1b[?1016;0$y", update.responses);
 }
 
+test "XTVERSION は同梱する ghostty の版で Ghostty と同じ形で応答する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[>q\x1b[>0q");
+    defer update.deinit();
+    try testing.expectEqualStrings(
+        "\x1bP>|ghostty 1.3.1\x1b\\\x1bP>|ghostty 1.3.1\x1b\\",
+        update.responses,
+    );
+}
+
 test "kitty keyboard query (CSI ? u) は現在の flags で応答する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);

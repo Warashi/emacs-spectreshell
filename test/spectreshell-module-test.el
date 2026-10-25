@@ -104,7 +104,6 @@
 
 (ert-deftest spectreshell-module-test-xtversion-reports-ghostty ()
   "XTVERSION (CSI > q) には、同梱する ghostty の版で Ghostty と同じ形で答える。"
-  :expected-result :failed
   (let* ((term (spectreshell--create 5 10))
          (update (spectreshell--feed term "\x1b[>q\x1b[>0q")))
     (should (equal (plist-get update :responses)

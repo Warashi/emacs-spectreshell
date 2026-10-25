@@ -2,6 +2,7 @@ const std = @import("std");
 const ghostty_vt = @import("ghostty-vt");
 const ghostty_terminfo = @import("ghostty-terminfo");
 const relay = @import("relay.zig");
+const build_options = @import("build_options");
 
 /// ReadonlyHandler は DSR/DA など応答が必要なアクションを無視する
 /// (ghostty のドキュメント通り、応答不要な再生専用ユースケース向けのため)。
@@ -51,6 +52,10 @@ pub const Handler = struct {
             .request_mode => try self.requestMode(value.mode),
             .request_mode_unknown => try self.requestModeUnknown(value.mode, value.ansi),
             .kitty_keyboard_query => try self.queryKittyKeyboard(),
+            .xtversion => try self.responses.appendSlice(
+                self.alloc,
+                "\x1bP>|ghostty " ++ build_options.ghostty_version ++ "\x1b\\",
+            ),
             .dcs_hook => try self.dcsHook(value),
             .dcs_put => try self.dcsPut(value),
             .dcs_unhook => try self.dcsUnhook(),

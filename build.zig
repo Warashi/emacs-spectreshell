@@ -17,6 +17,10 @@ pub fn build(b: *std.Build) void {
         mod.addImport("ghostty-vt", dep.module("ghostty-vt"));
         mod.addImport("ghostty-terminfo", terminfoModule(b, dep));
         installTerminfo(b, dep);
+
+        const options = b.addOptions();
+        options.addOption([]const u8, "ghostty_version", ghosttyVersion(b, dep));
+        mod.addOptions("build_options", options);
     }
 
     const lib = b.addLibrary(.{
@@ -53,6 +57,28 @@ pub fn build(b: *std.Build) void {
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
+}
+
+/// ghostty の build.zig.zon の版。ghostty は依存として組まれると git を
+/// 見ずにこの版を名乗る (src/build/Config.zig) ので、XTVERSION の応答を
+/// 同じ ghostty を組み込んだ Ghostty アプリと揃えられる。
+fn ghosttyVersion(b: *std.Build, ghostty_dep: *std.Build.Dependency) []const u8 {
+    const source = ghostty_dep.builder.build_root.handle.readFileAllocOptions(
+        b.allocator,
+        "build.zig.zon",
+        1024 * 1024,
+        null,
+        .of(u8),
+        0,
+    ) catch |err| std.debug.panic("unable to read ghostty's build.zig.zon: {s}", .{@errorName(err)});
+    const zon = std.zon.parse.fromSlice(
+        struct { version: []const u8 },
+        b.allocator,
+        source,
+        null,
+        .{ .ignore_unknown_fields = true },
+    ) catch |err| std.debug.panic("unable to parse ghostty's build.zig.zon: {s}", .{@errorName(err)});
+    return zon.version;
 }
 
 /// docs/spectreshell.texi から Info マニュアルを生成して share/info に
