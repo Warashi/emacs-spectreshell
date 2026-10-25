@@ -2156,7 +2156,7 @@ CLEAR を送って保持をやめる。finalize では持ち主の端末のも�
 2 つの =emacsclient -t= からの表示。Copilot CLI が実際に OSC 9;4 を
 出すこと。実環境の確認は未実施。
 
-** TODO L-43: 子のタイトル (OSC 0/2) が外側の Ghostty のタブ名に出ない
+** DONE L-43: 子のタイトル (OSC 0/2) が外側の Ghostty のタブ名に出ない
 対象: =spectreshell.el= (=spectreshell-title-functions=、M-23 の中継)
 
 直結では、タブ名が =✳ Claude Code= や =GitHub Copilot= になる (記録
@@ -2179,6 +2179,38 @@ CLEAR を送って保持をやめる。finalize では持ち主の端末のも�
 =spectreshell-eshell.el= 側にするか、利用者が足す形にしてマニュアルに
 書く。=xterm-set-window-title= を t にしている利用者には、
 =frame-title-format= で =spectreshell-title= を表示する例を示す。
+
+対応 (2026-10-26, 2df389d): =spectreshell.el= に
+=spectreshell-relay-title= を置いた。制御文字を除いて UTF-8 にし、M-23
+の中継で =\e]2;TITLE\a= を送る。描画層の hook の既定には入れず
+(docstring の方針どおり)、=spectreshell-eshell-mode= が有効にするときに
+=spectreshell-title-functions= へ足し、無効にするときに外す。
+
+既定で有効にした理由: 比較基準は直結と入出力で区別がつかないことで、
+直結ではアプリのタイトルがタブ名になる。docstring の「フレームのタイト
+ルはこの層が持たない」は描画層の方針で、直結と同じにするための設定は
+eshell 統合が既に持っている (=TERM= / =TERM_PROGRAM= の注入) ので、
+そちらに置いた。外側へ送らない利用者は =remove-hook= で外せる。
+=xterm-set-window-title= を =t= にしている利用者向けに、
+=frame-title-format= に子のタイトルを出す例をマニュアル (32284e0) に
+書いた。README (e2acc0a) と hook の docstring (3deb70c) も合わせた。
+
+確認:
+
+- batch: ERT で、hook に入れると OSC 0 のタイトルが UTF-8 の OSC 2
+  (unibyte) で届くこと、制御文字を除くこと、=spectreshell-eshell-mode=
+  の eshell で =printf '\033]2;hi\007'= のタイトルが届き、モードを
+  切ると hook から外れることを固定した。
+- pty (=/tmp/parity-scripts/relay-e2e.py=): =printf '\e]2;hi\a'= の
+  実行で pty に =\e]2;hi\a= が出た。=xterm-set-window-title= を =t= に
+  してマニュアルの例を入れた daemon では、=*eshell*= を表示して
+  =xterm-set-window-title= を呼ぶと =\e]2;hi\a= が、=*scratch*= では
+  =\e]2;*scratch*\a= が出た。
+
+未確認: Ghostty のタブ名が変わること。ジョブが終わってもタブ名は子の
+最後のタイトルのまま残る (直結ではシェルがプロンプトで戻すことが多い)。
+バッファを切り替えて戻ったときにタイトルを送り直すことはしていない。
+実環境の確認は未実施。
 
 ** DONE L-44: 子の BEL が外側の Ghostty に届かない
 対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el= (M-23 の中継)
