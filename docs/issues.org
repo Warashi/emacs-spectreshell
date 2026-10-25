@@ -1467,8 +1467,9 @@ ERT: =test/spectreshell-explore-geometry-test.el= の
 (Emacs は 1 桁で描き ghostty は 2 セル) と、マウス座標のバッファ位置
 → セル列の逆写像で、これは L-37 として切り出した。
 =spectreshell-explore-geometry-test-regional-indicator-width= は
-=current-column= (表示幅) を測る Probe なので L-37 の Probe として
-=:expected-result :failed= のまま残す (L-37 で対応)。
+=current-column= (表示幅) を測る Probe なので、この時点では L-37 の
+Probe として =:expected-result :failed= のまま残した (L-37 でセル情報で
+測る形に定義し直し、外した)。
 
 ERT: =--del-is-not-stored= / =--c1-control-width= (=:expected-result
 :failed= を外した)、=spectreshell-test-cursor-lands-after-regional-indicator=。
@@ -1664,14 +1665,16 @@ ERT: =test/spectreshell-explore-geometry-test.el= の
   TEXT の文字数と同じ長さの unibyte 文字列で、i バイト目は文字 i から
   始まる書記素のセル数 (1 か 2)、書記素の続きは 0、全文字が 1 なら
   =nil= 。=:scrolled-off= は =(TEXT SPANS CELLS)= にした。
-- マウス: CELLS を行の先頭文字の =spectreshell-cells= に持たせ、
+- マウス: CELLS を端末領域の行の先頭文字の =spectreshell-cells= に持たせ、
   =spectreshell--row-cell-column= でセル列を解く。書記素の途中の文字は
   書記素の先頭のセル。行全体ではなく先頭 1 文字に付けるのは、確定化
-  での行末の空白の除去を妨げないため。
+  での行末の空白の除去を妨げないため。確定した行 (流れ出た行と
+  finalize した領域) には残さない (yank で持ち出されないように)。
 - GUI: =spectreshell--glyph-fit= / =--fit-glyphs= を書記素単位にした。
-  目標はセル数 × =frame-char-width= 、キャッシュのキーは
-  =(セル数 . 書記素)= (同じ文字列でも mode 2027 の有無でセル数が変わり
-  うるため)。書記素の全文字で 1 つの =display= を共有し、隣の書記素
+  目標はセル数 × =frame-char-width= 、キャッシュのキーは書記素と
+  セル数 (同じ文字列でも mode 2027 の有無でセル数が変わりうるため)。
+  1 文字の書記素は文字とセル数を詰めた fixnum にしてコンスせずに引き、
+  フォントの確認は行に 1 回にした。書記素の全文字で 1 つの =display= を共有し、隣の書記素
   には新しいリストを渡す。
 - tty: =string-width= がセル数を超える書記素 (ZWJ 列・肌色修飾・🏳️‍🌈)
   だけを =compose-string= で静的に合成する。国旗は合成すると Emacs 2 /
@@ -1713,6 +1716,16 @@ Claude Code / Copilot CLI の実際の出力、子が mode 2027 を無効にし�
 GUI と tty の見え方 (CELLS の値は batch でのみ確認)、tty の単独 RI・❤️ の
 後ろで外側のクリック位置と Emacs のバッファ位置がずれるか、測った以外
 の文字 (ghostty-vt と =char-width= の幅が食い違う 719 字など)。
+
+レビューでの追加の対応 (2026-10-26, cb16c45 / 65b3366 / a77ad6b): 確定した
+行の =spectreshell-cells= を外し、幅揃えのキャッシュの引き方を上記に
+直し、=spectreshell--row-cell-column= の行頭を引数の位置から求めるように
+した。幅揃えは、キャッシュが温まった状態の =--fit-glyphs= (バイト
+コンパイル、=string-pixel-width= などを差し替えた batch) で、罫線 80 字の
+行が 0.148 → 0.170 (書記素単位にした直後) → 0.021 ms、CJK 40 字の行が
+0.090 → 0.098 → 0.026 ms (左から L-37 の前、直後、追加の対応後)。ERT と
+Zig のテストを足し (881a69e / a3fed50)、Xvfb の GUI の測定 (上記の全
+ケース) をやり直して 0px のままであることを確かめた。
 
 ** DONE L-38: macOS ビルドでは alt 付きの文字が ESC 前置なしでエンコードされる
 対象: =src/core.zig= (=encodeKey=) / 同梱の ghostty-vt (=key_encode.zig=)
