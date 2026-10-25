@@ -1841,6 +1841,20 @@ PATH の =stty= が GNU なら darwin では失敗させる (=stty --version= �
 書く。=xterm-set-window-title= を t にしている利用者には、
 =frame-title-format= で =spectreshell-title= を表示する例を示す。
 
+** TODO L-44: 子の BEL が外側の Ghostty に届かない
+対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el= (M-23 の中継)
+
+直結では、子が BEL を出すと Ghostty がベルを示す (=bell-features=)。
+spectreshell 経由では何も起きない。モジュールは =bell= を捨てる
+(M-23)。Copilot CLI は設定 =beep= が有効なとき、Claude Code は通知
+チャネルが =terminal_bell= のときに BEL を出す (調査時のバンドルの
+読解)。調査時の設定ではどちらも出さない。
+
+対応方針: Handler で =bell= を横取りして plist に出し、Elisp は M-23
+の中継で =\a= を送る。=(ding)= は選択中のフレームにしか鳴らず、
+=ring-bell-function= や =visible-bell= の設定にも左右されるので使わ
+ない。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
