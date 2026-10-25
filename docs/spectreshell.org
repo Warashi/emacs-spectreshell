@@ -94,6 +94,18 @@ zig build            # zig-out/lib/libspectreshell.so ほかを生成
 どちらも既定値のままで自動検出・自動フォールバックが効くため、通常は
 明示設定は不要 (詳細は各変数の docstring を参照)。
 
+~xterm-set-window-title~ を ~t~ にしていると、Emacs はコマンドのたびに
+~frame-title-format~ を外側の端末のタイトルに送るので、子のタイトルは
+次の打鍵で上書きされる。子のタイトルを残すには ~frame-title-format~ に
+出す:
+
+#+begin_src emacs-lisp
+(defvar-local my-spectreshell-title nil)
+(add-hook 'spectreshell-title-functions
+          (lambda (_obj title) (setq my-spectreshell-title title)))
+(setq frame-title-format '(:eval (or my-spectreshell-title "%b")))
+#+end_src
+
 * 使い方
 
 外部プロセスの実行中、eshell バッファは端末として振る舞う。プロセスが
@@ -222,8 +234,11 @@ less や vim などの alternate screen アプリの画面は確定化されず�
 - SGR 全般 (16色 / 256色 / 24bit)、カーソル制御、スクロール領域、
   alternate screen (less・vim 等)、bracketed paste
 - タイトル変更 (OSC 0/2) の通知: ~spectreshell-title~ で最新値を参照
-  でき、変更時には ~spectreshell-title-functions~ が呼ばれる (バッファ名
-  やフレームタイトルへの反映はユーザー側のフック実装に委ねる)
+  でき、変更時には ~spectreshell-title-functions~ が呼ばれる。
+  ~spectreshell-eshell-mode~ はこの hook に ~spectreshell-relay-title~
+  を足し、子のタイトルを外側の端末へ OSC 2 で送る (制御文字は除く)。
+  外側へ送らないなら hook から外す。バッファ名やフレームタイトルへの
+  反映はユーザー側のフック実装に委ねる
 - マウス (SGR mouse mode)
 - 子が外側の端末へ向けて出すものは、バッファを表示している tty
   フレームの端末へ送る。同じ端末のフレームが複数あっても 1 回だけ送り、

@@ -160,6 +160,18 @@ zig build            # zig-out/lib/libspectreshell.so ほかを生成
 どちらも既定値のままで自動検出・自動フォールバックが効くため、通常は
 明示設定は不要 (詳細は各変数の docstring を参照)。
 
+@code{xterm-set-window-title} を @code{t} にしていると、Emacs はコマンドのたびに
+@code{frame-title-format} を外側の端末のタイトルに送るので、子のタイトルは
+次の打鍵で上書きされる。子のタイトルを残すには @code{frame-title-format} に
+出す:
+
+@lisp
+(defvar-local my-spectreshell-title nil)
+(add-hook 'spectreshell-title-functions
+          (lambda (_obj title) (setq my-spectreshell-title title)))
+(setq frame-title-format '(:eval (or my-spectreshell-title "%b")))
+@end lisp
+
 @node 使い方
 @unnumbered 使い方
 
@@ -324,8 +336,11 @@ SGR 全般 (16色 / 256色 / 24bit)、カーソル制御、スクロール領域
 alternate screen (less・vim 等)、bracketed paste
 @item
 タイトル変更 (OSC 0/2) の通知: @code{spectreshell-title} で最新値を参照
-でき、変更時には @code{spectreshell-title-functions} が呼ばれる (バッファ名
-やフレームタイトルへの反映はユーザー側のフック実装に委ねる)
+でき、変更時には @code{spectreshell-title-functions} が呼ばれる。
+@code{spectreshell-eshell-mode} はこの hook に @code{spectreshell-relay-title}
+を足し、子のタイトルを外側の端末へ OSC 2 で送る (制御文字は除く)。
+外側へ送らないなら hook から外す。バッファ名やフレームタイトルへの
+反映はユーザー側のフック実装に委ねる
 @item
 マウス (SGR mouse mode)
 @item
