@@ -2592,7 +2592,7 @@ release は =mouse-2= に変わらず、同じボタンの release として子�
 =menu-bar-mode= を切るなどで増やせることを添える。桁の 1 は仕様として
 残す。
 
-** TODO L-53: ボタンを押さないマウス移動 (mode 1003) が子に届かない
+** DONE L-53: ボタンを押さないマウス移動 (mode 1003) が子に届かない
 対象: =spectreshell.el= (semi-char のマウス)
 
 Copilot CLI は起動時に =\e[?1003h= を、Claude Code は fullscreen で
@@ -2614,6 +2614,34 @@ Copilot CLI は起動時に =\e[?1003h= を、Claude Code は fullscreen で
 =track-mouse= をバッファローカルにして効くかは未確認なので、
 =emacs -nw= に =\e[<35;5;5M= を入力して =mouse-movement= が届くかを
 先に確かめる。無理ならマニュアルに対象外と書く。
+
+対応 (2026-10-26): 対象外とし、マニュアル (d2dcbf2) の既知の制限に
+書いた。実装はしていない。
+
+確かめたこと (pty、=/tmp/parity-scripts/l53-run.py= と
+=l53-probe.el=。=emacs -nw -Q= に =xterm-mouse-mode= を入れ、
+=mouse-movement= を記録するコマンドに束縛したバッファで SGR の
+=\e[<35;X;5M= を入力した):
+
+- バッファローカルの =track-mouse= を t にすると、ボタン無しの移動が
+  =mouse-movement= として届いた (nil なら何も届かない)。仕組みとしては
+  効く。
+- ただしキー列の途中の移動もイベントになる。=C-c= 、移動、=C-c= の順で
+  入力すると =C-c <mouse-movement> is undefined= になり、=C-c C-c= は
+  届かなかった。Copilot CLI は常に mode 1003 なので、マウスが動く
+  たびに =C-c= / =C-x= / =ESC= のプレフィックスが壊れうる。
+- 回避として =key-translation-map= の =[mouse-movement]= に「それまでの
+  =this-command-keys-vector= に移動以外のイベントがあれば =[]= 」を置くと、
+  =C-c= 移動 =C-c= ・ =C-x= 移動 =o= ・ =ESC= 移動 =x= は通り、単独の
+  移動も届いた。しかし =C-\= (=spectreshell-send-next-key= の
+  =read-key=) の後の移動は =read-key= がそのまま返し、次のキーにならな
+  かった。=this-command-keys-vector= の見え方も位置で変わる (列の先頭
+  では移動自身を含み、途中では含まない) ので、この回避には頼れないと
+  判断した。
+
+加えて、子が mode 1003 かを Elisp が知る手段がモジュールに無い。
+実装するなら、それと、ジョブの終了や emacs モードで =track-mouse= を
+戻す後始末も要る。
 
 ** DONE L-54: 子に TERM_PROGRAM / TERM_PROGRAM_VERSION が渡らない
 対象: =spectreshell-eshell.el= (=--process-environment=)
