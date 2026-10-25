@@ -179,11 +179,22 @@ the fix as an unexpected pass."
 
   ;; 英字でない制御キー。C0 の生バイトをそのまま送る。
   ("C-@" "\0")
-  ("C-\\" "\x1c")
   ("C-]" "\x1d")
   ("C-^" "\x1e")
   ("C-_" "\x1f")
   ("M-DEL" "\e\d")
+
+  ;; C-\ は次の 1 キーを Emacs に渡さず、そのまま子へ送る。
+  ("C-\\ C-\\" "\x1c")
+  ("C-\\ C-c" "\C-c")
+  ("C-\\ C-c" "\e[99;5u" "\e[>5u")
+  ("C-\\ C-u" "\C-u")
+  ("C-\\ C-y" "\C-y")
+  ("C-\\ M-x" "\ex")
+  ("C-\\ ESC x" "\ex")
+  ;; kkp 下で 1 イベントとして届く M-O / M-[ (直接は束縛できない)。
+  ([?\C-\\ ?\M-O] "\e[111:79;4u" "\e[>5u")
+  ([?\C-\\ ?\M-\[] "\e[91;3u" "\e[>5u")
 
   ;; ファンクションキー。F1-F4 は SS3、F5 以降は CSI ~ 形式。
   ("<f1>" "\eOP")
@@ -206,20 +217,6 @@ the fix as an unexpected pass."
   ("C-<up>" "\e[1;5A")
   ("C-M-<up>" "\e[1;7A")
   ("C-<right>" "\e[1;5C"))
-
-;; ---------------------------------------------------------------------
-;; 既知の穴 (docs/issues.org M-27)
-;; ---------------------------------------------------------------------
-
-(spectreshell-key-table-test--deftests :failed
-  ;; C-\ は次の 1 キーを Emacs に渡さず、そのまま子へ送る。
-  ("C-\\ C-\\" "\x1c")
-  ("C-\\ C-c" "\C-c")
-  ("C-\\ C-c" "\e[99;5u" "\e[>5u")
-  ("C-\\ C-u" "\C-u")
-  ("C-\\ C-y" "\C-y")
-  ("C-\\ M-x" "\ex")
-  ("C-\\ ESC x" "\ex"))
 
 (provide 'spectreshell-key-table-test)
 ;;; spectreshell-key-table-test.el ends here

@@ -1243,14 +1243,36 @@ the `self-insert-command' remap) to turn nearly every key into a
 event itself does not carry.  Does nothing if there is no current
 terminal, or if the event or the encoder has no bytes to send for it."
   (interactive)
+  (spectreshell--send-event last-command-event (spectreshell--esc-prefixed-key-p)))
+
+(defun spectreshell--send-event (event &optional alt)
+  "Encode EVENT and send it to `spectreshell--current'.
+ALT non-nil adds the `alt' modifier EVENT itself does not carry.  Does
+nothing if there is no current terminal, or if the event or the encoder
+has no bytes to send for it."
   (when-let* ((obj spectreshell--current)
-              (key+mods (spectreshell--event-to-key last-command-event))
+              (key+mods (spectreshell--event-to-key event))
               (bytes (spectreshell--encode-key
                       (spectreshell-term obj) (car key+mods)
-                      (if (spectreshell--esc-prefixed-key-p)
+                      (if alt
                           (delete-dups (cons 'alt (cdr key+mods)))
                         (cdr key+mods)))))
     (funcall (spectreshell-send-fn obj) bytes)))
+
+(defun spectreshell-send-next-key ()
+  "Read one key and send it to `spectreshell--current' as it is.
+Bound to `C-\\' in `spectreshell-semi-char-mode-map', for the keys that
+semi-char mode leaves to Emacs (`C-c', `C-x', `M-x', `C-u', `C-y') and
+for `C-\\' itself.  A key sequence is sent one key per `C-\\'.  The key
+goes through the same encoder as `spectreshell-send-key'."
+  (interactive)
+  (let ((event (read-key))
+        (keys (this-single-command-keys)))
+    ;; A terminal frame without kkp delivers M-x as ESC x; `read-key'
+    ;; returns only the ESC and leaves the x in the keys it read.
+    (if (and (eq event ?\e) (= (length keys) 2) (eq (aref keys 0) ?\e))
+        (spectreshell--send-event (aref keys 1) t)
+      (spectreshell--send-event event))))
 
 (defun spectreshell-send-escape ()
   "Send one ESC byte to `spectreshell--current'.
@@ -1504,10 +1526,10 @@ disable mouse-wheel scrolling entirely between jobs that want it."
     ;; below included), M-x, C-u (`universal-argument'), and C-y
     ;; (`spectreshell-yank' below, not a plain key send) are
     ;; docs/design.org's named exceptions to "send nearly everything";
-    ;; every other control letter goes straight to the PTY.  Leaving C-x
-    ;; to Emacs makes C-x itself unsendable (no escape hatch exists yet);
-    ;; window/buffer commands are the far more common need in a terminal
-    ;; buffer than a nested `emacs -nw' or readline's `C-x C-e'.
+    ;; every other control letter goes straight to the PTY.  Window/buffer
+    ;; commands are the far more common need in a terminal buffer than a
+    ;; nested `emacs -nw' or readline's `C-x C-e'; the keys themselves go
+    ;; through `C-\' (`spectreshell-send-next-key') below.
     (dolist (letter (number-sequence ?a ?z))
       (unless (memq letter '(?c ?u ?x ?y))
         (define-key map (kbd (format "C-%c" letter)) #'spectreshell-send-key)))
@@ -1522,7 +1544,7 @@ disable mouse-wheel scrolling entirely between jobs that want it."
     ;; the range because with `M-A' unbound Emacs shift-translates it down
     ;; to `M-a' and the case is gone before the event is ever seen.
     ;; M-x is docs/design.org's named exception.  ESC O (SS3) and ESC [
-    ;; (CSI) must stay unbound, so M-O and M-[ cannot be sent: they are the
+    ;; (CSI) must stay unbound, so M-O and M-[ need `C-\': they are the
     ;; prefixes the terminal itself sends for the arrows, F1-F4 and
     ;; Home/End, and `input-decode-map' only gets to translate those while
     ;; the sequence read so far has no binding in the active keymaps.
@@ -1542,8 +1564,9 @@ disable mouse-wheel scrolling entirely between jobs that want it."
     ;; the letter loops above, and the Emacs commands they land on
     ;; otherwise (`undo' on C-_, `backward-kill-word' on M-DEL) edit the
     ;; terminal region as if it were ordinary buffer text.
-    (dolist (key '("C-@" "C-\\" "C-]" "C-^" "C-_" "M-DEL"))
+    (dolist (key '("C-@" "C-]" "C-^" "C-_" "M-DEL"))
       (define-key map (kbd key) #'spectreshell-send-key))
+    (define-key map (kbd "C-\\") #'spectreshell-send-next-key)
     (define-key map (kbd "C-y") #'spectreshell-yank)
     (define-key map [xterm-paste] #'spectreshell-xterm-paste)
     (define-key map (kbd "C-c C-e") #'spectreshell-emacs-mode)

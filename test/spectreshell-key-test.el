@@ -135,7 +135,6 @@ C-x は `key-translation-map' の C-x 8 のプレフィックスでもあり、
 (ert-deftest spectreshell-key-test-send-next-key-sends-keys-left-to-emacs ()
   "C-\\ の次の C-x / M-O / M-[ は Emacs に渡らず子へ送られる。
 M-O / M-[ は kkp 下で 1 イベントとして届く形。"
-  :expected-result :failed
   (should (equal (spectreshell-key-test--send-next-key nil ?\C-x) "\C-x"))
   (should (equal (spectreshell-key-test--send-next-key "\e[>5u" ?\C-x) "\e[120;5u"))
   (should (equal (spectreshell-key-test--send-next-key nil ?\M-O) "\eO"))
@@ -145,7 +144,6 @@ M-O / M-[ は kkp 下で 1 イベントとして届く形。"
 
 (ert-deftest spectreshell-key-test-send-next-key-noop-without-current-terminal ()
   "spectreshell--current が nil でも次のキーを読んで捨て、エラーにならない。"
-  :expected-result :failed
   (with-temp-buffer
     (cl-letf (((symbol-function 'read-key) (lambda (&rest _) ?\C-x)))
       (should (null (spectreshell-send-next-key))))))

@@ -27,10 +27,14 @@ tmux+terminfo 環境の `input-decode-map' は ESC [ 2 ~ / ESC [ 3 ~ を
               #'spectreshell-send-key)))
 
 (ert-deftest spectreshell-explore-input-test-non-letter-control-keys-are-bound ()
-  "C-@ / C-\\ / C-] / C-^ / C-_ も PTY へ送られるべきだが束縛が無い。"
-  (dolist (key '("C-@" "C-\\" "C-]" "C-^" "C-_"))
+  "C-@ / C-] / C-^ / C-_ も PTY へ送られるべきだが束縛が無い。
+C-\\ は次の 1 キーを送る `spectreshell-send-next-key' で、C-\\ C-\\ が
+C-\\ 自体を送る (M-27)。"
+  (dolist (key '("C-@" "C-]" "C-^" "C-_"))
     (should (eq (lookup-key spectreshell-semi-char-mode-map (kbd key))
-                #'spectreshell-send-key))))
+                #'spectreshell-send-key)))
+  (should (eq (lookup-key spectreshell-semi-char-mode-map (kbd "C-\\"))
+              #'spectreshell-send-next-key)))
 
 (ert-deftest spectreshell-explore-input-test-meta-del-is-bound ()
   "M-DEL (readline の backward-kill-word) が束縛されていない。"
