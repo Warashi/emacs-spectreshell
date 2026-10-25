@@ -124,6 +124,9 @@ pub const Update = struct {
     /// 真なら mode 2026 の中で feed が終わったため描画を保留している。
     /// responses 以外は空で、保留した変更は次に描く update にまとめて載る。
     synchronized: bool = false,
+    /// 子がフォーカスの報告 (mode 1004) を求めているか。描画ではないので
+    /// mode 2026 の中でも今の値を載せる。
+    focus_event: bool,
 
     pub fn deinit(self: *Update) void {
         for (self.dirty) |*d| d.deinit(self.alloc);
@@ -226,6 +229,7 @@ pub const Term = struct {
             .styles_reset = false,
             .title = null,
             .synchronized = true,
+            .focus_event = self.terminal.modes.get(.focus_event),
         };
     }
 
@@ -519,6 +523,7 @@ pub const Term = struct {
             .styles_first_id = @intCast(styles_mark),
             .styles_reset = styles_reset,
             .title = title,
+            .focus_event = self.terminal.modes.get(.focus_event),
         };
     }
 };
@@ -1066,6 +1071,23 @@ test "中継するものを渡す前に Term を捨ててもリークしない" 
     const t = try Term.init(alloc, 5, 10);
     try t.feedWithoutDel("\x1b]52;c;aGk=\x07");
     t.deinit();
+}
+
+test "フォーカスの報告 (mode 1004) を求めているかを mode 2026 の中でも返す" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var off = try t.feed(alloc, "a");
+    defer off.deinit();
+    try testing.expect(!off.focus_event);
+    var on = try t.feed(alloc, "\x1b[?1004h");
+    defer on.deinit();
+    try testing.expect(on.focus_event);
+    var held = try t.feed(alloc, "\x1b[?2026h");
+    defer held.deinit();
+    try testing.expect(held.synchronized);
+    try testing.expect(held.focus_event);
 }
 
 test "DA1 は Ghostty と同じく 52 を含む" {

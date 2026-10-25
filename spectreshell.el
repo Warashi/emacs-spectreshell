@@ -313,6 +313,11 @@ Return the raw update plist from `spectreshell--feed' (docs/module-api.org)."
   "Seconds to hold back drawing for a frame left open in synchronized output.
 The same limit as ghostty's own (`sync_reset_ms' in termio/Thread.zig).")
 
+(defvar spectreshell--update-functions nil
+  "Abnormal hook run with OBJ and each module update plist for it.
+Run for held synchronized feeds too, after the responses and relayed
+events are acted on.")
+
 (defun spectreshell--hold-synchronized (obj update)
   "Leave OBJ's buffer as it is while the child is inside a synchronized frame.
 UPDATE is the `(:synchronized t ...)' plist from `spectreshell--feed';
@@ -327,6 +332,7 @@ long as the output keeps coming."
   (when-let* ((response (plist-get update :responses)))
     (funcall (spectreshell-send-fn obj) response))
   (spectreshell--apply-relay obj update)
+  (run-hook-with-args 'spectreshell--update-functions obj update)
   update)
 
 (defun spectreshell--cancel-sync-timer (obj)
@@ -512,6 +518,7 @@ Return UPDATE unchanged, for callers that want to inspect it further."
   (when-let* ((response (plist-get update :responses)))
     (funcall (spectreshell-send-fn obj) response))
   (spectreshell--apply-relay obj update)
+  (run-hook-with-args 'spectreshell--update-functions obj update)
   update)
 
 ;; ---------------------------------------------------------------------
@@ -705,6 +712,63 @@ terminal show the bell its own way."
 
 (setf (alist-get 'bell spectreshell--relay-handlers)
       #'spectreshell--relay-bell)
+
+;; ---------------------------------------------------------------------
+;; Focus reports (mode 1004)
+;; ---------------------------------------------------------------------
+
+(defvar spectreshell--focus-terminals nil
+  "Alist of (OBJ . FOCUSED) for terminals whose child wants focus reports.
+FOCUSED is the focus last reported to the child.")
+
+(defun spectreshell--focused-p (buffer)
+  "Return t if a focused frame shows BUFFER in its selected window.
+A frame whose focus is `unknown' counts as focused, as Ghostty assumes
+focus until told otherwise.  A daemon's initial frame does not count:
+nobody looks at it."
+  (and (seq-some (lambda (frame)
+                   (and (not (frame-initial-p frame))
+                        (eq (window-buffer (frame-selected-window frame)) buffer)
+                        (frame-focus-state frame)))
+                 (frame-list))
+       t))
+
+(defun spectreshell--send-focus (obj focused)
+  "Tell OBJ's child that it has gained focus if FOCUSED, else lost it."
+  (funcall (spectreshell-send-fn obj) (if focused "\e[I" "\e[O")))
+
+(defun spectreshell--track-focus (obj update)
+  "Start or stop reporting focus to OBJ's child as the module UPDATE says.
+On start the current focus is reported at once, as Ghostty does."
+  (let ((entry (assq obj spectreshell--focus-terminals)))
+    (cond
+     ((and (plist-get update :focus-event) (not entry))
+      (let ((focused (spectreshell--focused-p (spectreshell-buffer obj))))
+        (push (cons obj focused) spectreshell--focus-terminals)
+        (spectreshell--send-focus obj focused)))
+     ((and entry (not (plist-get update :focus-event)))
+      (setq spectreshell--focus-terminals
+            (delq entry spectreshell--focus-terminals))))))
+
+(add-hook 'spectreshell--update-functions #'spectreshell--track-focus)
+
+(defun spectreshell--report-focus (&rest _)
+  "Report focus changes to the children that want focus reports.
+Terminals that have been finalized, or whose buffer is gone, are
+forgotten instead."
+  (dolist (entry spectreshell--focus-terminals)
+    (let ((obj (car entry)))
+      (if (not (marker-buffer (spectreshell-marker obj)))
+          (setq spectreshell--focus-terminals
+                (delq entry spectreshell--focus-terminals))
+        (let ((focused (spectreshell--focused-p (spectreshell-buffer obj))))
+          (unless (eq focused (cdr entry))
+            (setcdr entry focused)
+            (spectreshell--send-focus obj focused)))))))
+
+(add-function :after after-focus-change-function #'spectreshell--report-focus)
+(add-hook 'window-selection-change-functions #'spectreshell--report-focus)
+(add-hook 'window-buffer-change-functions #'spectreshell--report-focus)
 
 ;; ---------------------------------------------------------------------
 ;; Style table

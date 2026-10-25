@@ -140,7 +140,6 @@
 (ert-deftest spectreshell-module-test-focus-event-mode-is-returned ()
   "mode 1004 が有効な間は :focus-event t を返し、無効ならキーごと省く。
 mode 2026 の中で終わった feed も返す。"
-  :expected-result :failed
   (let ((term (spectreshell--create 5 10)))
     (should-not (plist-member (spectreshell--feed term "a") :focus-event))
     (should (eq (plist-get (spectreshell--feed term "\x1b[?1004h") :focus-event) t))

@@ -208,6 +208,7 @@ fn buildUpdatePlist(env: *emacs.Env, arena: std.mem.Allocator, update: *const co
         try items.append(arena, emacs.t(env));
         try appendResponses(env, arena, &items, update);
         try appendRelay(env, arena, &items, update);
+        try appendFocusEvent(env, arena, &items, update);
         return emacs.list(env, items.items);
     }
 
@@ -255,6 +256,7 @@ fn buildUpdatePlist(env: *emacs.Env, arena: std.mem.Allocator, update: *const co
 
     try appendResponses(env, arena, &items, update);
     try appendRelay(env, arena, &items, update);
+    try appendFocusEvent(env, arena, &items, update);
 
     switch (update.alt_screen) {
         .unchanged => {},
@@ -308,6 +310,12 @@ fn appendRelay(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayList(
     }
     try items.append(arena, emacs.intern(env, ":relay"));
     try items.append(arena, emacs.list(env, events.items));
+}
+
+fn appendFocusEvent(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayList(*emacs.Value), update: *const core.Update) !void {
+    if (!update.focus_event) return;
+    try items.append(arena, emacs.intern(env, ":focus-event"));
+    try items.append(arena, emacs.t(env));
 }
 
 // ---------------------------------------------------------------------

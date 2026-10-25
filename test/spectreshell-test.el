@@ -905,7 +905,6 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
 あれば、フォーカスがあるとみなす。フォーカスの有無が分からないフレームは
 フォーカスがあるとみなし (Ghostty の既定と同じ)、daemon の初期フレームは
 数えない。"
-  :expected-result :failed
   (let* ((buffer (current-buffer))
          ;; (FRAME SELECTED-WINDOW BUFFER FOCUS INITIAL)
          (frames nil))
@@ -930,7 +929,6 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
 (ert-deftest spectreshell-test-focus-is-reported-while-mode-1004-is-on ()
   "子が mode 1004 を有効にした時点で今のフォーカスを送り、以後は変わった
 ときだけ \\e[I / \\e[O を送る。無効にした後は送らない。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10 responses)
     (spectreshell-test--with-focus focused
       (spectreshell-feed term "\x1b[?1004h")
@@ -950,7 +948,6 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
 
 (ert-deftest spectreshell-test-focus-report-starts-while-synchronized ()
   "mode 2026 の中で mode 1004 を有効にしても、待たずに今のフォーカスを送る。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10 responses)
     (spectreshell-test--with-focus focused
       (setq focused nil)
