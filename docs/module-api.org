@@ -41,6 +41,7 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
  :cursor-index INDEX
  :cursor-visible t-or-nil
  :responses "raw-bytes-or-omitted"
+ :relay ((SYMBOL ARGS...) ...)
  :alt-screen entered-or-left-or-omitted
  :title "title-or-omitted")
 #+end_src
@@ -69,6 +70,12 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
 - *~:responses~*: PTY に送り返すべき応答バイト列 (DA / DSR / DECRQM /
   kitty keyboard の問い合わせ等)。
   何もなければキーごと省略される。
+- *~:relay~*: 子が外側の端末へ向けて出したもの。描画とは別に Elisp が
+  外側の tty へ中継する。子が出した順に並び、何もなければキーごと
+  省略される。
+  - ~(clipboard KIND DATA)~: OSC 52 の書き込み。KIND は種別の 1 文字
+    (省略時は ~"c"~)、DATA は子が送った base64 のまま。読み取り
+    (DATA が ~?~) は載せない。
 - *~:alt-screen~*: このバッチで alternate screen への出入りが
   あった場合のみ ~entered~ / ~left~ シンボルを持つ。変化なしならキー
   ごと省略される。
@@ -77,7 +84,8 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
 ** 描画の保留 (mode 2026)
 
 ~--feed~ が mode 2026 (synchronized output) の中で終わると、戻り値は
-~(:synchronized t :responses "raw-bytes-or-omitted")~ だけになる。
+~(:synchronized t :responses "raw-bytes-or-omitted" :relay ...)~ だけに
+なる (~:relay~ は描画ではないので保留しない)。
 保留した変更は、mode 2026 が閉じた ~--feed~ の戻り値にまとめて載る。
 ~--resize~ と ~--flush~ は mode 2026 を解除してから通常の plist を返す。
 ~--flush~ はアプリが mode 2026 を閉じないまま止まったときに使う。
@@ -181,6 +189,8 @@ unibyte 文字列。
   ~^?~ ・ ~\205~ のように複数桁で描かれ、セル列と表示桁がずれるため。
 - *~:responses~*: DA/DSR 等の制御応答は unibyte 文字列
   (~make_unibyte_string~) として返す。
+- *~:relay~ の文字列*: 外側の端末へ書くバイト列の材料なので unibyte
+  文字列として返す。
 - *~--encode-key~ / ~--encode-paste~ の戻り値*: PTY にそのまま書き込む
   前提のバイト列なので unibyte 文字列。
 
