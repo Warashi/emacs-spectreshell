@@ -83,8 +83,8 @@ eshell のコマンドライン (プロンプトの後ろ) で日本語入力を
   (docs/design.org の割り切り)。
 - *プロセス実行中への IME 直接入力は対象外* (design.org 参照)。
   ~C-y~ (kill-ring からの bracketed paste) 経由での日本語送信は可能。
-- *OSC 52 クリップボード・画像 (kitty graphics/sixel) は未実装*
-  (Phase 6 の将来拡張)。
+- *OSC 52 クリップボードの読み取り・画像 (kitty graphics/sixel) は未実装*
+  (Phase 6 の将来拡張)。書き込みは外側の端末へ送る。
 - Emacs が新規に開く pty は既定で ~-echo -onlcr~ (~stty -a~ で確認可能)
   になっており、素の LF だけの出力が階段状にずれてしまう。
   ~spectreshell-eshell--wrap-command-for-pty~ が ~term.el~ と同じ
