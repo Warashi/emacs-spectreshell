@@ -488,6 +488,7 @@ WIDTHS は (CHAR . FN) の alist で、FN は `display' の height 倍率を受�
   (declare (indent 1))
   `(let ((spectreshell--glyph-fit-cache (make-hash-table :test 'equal)))
      (cl-letf (((symbol-function 'frame-char-width) (lambda (&rest _) 10))
+               ((symbol-function 'spectreshell--graphic-p) (lambda () t))
                ((symbol-function 'spectreshell--pixel-width)
                 (lambda (string)
                   (let* ((ch (aref string 0))
@@ -619,6 +620,44 @@ WIDTHS は (CHAR . FN) の alist で、FN は `display' の height 倍率を受�
       (spectreshell-feed term "⏱❌")
       (should-not (text-property-not-all (point-min) (line-end-position)
                                          'display nil)))))
+
+(defconst spectreshell-test--wide-graphemes
+  '("\N{U+1F468}\N{U+200D}\N{U+1F469}\N{U+200D}\N{U+1F467}"
+    "\N{U+1F44D}\N{U+1F3FD}"
+    "\N{U+1F3F3}\N{U+FE0F}\N{U+200D}\N{U+1F308}")
+  "`string-width' がセル数 (2) を超える書記素: ZWJ 列・肌色修飾・🏳️‍🌈。")
+
+(ert-deftest spectreshell-test-tty-composes-grapheme-wider-than-its-cells ()
+  "tty では、`string-width' がセル数を超える書記素を 1 つに合成し、
+後ろの文字の表示桁を ghostty-vt のセル列にそろえる。"
+  (dolist (grapheme spectreshell-test--wide-graphemes)
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term (encode-coding-string (concat "a" grapheme "Z") 'utf-8))
+      (goto-char (point-min))
+      (should (equal (seq-take (find-composition (1+ (point-min))) 2)
+                     (list (1+ (point-min)) (+ (point-min) 1 (length grapheme)))))
+      (search-forward "Z")
+      (backward-char 1)
+      (should (= (current-column) 3)))))
+
+(ert-deftest spectreshell-test-tty-leaves-grapheme-within-its-cells ()
+  "tty でも、`string-width' がセル数以下の書記素は合成しない。
+国旗は合成すると外側の端末で幅が変わり、単独の regional indicator と
+VS16 の絵文字は合成しても広がらない。"
+  (dolist (text '("\N{U+1F1EF}\N{U+1F1F5}" "\N{U+1F1EF}" "\N{U+2764}\N{U+FE0F}" "\N{U+6F22}"))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term (encode-coding-string text 'utf-8))
+      (should-not (text-property-not-all (point-min) (line-end-position)
+                                         'composition nil)))))
+
+(ert-deftest spectreshell-test-gui-does-not-compose-graphemes ()
+  "GUI では合成せず、幅揃えだけにする。"
+  (spectreshell-test--with-glyph-widths nil
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term (encode-coding-string
+                               (car spectreshell-test--wide-graphemes) 'utf-8))
+      (should-not (text-property-not-all (point-min) (line-end-position)
+                                         'composition nil)))))
 
 (ert-deftest spectreshell-test-24bit-color-sets-literal-rgb-foreground ()
   "24bit 色 (\\e[38;2;R;G;Bm) はそのまま \"#rrggbb\" として foreground に載る。"

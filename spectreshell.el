@@ -1081,7 +1081,9 @@ character, where `spectreshell--row-cell-column' finds it."
                'help-echo uri
                'spectreshell-hyperlink-uri uri)
          text))))
-  (spectreshell--fit-glyphs text cells)
+  (if (spectreshell--graphic-p)
+      (spectreshell--fit-glyphs text cells)
+    (spectreshell--compose-wide-graphemes text cells))
   text)
 
 ;; ---------------------------------------------------------------------
@@ -1095,9 +1097,13 @@ Valid only for the frame font recorded in `spectreshell--glyph-fit-font'.")
 (defvar spectreshell--glyph-fit-font nil
   "The selected frame's font when `spectreshell--glyph-fit-cache' was filled.")
 
+(defun spectreshell--graphic-p ()
+  "Return non-nil when rows are drawn for a GUI frame, the selected one."
+  (display-graphic-p))
+
 (defun spectreshell--pixel-width (string)
   "Return STRING's pixel width in the selected frame, or nil on a text terminal."
-  (and (display-graphic-p) (string-pixel-width string)))
+  (and (spectreshell--graphic-p) (string-pixel-width string)))
 
 (defun spectreshell--shrunk-height (string target ratio)
   "Return the largest `display' height of STRING drawn within TARGET pixels.
@@ -1179,15 +1185,39 @@ changes, so TEXT's characters stay as the module sent them."
         (while (setq i (string-match "[^[:ascii:]]" text i))
           (spectreshell--fit-grapheme text i (1+ i) 1)
           (setq i (1+ i))))
-    (let ((len (length text))
-          (i 0))
-      (while (< i len)
-        (let ((end (1+ i)))
-          (while (and (< end len) (= 0 (aref cells end)))
-            (setq end (1+ end)))
-          (unless (and (= end (1+ i)) (< (aref text i) 128))
-            (spectreshell--fit-grapheme text i end (aref cells i)))
-          (setq i end))))))
+    (spectreshell--map-graphemes
+     (lambda (start end)
+       (unless (and (= end (1+ start)) (< (aref text start) 128))
+         (spectreshell--fit-grapheme text start end (aref cells start))))
+     cells)))
+
+(defun spectreshell--map-graphemes (function cells)
+  "Call FUNCTION with the START and END of each grapheme that CELLS describes.
+CELLS is the module's per-character cell counts for a row, where a
+grapheme's characters after its first are 0."
+  (let ((len (length cells))
+        (start 0))
+    (while (< start len)
+      (let ((end (1+ start)))
+        (while (and (< end len) (= 0 (aref cells end)))
+          (setq end (1+ end)))
+        (funcall function start end)
+        (setq start end)))))
+
+(defun spectreshell--compose-wide-graphemes (text cells)
+  "Compose TEXT's graphemes that a text terminal would draw wider than their cells.
+CELLS is as for `spectreshell--fit-glyphs'.  A text terminal frame has no
+`display' widths to fit, but it counts a static composition as wide as
+its widest character, which brings ZWJ sequences and skin tone
+modifiers back to their cells.  Graphemes no wider than their cells are
+left alone: composing a flag changes its width on the outer terminal."
+  (when cells
+    (spectreshell--map-graphemes
+     (lambda (start end)
+       (when (and (> end (1+ start))
+                  (> (string-width text start end) (aref cells start)))
+         (compose-string text start end)))
+     cells)))
 
 ;; ---------------------------------------------------------------------
 ;; Style span -> face conversion
