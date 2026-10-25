@@ -797,6 +797,32 @@ daemon の値は daemon を起動した端末のもので、今見ている端�
                    "TP=ghostty TPV=1.3.1"))))
 
 ;; ---------------------------------------------------------------------
+;; タイトルの中継 (L-43)
+;; ---------------------------------------------------------------------
+
+(ert-deftest spectreshell-eshell-test-child-title-reaches-outer-terminal ()
+  "`spectreshell-eshell-mode' の下では、子のタイトルが外側の端末の
+タブ名に届く。直結ではアプリのタイトルがタブ名になるため。モードを切ると
+届けない。"
+  :expected-result :failed
+  (let (sent)
+    (cl-letf (((symbol-function 'spectreshell--relay-terminals)
+               (lambda (_) '(t1)))
+              ((symbol-function 'send-string-to-terminal)
+               (lambda (string terminal) (push (cons string terminal) sent))))
+      (spectreshell-eshell-test--with-eshell buf
+        (spectreshell-eshell-test--send buf "printf '\\033]2;hi\\007'")
+        (should (spectreshell-eshell-test--wait-for-command buf)))
+      (should (member '("\e]2;hi\a" . t1) sent)))
+    (let ((was-on spectreshell-eshell-mode))
+      (unwind-protect
+          (progn
+            (spectreshell-eshell-mode -1)
+            (should-not (memq #'spectreshell-relay-title
+                              spectreshell-title-functions)))
+        (spectreshell-eshell-mode (if was-on 1 -1))))))
+
+;; ---------------------------------------------------------------------
 ;; 同梱 terminfo の自動検出
 ;; ---------------------------------------------------------------------
 
