@@ -453,7 +453,7 @@ kkp (外側との kitty keyboard) を使うと、さらに次の差が出る。k
 Claude Code で =C-c C-c= の 2 回押しの確認が出ること。実環境の確認は
 未実施。
 
-** TODO M-26: 複数の emacsclient で同じバッファを表示すると、端末と pty のサイズが食い違う
+** DONE M-26: 複数の emacsclient で同じバッファを表示すると、端末と pty のサイズが食い違う
 対象: =spectreshell-eshell.el= (=--attach= / =--window-size-change=)
 
 daemon (=emacs -Q --fg-daemon=) に大きさの違う 2 つの
@@ -495,6 +495,46 @@ L-32 との関係: L-32 は追従先を =spectreshell-eshell--window= に一本
   =spectreshell-eshell--window-size-change= を走らせる。
 - ERT: 実プロセスと 2 ウィンドウで =window-configuration-change-hook=
   を走らせ、pty のサイズが端末と一致することを確かめる。
+
+対応 (2026-10-26):
+
+- pty だけが戻る件 (f41dc31): attach でプロセス属性
+  =adjust-window-size-function= を =ignore= にした。
+  =window--adjust-process-windows= は何もしなくなり、pty のサイズを
+  決めるのは L-32 の規則だけになる。
+- 閉じた側のサイズが残る件 (b7efe61): =spectreshell-eshell-mode= の間は
+  =after-delete-frame-functions= で、端末を持つバッファごとに
+  =spectreshell-eshell--window-size-change= を走らせる。hook が呼ばれる
+  時点でフレームは消えている (docstring) ので、=get-buffer-window-list=
+  は残ったウィンドウから選ぶ。
+
+マニュアル (74fe6e6) に、フレームを消したときも合わせ直すことと、
+=window-adjust-process-window-size-function= に従わないことを書いた。
+
+確認:
+
+- batch: 実プロセスを 2 ウィンドウに出して
+  =window-configuration-change-hook= を走らせても、子の =stty size= が
+  端末のサイズと同じであること (修正前は小さい方のウィンドウの 4 行に
+  なった)、=after-delete-frame-functions= を走らせると端末と pty が
+  選択ウィンドウのサイズになることを固定した。
+- pty (=/tmp/parity-scripts/m26-e2e.py=): daemon に 24x90 の B と
+  49x200 の C の =emacsclient -t= をつなぎ、B で始めたコマンドの
+  バッファを C に表示してから C を閉じた。閉じ方は =delete-frame= と、
+  =emacsclient= に SIGTERM を送って pty を閉じるのの 2 通りで、修正後は
+  どちらも同じ結果だった (修正前は =delete-frame= だけで測った)。
+
+#+begin_example
+            修正前                    修正後
+            端末     子 (stty size)   端末     子 (stty size)
+B だけ      21x89    21x89            21x89    21x89
+C で表示    46x199   21x89            46x199   46x199
+C を閉じる  46x199   21x89            21x89    21x89
+#+end_example
+
+未確認: Ghostty → ssh → =emacsclient -t= の 2 つのクライアントで
+Claude Code / Copilot CLI を表示したときの見た目と、ssh の切断で
+クライアントが消えたときの挙動。実環境の確認は未実施。
 
 ** DONE M-25: kitty keyboard 有効時に Shift で打つ英大文字が CSI u になり、Copilot CLI では小文字で入る
 対象: =src/keymap.zig= (=charEvent=)
