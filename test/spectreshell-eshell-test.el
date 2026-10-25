@@ -286,6 +286,41 @@ READY で待機が抜けないよう、行頭の READY に限る。"
       (should (spectreshell-eshell-test--wait-for-command buf)))))
 
 ;; ---------------------------------------------------------------------
+;; semi-char モードの C-c C-c
+;; ---------------------------------------------------------------------
+
+(defun spectreshell-eshell-test--type (buffer keys)
+  "BUFFER を選択ウィンドウに出して KEYS (`kbd' 形式) を打つ。"
+  (save-window-excursion
+    (switch-to-buffer buffer)
+    (execute-kbd-macro (kbd keys))))
+
+(ert-deftest spectreshell-eshell-test-c-c-c-c-sends-c-c-to-raw-child ()
+  "C-c C-c は SIGINT ではなく C-c を子へ送り、raw モードの子は 0x03 を読む。
+Claude Code などは raw モードで C-c を自分で解釈し、2 回押しで終了する。"
+  :expected-result :failed
+  (spectreshell-eshell-test--with-eshell buf
+    (spectreshell-eshell-test--send
+     buf "*sh -c 'stty raw -echo; echo READY; od -An -tx1 -N1'")
+    (should (spectreshell-eshell-test--wait-for-foreground buf))
+    (should (spectreshell-eshell-test--wait-until
+             (lambda () (with-current-buffer buf
+                          (string-match-p "^READY" (buffer-string))))))
+    (spectreshell-eshell-test--type buf "C-c C-c")
+    (should (spectreshell-eshell-test--wait-until
+             (lambda () (with-current-buffer buf
+                          (string-match-p "^ 03" (buffer-string))))))
+    (should (spectreshell-eshell-test--wait-for-command buf))))
+
+(ert-deftest spectreshell-eshell-test-c-c-c-c-interrupts-cooked-child ()
+  "C-c C-c で、ISIG が有効な子は tty ドライバの SIGINT で終わる。"
+  (spectreshell-eshell-test--with-eshell buf
+    (spectreshell-eshell-test--send buf "sleep 30")
+    (should (spectreshell-eshell-test--wait-for-foreground buf))
+    (spectreshell-eshell-test--type buf "C-c C-c")
+    (should (spectreshell-eshell-test--wait-for-command buf))))
+
+;; ---------------------------------------------------------------------
 ;; 異常系: シグナル死・実行中のバッファ kill
 ;; ---------------------------------------------------------------------
 
