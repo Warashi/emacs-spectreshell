@@ -340,7 +340,7 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
-** TODO M-27: semi-char で C-x / M-x / C-u / C-y / C-c を子へ送る手段が無く、C-c C-c が SIGINT になって Claude Code が 2 回押しの確認を経ずに即終了する
+** DONE M-27: semi-char で C-x / M-x / C-u / C-y / C-c を子へ送る手段が無く、C-c C-c が SIGINT になって Claude Code が 2 回押しの確認を経ずに即終了する
 対象: =spectreshell.el= (=spectreshell-semi-char-mode-map=)
 
 Claude Code は =ctrl+c= (取り消し、2 回押しで終了)、=ctrl+x ctrl+e= /
@@ -416,6 +416,42 @@ kkp (外側との kitty keyboard) を使うと、さらに次の差が出る。k
 - ERT: key-table に =C-\= 経由の各キー、=C-c C-c= 、kkp で別イベントに
   なるキーを flags 0 / 5 で足す。eshell で =C-c C-c= が raw モードの子に
   =003= を届け、cooked モードの子 (=sleep=) は終わることを確かめる。
+
+対応 (2026-10-25):
+
+- =C-\= (3258838): =spectreshell-send-next-key= が =read-key= で 1 キー
+  を読み、=spectreshell-send-key= と共通にした =spectreshell--send-event=
+  で送る。=read-key= が ESC を返し =this-single-command-keys= が
+  =[27 c]= のときは =c= + alt として送る。=C-\= 単独の束縛は外した。
+- =C-c C-c= (fb56293): semi-char で =spectreshell-send-key= に束縛した。
+  2 個目の =C-c= が =last-command-event= なので、そのまま =C-c= を送る。
+- kkp で別イベントになるキー (f9f8475): =C-S-<英字>= と、
+  =event-convert-list= で C0 にならない =C-<数字・記号・SPC>= を
+  =spectreshell-send-key= に束縛した。
+
+確認 (batch):
+
+- key-table: =C-\ C-\= → =\x1c= 、=C-\ C-c= → =^C= / flags 5 で
+  =\e[99;5u= 、=C-\ C-u= / =C-\ C-y= 、=C-\ M-x= と =C-\ ESC x= →
+  =\ex= 、flags 5 で =C-\ M-O= → =\e[111:79;4u= 、=C-\ M-[= →
+  =\e[91;3u= 。=C-c C-c= → =^C= / =\e[99;5u= 。flags 5 で =C-S-b= →
+  =\e[98;6u= 、=C--= =C-1= =C-SPC= =C-/= =C-;= → それぞれの CSI u。
+  =C-]= =C-RET= =S-RET= =<escape>= =C-<home>= は以前から届いていたので
+  回帰テストとして固定した。
+- =C-\ C-x= は =key-translation-map= の =C-x 8= と
+  =local-function-key-map= の =C-x @= のプレフィックスでもあり、
+  =execute-kbd-macro= の中の =read-key= は次の打鍵まで読み込む (実端末
+  では =read-key-delay= の 0.01 秒後に =C-x= だけで返るはず、コード
+  読解)。ERT は =read-key= を差し替えて確かめた。
+- eshell: raw モードの =od -N1= に =C-c C-c= で =03= が届き、=sleep 30=
+  は =C-c C-c= で終わる。
+
+未確認: kkp を使った実端末 (Ghostty → ssh → =emacsclient -t=) で
+=C-\ M-O= / =C-\ M-[= / =C-S-b= などが 1 イベントで届くこと、kkp の
+無い tty で =C-\ M-O= / =C-\ M-[= が何を送るか (=ESC O= の後に
+=read-key-delay= で返ったときのキー列は batch で再現できなかった)、
+Claude Code で =C-c C-c= の 2 回押しの確認が出ること。実環境の確認は
+未実施。
 
 ** TODO M-26: 複数の emacsclient で同じバッファを表示すると、端末と pty のサイズが食い違う
 対象: =spectreshell-eshell.el= (=--attach= / =--window-size-change=)
