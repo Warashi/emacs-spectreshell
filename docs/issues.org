@@ -2055,6 +2055,24 @@ Emacs 31.1 は外側の端末に =\e[?1004h= を無条件に送り
 変化したときに =\e[I= / =\e[O= を送る。=?1004h= を受けた時点でも現在の
 状態を 1 回送る。mode 1004 の状態はモジュールから plist で返す。
 
+** TODO L-49: 子のパレット色 (SGR 30-37 / 90-97) が外側の Ghostty のテーマを通らず、固定の RGB で出る
+対象: =spectreshell.el= (=spectreshell-color-0= 〜 =15=)
+
+直結では =\e[31m= が Ghostty のテーマの赤になる。spectreshell 経由で
+は =spectreshell-color-1= (=ansi-color-red= を継承) の色を Emacs が
+RGB で出すので、外側のテーマと色が合わない。既定の前景・背景色は
+=\e[39;49m= のまま出るのでテーマに従う。
+
+=emacs -nw -Q= (=TERM=xterm-ghostty=、=display-color-cells= は
+16777216) で =ansi-color-red= (=red3=) のテキストを描いた出力を記録
+すると、=\e[38:2:205:0:0m= で出た。=xterm.el= の
+=xterm-standard-colors= も red を (205 0 0) としている。
+
+対応方針: 外側へ OSC 4 でパレット 0〜15 を問い合わせ (=xterm.el= の
+=xterm--query= と同じ仕組み)、=spectreshell-color-N= をその色にする
+オプションを足す。最小限なら、テーマの RGB に合わせて face を設定する
+例をマニュアルに書く。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
