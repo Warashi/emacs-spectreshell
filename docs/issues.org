@@ -2421,7 +2421,7 @@ RGB で出すので、外側のテーマと色が合わない。既定の前景�
 オプションを足す。最小限なら、テーマの RGB に合わせて face を設定する
 例をマニュアルに書く。
 
-** TODO L-50: color scheme の問い合わせ (=\e[?996n=) に応答せず、mode 2031 の通知も送らない
+** DONE L-50: color scheme の問い合わせ (=\e[?996n=) に応答せず、mode 2031 の通知も送らない
 対象: =src/handler.zig= / =spectreshell.el=
 
 Ghostty は =\e[?996n= に =\e[?997;1n= (dark) か =\e[?997;2n= (light)
@@ -2439,6 +2439,36 @@ Claude Code は起動時に =\e[?2031h= を送る (記録した実行)。
 =background-mode= (dark / light) をモジュールに渡し、=\e[?996n= に
 Ghostty と同じ形で答える。mode 2031 が有効なら、=background-mode= が
 変わったときに通知する。
+
+対応 (2026-10-26, 870d5e3): 新しいモジュール関数
+=spectreshell--set-color-scheme= で明暗 (=dark= / =light=) を渡し、
+モジュールが =\e[?996n= に =\e[?997;1n= / =\e[?997;2n= で答える (一度も
+渡されていなければ答えない)。DA1 などと同じ feed の中で順を崩さないため、
+応答は Elisp ではなくモジュールが組み立てる。=spectreshell.el= は feed
+の前ごとに、バッファを表示しているフレーム (選択中のウィンドウのフレーム
+を優先) の =background-mode= を渡す。=set-color-scheme= は mode 2031 が
+有効で明暗が変わったときだけ通知を返し、それを子へ送る。テーマの有効化・
+無効化と、ウィンドウのバッファ・選択の変化のたびにも渡し直す。DECRQM
+=?2031= には Ghostty と同じく今のとおり 2 / 1 で答える。関数は
+=docs/module-api.org= (09d0aeb) に、届く形はマニュアル (93b646a) に
+書いた。
+
+確認:
+
+- batch: Zig と ERT で、渡す前は答えないこと、渡した明暗での応答、
+  mode 2031 の間に明暗が変わったときだけの通知、mode 2031 を無効にした
+  後と finalize 後に送らないことを固定した。
+- pty (=/tmp/parity-scripts/outer-e2e.py= と =query.py=): daemon に
+  =emacsclient -t= (=TERM=xterm-256color=、外側は OSC 11 に答えない) で
+  つなぎ、eshell の子が =\e[?996n\e[?2031h= を送ると =\e[?997;2n=
+  (tty の =background-mode= は =light=) が返った。続けて
+  =(load-theme 'modus-vivendi t)= で =background-mode= が =dark= に
+  なると =\e[?997;1n= が届いた。
+
+未確認: 外側の Ghostty 1.3 で Emacs の =background-mode= が Ghostty の
+テーマの明暗と一致すること、Ghostty のテーマを切り替えたときに
+=background-mode= が追従すること (追従しなければ通知も出ない)、Copilot
+CLI / Claude Code が応答や通知で表示を変えること。実環境の確認は未実施。
 
 ** TODO L-51: tty で OSC 8 のリンクをクリックすると daemon のホストで開き、子のマウス追跡中は release が子に届かない
 対象: =spectreshell.el= (=spectreshell--track-mouse-drag= / =spectreshell-hyperlink=)
