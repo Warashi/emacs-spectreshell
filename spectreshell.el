@@ -1722,7 +1722,12 @@ onto `unread-command-events' so the normal command loop still sees it."
         ;; would ever be recognized.  DISABLE-FALLBACKS is on so that a
         ;; press of another button mid-drag reaches the push-back arm below
         ;; instead of being discarded as an unbound down event.
-        (let ((event (read-key nil t)))
+        ;; `mouse-1-click-follows-link' would turn a release on a link (an
+        ;; OSC 8 button) into a mouse-2 click: pushed back as another
+        ;; button's event, it opens the link and the child that got the
+        ;; press never gets its release.
+        (let ((event (let ((mouse-1-click-follows-link nil))
+                       (read-key nil t))))
           (cond
            ((and (consp event) (eq (car event) 'mouse-movement))
             (spectreshell--send-mouse obj button 'motion (event-start event) mods))
