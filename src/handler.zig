@@ -97,8 +97,6 @@ pub const Handler = struct {
             .progress_report => try self.progressReport(value),
             .bell => try self.relay.append(self.alloc, .bell),
             .color_operation => {
-                // 子による色の設定・リセットは描画に効かないが、従来どおり
-                // 内側の状態には反映しておく。
                 try self.inner.vt(action, value);
                 try self.colorReports(&value.requests, value.terminator);
             },
