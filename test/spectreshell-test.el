@@ -1034,6 +1034,73 @@ Ghostty と同じ形で答える。"
       (run-hook-with-args 'enable-theme-functions 'some-theme)
       (should (null responses)))))
 
+(defmacro spectreshell-test--with-colors (calls &rest body)
+  "BODY で変えた face の色を後で戻す.
+`color-values' は \"#rrggbb\" を batch の端末の色に寄せずに 16bit の
+3 つ組にし (それ以外は nil)、呼ばれた回数を変数 CALLS に数える。"
+  (declare (indent 1))
+  `(let ((,calls 0)
+         (saved (mapcar (lambda (face)
+                          (list face
+                                (face-attribute face :foreground)
+                                (face-attribute face :background)))
+                        (cons 'default
+                              (mapcar (lambda (i)
+                                        (intern (format "spectreshell-color-%d" i)))
+                                      (number-sequence 0 15))))))
+     (unwind-protect
+         (cl-letf (((symbol-function 'color-values)
+                    (lambda (color &optional _frame)
+                      (setq ,calls (1+ ,calls))
+                      (and (stringp color)
+                           (string-match "\\`#\\(..\\)\\(..\\)\\(..\\)\\'" color)
+                           (mapcar (lambda (i)
+                                     (* 257 (string-to-number (match-string i color) 16)))
+                                   '(1 2 3))))))
+           ,@body)
+       (pcase-dolist (`(,face ,fg ,bg) saved)
+         (set-face-attribute face nil :foreground fg :background bg)))))
+
+(ert-deftest spectreshell-test-color-queries-answer-theme-colors ()
+  "OSC 10 / 11 には `default' の前景・背景で、OSC 4 の 0〜15 には
+`spectreshell-color-N' の前景で、Ghostty と同じ形で答える。"
+  :expected-result :failed
+  (spectreshell-test--with-colors _calls
+    (set-face-attribute 'default nil :foreground "#ffeedd" :background "#010203")
+    (set-face-attribute 'spectreshell-color-1 nil :foreground "#cd0000")
+    (spectreshell-test--with-terminal (term 1 10 responses)
+      (spectreshell-feed term "\e]10;?\e\\\e]11;?\a\e]4;1;?\e\\")
+      (should (equal responses
+                     '("\e]10;rgb:ffff/eeee/dddd\e\\\e]11;rgb:0101/0202/0303\a\e]4;1;rgb:cdcd/0000/0000\e\\"))))))
+
+(ert-deftest spectreshell-test-unspecified-colors-are-not-answered ()
+  "色が決まっていない `default' (tty の unspecified-fg / -bg) の問い合わせには
+答えず、続く問い合わせには答える。"
+  (spectreshell-test--with-colors _calls
+    (set-face-attribute 'default nil :foreground 'unspecified :background 'unspecified)
+    (spectreshell-test--with-terminal (term 1 10 responses)
+      (spectreshell-feed term "\e]10;?\e\\\e]11;?\e\\\e[c")
+      (should (equal responses '("\e[?62;22;52c"))))))
+
+(ert-deftest spectreshell-test-color-queries-follow-theme-change ()
+  "色は feed ごとには引き直さず、テーマを替えたときに引き直した色で答える。"
+  :expected-result :failed
+  (spectreshell-test--with-colors calls
+    (set-face-attribute 'spectreshell-color-1 nil :foreground "#cd0000")
+    (spectreshell-test--with-terminal (term 1 10 responses)
+      (spectreshell-feed term "\e]4;1;?\e\\")
+      (setq responses nil calls 0)
+      (set-face-attribute 'spectreshell-color-1 nil :foreground "#ff5555")
+      (spectreshell-feed term "\e]4;1;?\e\\")
+      (should (equal calls 0))
+      (should (equal responses '("\e]4;1;rgb:cdcd/0000/0000\e\\")))
+      (setq responses nil)
+      (run-hook-with-args 'enable-theme-functions 'some-theme)
+      (spectreshell-feed term "\e]4;1;?\e\\")
+      (should (equal responses '("\e]4;1;rgb:ffff/5555/5555\e\\")))
+      (spectreshell-finalize term)
+      (run-hook-with-args 'enable-theme-functions 'some-theme))))
+
 (ert-deftest spectreshell-test-finalize-releases-terminal ()
   "finalize 後は端末が release され、追加の feed が signal される。"
   (spectreshell-test--with-terminal (term 1 10)
