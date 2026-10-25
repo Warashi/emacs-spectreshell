@@ -273,6 +273,10 @@ matches the size the child's very first ioctl already saw."
         (set-process-filter proc #'spectreshell-eshell--filter)
         (set-process-sentinel proc #'spectreshell-eshell--sentinel)
         (set-process-window-size proc rows cols)
+        ;; Otherwise `window--adjust-process-windows' gives the pty the
+        ;; smallest window's size, which need not be the window
+        ;; `spectreshell-eshell--window' sized the terminal to.
+        (process-put proc 'adjust-window-size-function #'ignore)
         (push (cons proc obj) spectreshell-eshell--terminals)
         (add-hook 'window-size-change-functions
                    #'spectreshell-eshell--window-size-change nil t)

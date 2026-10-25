@@ -578,7 +578,6 @@ Emacs 標準の `window--adjust-process-windows' は、プロセスのバッフ�
 表示するウィンドウのうち最小のサイズを pty に設定する。端末は
 `spectreshell-eshell--window' の規則で決めたサイズなので、それに従うと
 子が見るサイズだけが端末とずれる。"
-  :expected-result :failed
   (spectreshell-eshell-test--with-eshell buf
     (save-window-excursion
       (switch-to-buffer buf)
