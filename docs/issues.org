@@ -2032,6 +2032,29 @@ spectreshell はどれにも応答しない。=color_operation= を
 fg / bg を module に渡して =rgb:RRRR/GGGG/BBBB= で答え、OSC 10 / 11 の
 設定とリセットは =face-remap= で端末領域の背景に反映する。
 
+** TODO L-48: フォーカス報告 (mode 1004) の =\e[I= / =\e[O= を子へ送らない
+対象: =spectreshell.el= / =src/module.zig=
+
+Copilot CLI と Claude Code はどちらも起動時に =\e[?1004h= を送る (記録
+した実行)。spectreshell は DECRQM =?1004= に設定後 1 を返すが
+(batch で実測)、フォーカスの変化を子へ送る処理が無い (=spectreshell.el=
+と =src/= に focus の処理が無い)。直結では、Ghostty のウィンドウやタブ
+のフォーカスが変わると子に届く。Copilot CLI が通知の抑制などに使うと
+いうのは調査時のバンドルの読解で、未確認。
+
+Emacs 31.1 は外側の端末に =\e[?1004h= を無条件に送り
+(=xterm--init-focus-tracking=。=emacs -nw -Q= の出力でも確認)、
+=\e[I= / =\e[O= を受けると端末パラメータ =tty-focus-state= を更新して
+=after-focus-change-function= を呼ぶ (=xterm.el= の
+=xterm-translate-focus-in= / =-out=)。外側のフォーカスは Elisp から
+=frame-focus-state= で読める。
+
+対応方針: 「端末のバッファを選択中のウィンドウに表示しているフレームに
+フォーカスがあるか」を =after-focus-change-function= と
+=window-selection-change-functions= で求め、子の mode 1004 が有効なら、
+変化したときに =\e[I= / =\e[O= を送る。=?1004h= を受けた時点でも現在の
+状態を 1 回送る。mode 1004 の状態はモジュールから plist で返す。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
