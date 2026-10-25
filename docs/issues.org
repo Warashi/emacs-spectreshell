@@ -590,7 +590,7 @@ flags 5 で shift が落ちて =\e[97;5u= になる (shift-translation による
   指定して送る他の項目と形が揃わないので採らない。
 - 転送を実装したら、DA1 の応答に =52= を足す (Ghostty と同じ)。
 
-** TODO M-23: 子が外側の端末へ向けて出す OSC 52 / 777 / 9;4 / タイトル / BEL を中継する経路が無い
+** DONE M-23: 子が外側の端末へ向けて出す OSC 52 / 777 / 9;4 / タイトル / BEL を中継する経路が無い
 対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el=
 
 ssh 先の Emacs daemon に =emacsclient -t= でつなぎ、spectreshell の中で
@@ -629,6 +629,37 @@ Claude Code や Copilot CLI を動かすと、直結 (Ghostty → ssh → アプ
   表示されたとき (attach で足している =window-buffer-change-functions=)
   に送り直す。
 - フレーム 0 個のときに捨てることは設計判断としてマニュアルに書く。
+
+対応 (2026-10-25):
+
+- Elisp (45599f3): =spectreshell.el= の「Relay to the outer terminal」
+  にまとめた。=spectreshell--relay= が送り先を
+  =spectreshell--relay-terminals= で列挙し、=send-string-to-terminal=
+  で送る (PREDICATE で端末を絞れる)。daemon の初期フレームは
+  =display-graphic-p= が nil の非 GUI フレームで、端末は daemon の
+  stdout になるので =frame-initial-p= で除く (=emacs -Q --daemon= で
+  =terminal-frame= が =initial_terminal= 上の非 GUI フレームである
+  ことを実測)。進捗のための口は =spectreshell--relay-keep= で、KEY ごと
+  に最新の文字列をバッファローカルに保持し、初回の保持でそのバッファの
+  =window-buffer-change-functions= に =spectreshell--relay-resend= を
+  足して、新たに表示したウィンドウの端末へ送り直す。eshell 統合の
+  フックには依存しない。
+- モジュール (11f45a0、M-24 で最初の利用者と一緒に足した):
+  =src/relay.zig= の =Event= を Handler が =Term.pending_relay= に積み、
+  update の =:relay= に =(SYMBOL ARGS...)= の並びで出す。mode 2026 の
+  中でも保留しない。Elisp は =spectreshell--relay-handlers= で SYMBOL
+  ごとの関数へ渡す。
+- マニュアル (ef69acb): 送り先と、表示していない間は捨てることを書いた。
+
+確認 (batch): 同じ端末の 2 フレームへは 1 回、GUI フレームと初期フレーム
+には送らない、表示が無ければ捨てて後から表示しても送らない、保持した
+ものは表示し直したウィンドウの端末にだけ送り直し nil で保持をやめる、
+を ERT で固定した (batch では tty フレームを作れないので、フレームと
+端末を引く関数を差し替えた)。実際の tty への送出は M-24 の確認を参照。
+
+未確認: 2 つの =emacsclient -t= で同じバッファを表示したときと、
+クライアントが 0 個の間に出た出力を捨てることは実端末で見ていない。
+実環境の確認は未実施。
 
 ** DONE M-22: GUI の Emacs で M-21 が縮めた文字の幅がセルに数 px 足りず、後続の文字が左へずれる
 対象: =spectreshell.el= (=spectreshell--fit-height= / =spectreshell--fit-overwide-glyphs=)
