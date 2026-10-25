@@ -2297,6 +2297,36 @@ Copilot CLI は起動時に =\e[?1003h= を、Claude Code は fullscreen で
 =emacs -nw= に =\e[<35;5;5M= を入力して =mouse-movement= が届くかを
 先に確かめる。無理ならマニュアルに対象外と書く。
 
+** TODO L-54: 子に TERM_PROGRAM / TERM_PROGRAM_VERSION が渡らない
+対象: =spectreshell-eshell.el= (=--process-environment=)
+
+直結で ssh 先に =TERM_PROGRAM= / =TERM_PROGRAM_VERSION= が届くかは、
+クライアント側の設定で決まる。Ghostty の =shell-integration-features=
+の =ssh-env= (既定 false) を有効にすると =SendEnv= で送り、sshd の
+=AcceptEnv= があれば届く (ghostty のソースの読解)。利用者は今
+=ssh-env= を無効にしているが、後で有効にするかもしれない。
+
+spectreshell は =TERM= / =TERMINFO= しか設定せず、子は daemon 自身の
+環境を継ぐ。emacsclient が送ったクライアント側の環境は使わない。
+=ssh-env= を有効にしても、直結では届く値が spectreshell 経由では届かず、
+daemon の起動元に値があればその値が届く。
+
+Claude Code は =TERM_PROGRAM= で次を切り替える (調査時のバンドルの
+読解)。記録した実行では =TERM_PROGRAM=ghostty= を付けても出力の
+シーケンスに差は無かった。
+
+- =isGhostty()= (=TERM=xterm-ghostty= または =TERM_PROGRAM=ghostty=):
+  取り消し線を SGR 9 で描くか、進捗バーのグリフ
+- OSC 8: =TERM_PROGRAM= が ghostty などのときだけ使う
+- OSC 9;4: =TERM_PROGRAM=ghostty= かつ =TERM_PROGRAM_VERSION= が
+  1.2.0 以上のときだけ送る
+
+対応方針: コマンドを始めたときの選択中のフレームが持つクライアント側
+の環境 (frame-parameter の =environment=。=server.el= の
+=server--create-frame= が設定する) から、2 つの変数をそのまま子へ渡す。
+クライアントの環境に無い変数は子から外す (daemon の値は外側の端末と
+関係が無い)。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
