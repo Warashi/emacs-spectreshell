@@ -137,6 +137,18 @@
     (should (equal (plist-get update :relay) '((bell) (bell))))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-focus-event-mode-is-returned ()
+  "mode 1004 が有効な間は :focus-event t を返し、無効ならキーごと省く。
+mode 2026 の中で終わった feed も返す。"
+  :expected-result :failed
+  (let ((term (spectreshell--create 5 10)))
+    (should-not (plist-member (spectreshell--feed term "a") :focus-event))
+    (should (eq (plist-get (spectreshell--feed term "\x1b[?1004h") :focus-event) t))
+    (should (equal (spectreshell--feed term "\x1b[?2026h")
+                   '(:synchronized t :focus-event t)))
+    (should-not (plist-member (spectreshell--feed term "\x1b[?1004l") :focus-event))
+    (spectreshell--release term)))
+
 (ert-deftest spectreshell-module-test-flush-draws-pending-frame ()
   "--flush は保留中の描画を通常の update plist で返す。"
   (let* ((term (spectreshell--create 1 10))

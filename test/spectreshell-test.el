@@ -886,6 +886,87 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
       (spectreshell-relay-title term "a\eb\ac\177d")
       (should (equal sent '(("\e]2;abcd\a" . t1)))))))
 
+;; ---------------------------------------------------------------------
+;; フォーカス報告 (L-48)
+;; ---------------------------------------------------------------------
+
+(defmacro spectreshell-test--with-focus (focused &rest body)
+  "フォーカスの判定を変数 FOCUSED の値に差し替えて BODY を実行する.
+判定そのものは `spectreshell-test-focus-follows-selected-window-of-focused-frame'
+で固定してあるので、ここでは報告の流れだけを見る。"
+  (declare (indent 1))
+  `(let ((,focused t))
+     (cl-letf (((symbol-function 'spectreshell--focused-p)
+                (lambda (_) ,focused)))
+       ,@body)))
+
+(ert-deftest spectreshell-test-focus-follows-selected-window-of-focused-frame ()
+  "端末のバッファを選択中のウィンドウに表示しているフレームにフォーカスが
+あれば、フォーカスがあるとみなす。フォーカスの有無が分からないフレームは
+フォーカスがあるとみなし (Ghostty の既定と同じ)、daemon の初期フレームは
+数えない。"
+  :expected-result :failed
+  (let* ((buffer (current-buffer))
+         ;; (FRAME SELECTED-WINDOW BUFFER FOCUS INITIAL)
+         (frames nil))
+    (cl-letf (((symbol-function 'frame-list) (lambda () (mapcar #'car frames)))
+              ((symbol-function 'frame-selected-window)
+               (lambda (f) (nth 1 (assq f frames))))
+              ((symbol-function 'window-buffer)
+               (lambda (w) (nth 2 (seq-find (lambda (e) (eq (nth 1 e) w)) frames))))
+              ((symbol-function 'frame-focus-state)
+               (lambda (f) (nth 3 (assq f frames))))
+              ((symbol-function 'frame-initial-p)
+               (lambda (f) (nth 4 (assq f frames)))))
+      (setq frames `((f1 w1 ,buffer t nil)))
+      (should (spectreshell--focused-p buffer))
+      (setq frames `((f1 w1 ,buffer unknown nil)))
+      (should (spectreshell--focused-p buffer))
+      (setq frames `((f1 w1 ,buffer nil nil) (f2 w2 other t nil)))
+      (should-not (spectreshell--focused-p buffer))
+      (setq frames `((f0 w0 ,buffer unknown t)))
+      (should-not (spectreshell--focused-p buffer)))))
+
+(ert-deftest spectreshell-test-focus-is-reported-while-mode-1004-is-on ()
+  "子が mode 1004 を有効にした時点で今のフォーカスを送り、以後は変わった
+ときだけ \\e[I / \\e[O を送る。無効にした後は送らない。"
+  :expected-result :failed
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-focus focused
+      (spectreshell-feed term "\x1b[?1004h")
+      (should (equal responses '("\e[I")))
+      (setq responses nil focused nil)
+      (funcall after-focus-change-function)
+      (run-hook-with-args 'window-selection-change-functions (selected-frame))
+      (should (equal responses '("\e[O")))
+      (setq responses nil focused t)
+      (run-hook-with-args 'window-buffer-change-functions (selected-frame))
+      (should (equal responses '("\e[I")))
+      (setq responses nil)
+      (spectreshell-feed term "\x1b[?1004l")
+      (setq focused nil)
+      (funcall after-focus-change-function)
+      (should (null responses)))))
+
+(ert-deftest spectreshell-test-focus-report-starts-while-synchronized ()
+  "mode 2026 の中で mode 1004 を有効にしても、待たずに今のフォーカスを送る。"
+  :expected-result :failed
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-focus focused
+      (setq focused nil)
+      (spectreshell-feed term "\x1b[?2026h\x1b[?1004h")
+      (should (equal responses '("\e[O"))))))
+
+(ert-deftest spectreshell-test-focus-is-not-reported-after-finalize ()
+  "ジョブが終わった端末には、フォーカスが変わっても送らない。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-focus focused
+      (spectreshell-feed term "\x1b[?1004h")
+      (spectreshell-finalize term)
+      (setq responses nil focused nil)
+      (funcall after-focus-change-function)
+      (should (null responses)))))
+
 (ert-deftest spectreshell-test-finalize-releases-terminal ()
   "finalize 後は端末が release され、追加の feed が signal される。"
   (spectreshell-test--with-terminal (term 1 10)
