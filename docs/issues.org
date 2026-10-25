@@ -2249,7 +2249,7 @@ spectreshell 経由では何も起きない。モジュールは =bell= を捨�
 未確認: Ghostty がベルを示すこと、Copilot CLI (=beep=) / Claude Code
 (=terminal_bell=) が実際に BEL を出すこと。実環境の確認は未実施。
 
-** TODO L-45: XTVERSION (CSI > q) に応答しない
+** DONE L-45: XTVERSION (CSI > q) に応答しない
 対象: =src/handler.zig=
 
 Ghostty は =\e[>q= に =\eP>|ghostty <version>\e\\= を返す
@@ -2282,6 +2282,27 @@ DA1 を返し、=\e[16t= と kitty graphics には応答しなかった。この
 もの)。先に =?1016= の扱いを決める: ピクセル座標を出せない間は
 DECRQM =?1016= に 0 (未対応) を返す (直結の 2 とは違うが、子がピク
 セル座標を前提にするのを防ぐ)。=\e[16t= には今のとおり応答しない。
+
+対応 (2026-10-26): 先に DECRQM =?1016= を設定の前後とも 0 (未対応) で
+答えるようにした (9643093)。直結の Ghostty は 2 / 1 で答えるので、ここ
+は意図して違う。続けて Handler が =xtversion= を横取りし、
+=\eP>|ghostty 1.3.1\e\\= を返す (c8157a5)。版は =build.zig= が ghostty
+の =build.zig.zon= から取る (ghostty は依存として組まれると git を見ず
+にこの版を名乗る)。=\e[16t= には今のとおり応答しない。応答はマニュアル
+(e48b671) に書いた。
+
+確認:
+
+- batch: Zig と ERT で、=\e[>q= / =\e[>0q= の応答と、=?1016= の
+  設定前後の応答が 0 であることを固定した。=just nix-check= の成果物の
+  モジュールも同じ版で答えた。
+- pty (=/tmp/parity-scripts/relay-e2e.py= と =query.py=): eshell から
+  =\e[>0q\e[?1016$p\e[?1016h\e[?1016$p\e[c= を送ると、
+  =\eP>|ghostty 1.3.1\e\\=、=\e[?1016;0$y= を 2 回、DA1 の順で返った。
+
+未確認: Claude Code が =?1016= の 0 を見てピクセル座標を使わないこと、
+XTVERSION への応答で Claude Code の振る舞い (同期出力、リンクのクリック
+など) が直結と揃うこと。実環境の確認は未実施。
 
 ** TODO L-46: 子がカーソルを隠しても、tty の Emacs ではハードウェアカーソルが point に出続ける
 対象: =spectreshell.el= (カーソルの追従)
