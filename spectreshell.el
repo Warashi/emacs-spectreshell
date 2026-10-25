@@ -1566,6 +1566,18 @@ disable mouse-wheel scrolling entirely between jobs that want it."
     ;; terminal region as if it were ordinary buffer text.
     (dolist (key '("C-@" "C-]" "C-^" "C-_" "M-DEL"))
       (define-key map (kbd key) #'spectreshell-send-key))
+    ;; C-S-<letter> and control on a printable non-letter whose control
+    ;; form is no C0 byte (C--, C-1, C-SPC, C-/, ...) arrive as events of
+    ;; their own on a GUI frame or under kkp.  Unbound, the former
+    ;; shift-translates down to C-<letter> and the latter run Emacs
+    ;; commands (`undo' on C-/ edits the terminal region).
+    (dolist (letter (number-sequence ?a ?z))
+      (define-key map (vector (event-convert-list (list 'control 'shift letter)))
+        #'spectreshell-send-key))
+    (dolist (char (number-sequence ?\s ?~))
+      (let ((event (event-convert-list (list 'control char))))
+        (unless (or (<= ?a (downcase char) ?z) (< event 128))
+          (define-key map (vector event) #'spectreshell-send-key))))
     (define-key map (kbd "C-\\") #'spectreshell-send-next-key)
     (define-key map (kbd "C-y") #'spectreshell-yank)
     (define-key map [xterm-paste] #'spectreshell-xterm-paste)

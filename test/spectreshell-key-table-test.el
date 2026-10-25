@@ -228,13 +228,7 @@ the fix as an unexpected pass."
   ("C-<return>" "\e[13;5u" "\e[>5u")
   ("S-<return>" "\e[13;2u" "\e[>5u")
   ("<escape>" "\e[27u" "\e[>5u")
-  ("C-<home>" "\e[1;5H" "\e[>5u"))
-
-;; ---------------------------------------------------------------------
-;; 既知の穴 (docs/issues.org M-27)
-;; ---------------------------------------------------------------------
-
-(spectreshell-key-table-test--deftests :failed
+  ("C-<home>" "\e[1;5H" "\e[>5u")
   ;; C-S-<英字> は shift-translation で C-<英字> に落ちず、shift を残す。
   ([?\C-\S-b] "\e[98;6u" "\e[>5u")
   ([?\C-\S-c] "\e[99;6u" "\e[>5u")
