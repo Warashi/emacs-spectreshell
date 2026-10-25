@@ -2397,7 +2397,9 @@ Emacs 31.1 は外側の端末に =\e[?1004h= を無条件に送り
   受けた。
 
 違い: Ghostty は有効なまま =\e[?1004h= を受け直しても今の状態を送るが、
-spectreshell は無効から有効に変わったときだけ送る。
+spectreshell は無効から有効に変わったときだけ送る。また、有効にした時点
+の状態は同じ feed の =:responses= の後に送るので、=\e[?1004h\e[c= を
+1 度に受けると Ghostty とは逆に DA1 の後になる。
 
 未確認: Ghostty 1.3 でウィンドウ・タブを切り替えたときに Emacs へ
 =\e[I= / =\e[O= が届くこと、Copilot CLI / Claude Code の振る舞いが
