@@ -340,6 +340,42 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
+** TODO M-24: 子の OSC 52 (クリップボードへの書き込み) が外側の Ghostty に届かない
+対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el= (M-23 の中継)
+
+直結では、Claude Code の fullscreen での選択コピーや Copilot CLI の
+=/copy= が手元のクリップボードに入る。spectreshell 経由では何も入らな
+い。アプリが OSC 52 を出す条件は調査時のバンドルの読解によるもので、
+記録した実行ではコピー操作をしておらず、送出そのものは未実測。
+
+- モジュールは =clipboard_contents= を捨てる (M-23)。
+- 外側の Ghostty の DA1 は =clipboard-write= が =deny= でなければ
+  =52= を含む (=src/termio/stream_handler.zig= の =deviceAttributes=、
+  既定は =allow=)。Emacs 31.1 は起動時に外側へ =\e[c= を送り
+  (=emacs -nw -Q= の出力を記録して確認)、応答に =52= があれば端末
+  パラメータ =xterm--set-selection= を立てる (=xterm.el= の
+  =xterm--primary-da-handler=)。立っている端末では
+  =gui-backend-set-selection= が =\e]52;<種別>;<base64>\a= を選択中の
+  フレームの端末へ送る (base64 が =xterm-max-cut-length= = 100000 を
+  超えると送らない)。
+- spectreshell が子に返す DA1 は =\e[?62;22c= で =52= が無い
+  (=src/handler.zig= の =deviceAttributes=)。Claude Code は DA1 を
+  問い合わせの番兵に使い、Copilot CLI の記録では DA1 を送っていないの
+  で、今は見える差は無い。DA1 の期待値を固定したテストは無い。
+
+対応方針: M-23 の中継を使う。
+
+- Handler で =clipboard_contents= を横取りし、種別 (=c= / =p= / =s=
+  など) と base64 を plist に出す。読み取りの問い合わせ (=?=) は無視
+  する (design.org の端末機能の範囲)。
+- 中継先の端末ごとに =(terminal-parameter TERM 'xterm--set-selection)=
+  を見て、立っている端末にだけ xterm.el と同じ形で送る。外側の
+  =clipboard-write= が =deny= なら Emacs がこれを立てないので、書き込み
+  の可否は外側の設定に従う。=with-selected-frame= で =gui-set-selection=
+  を呼ぶ形は、端末ごとにフレームを選択し直す必要があり、TERMINAL を
+  指定して送る他の項目と形が揃わないので採らない。
+- 転送を実装したら、DA1 の応答に =52= を足す (Ghostty と同じ)。
+
 ** TODO M-23: 子が外側の端末へ向けて出す OSC 52 / 777 / 9;4 / タイトル / BEL を中継する経路が無い
 対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el=
 
