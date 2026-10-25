@@ -964,6 +964,58 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
       (funcall after-focus-change-function)
       (should (null responses)))))
 
+;; ---------------------------------------------------------------------
+;; 明暗の問い合わせと通知 (L-50)
+;; ---------------------------------------------------------------------
+
+(defmacro spectreshell-test--with-background-mode (mode &rest body)
+  "フレームの `background-mode' を変数 MODE の値に差し替えて BODY を実行する."
+  (declare (indent 1))
+  `(let ((,mode 'dark)
+         (orig (symbol-function 'frame-parameter)))
+     (cl-letf (((symbol-function 'frame-parameter)
+                (lambda (frame parameter)
+                  (if (eq parameter 'background-mode)
+                      ,mode
+                    (funcall orig frame parameter)))))
+       ,@body)))
+
+(ert-deftest spectreshell-test-color-scheme-query-answers-background-mode ()
+  "\\e[?996n には、バッファを表示しているフレームの `background-mode' で
+Ghostty と同じ形で答える。"
+  :expected-result :failed
+  (spectreshell-test--with-background-mode mode
+    (spectreshell-test--with-terminal (term 1 10 responses)
+      (setq mode 'light)
+      (spectreshell-feed term "\x1b[?996n")
+      (should (equal responses '("\e[?997;2n")))
+      (setq responses nil mode 'dark)
+      (spectreshell-feed term "\x1b[?996n")
+      (should (equal responses '("\e[?997;1n"))))))
+
+(ert-deftest spectreshell-test-color-scheme-change-is-reported-with-mode-2031 ()
+  "子が mode 2031 を有効にしている間は、テーマを替えて明暗が変わったとき
+だけ子へ通知する。無効にした後と、ジョブが終わった後は送らない。"
+  :expected-result :failed
+  (spectreshell-test--with-background-mode mode
+    (spectreshell-test--with-terminal (term 1 10 responses)
+      (spectreshell-feed term "\x1b[?2031h")
+      (setq mode 'light)
+      (run-hook-with-args 'enable-theme-functions 'some-theme)
+      (should (equal responses '("\e[?997;2n")))
+      (setq responses nil)
+      (run-hook-with-args 'disable-theme-functions 'some-theme)
+      (should (null responses))
+      (spectreshell-feed term "\x1b[?2031l")
+      (setq mode 'dark)
+      (run-hook-with-args 'enable-theme-functions 'some-theme)
+      (should (null responses))
+      (spectreshell-feed term "\x1b[?2031h")
+      (spectreshell-finalize term)
+      (setq mode 'light)
+      (run-hook-with-args 'enable-theme-functions 'some-theme)
+      (should (null responses)))))
+
 (ert-deftest spectreshell-test-finalize-releases-terminal ()
   "finalize 後は端末が release され、追加の feed が signal される。"
   (spectreshell-test--with-terminal (term 1 10)

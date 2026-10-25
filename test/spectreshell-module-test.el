@@ -148,6 +148,34 @@ mode 2026 の中で終わった feed も返す。"
     (should-not (plist-member (spectreshell--feed term "\x1b[?1004l") :focus-event))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-color-scheme-query-is-answered ()
+  "\\e[?996n には --set-color-scheme で渡した明暗で Ghostty と同じ形で答える。
+渡す前は答えない。"
+  :expected-result :failed
+  (let ((term (spectreshell--create 5 10)))
+    (should-not (plist-member (spectreshell--feed term "\x1b[?996n") :responses))
+    (spectreshell--set-color-scheme term 'dark)
+    (should (equal (plist-get (spectreshell--feed term "\x1b[?996n") :responses)
+                   "\x1b[?997;1n"))
+    (spectreshell--set-color-scheme term 'light)
+    (should (equal (plist-get (spectreshell--feed term "\x1b[?996n") :responses)
+                   "\x1b[?997;2n"))
+    (spectreshell--release term)))
+
+(ert-deftest spectreshell-module-test-set-color-scheme-returns-report ()
+  "--set-color-scheme は、子が mode 2031 を有効にしていて明暗が変わったとき
+だけ子へ送る通知を返す。"
+  :expected-result :failed
+  (let ((term (spectreshell--create 5 10)))
+    (should-not (spectreshell--set-color-scheme term 'dark))
+    (should-not (spectreshell--set-color-scheme term 'light))
+    (spectreshell--feed term "\x1b[?2031h")
+    (should-not (spectreshell--set-color-scheme term 'light))
+    (should (equal (spectreshell--set-color-scheme term 'dark) "\x1b[?997;1n"))
+    (should-not (multibyte-string-p (spectreshell--set-color-scheme term 'light)))
+    (should-error (spectreshell--set-color-scheme term 'grey))
+    (spectreshell--release term)))
+
 (ert-deftest spectreshell-module-test-flush-draws-pending-frame ()
   "--flush は保留中の描画を通常の update plist で返す。"
   (let* ((term (spectreshell--create 1 10))
