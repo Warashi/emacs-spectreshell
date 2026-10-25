@@ -290,6 +290,35 @@ test "extractRow の cells は mode 2027 無効の国旗を RI ごとの 2 セ�
     try expectCells(false, 4, "\u{1F1EF}\u{1F1F5}", &.{ 2, 2 });
 }
 
+/// テスト用: COLS 桁の端末に S を書き、行 Y の cells の長さが text の文字数と一致するか確かめる。
+fn expectCellsCoverText(cols: u16, s: []const u8, y: u16) !void {
+    const alloc = std.testing.allocator;
+    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = cols, .rows = 2 });
+    defer t.deinit(alloc);
+    var table: style.Table = .init(alloc);
+    defer table.deinit();
+
+    t.modes.set(.grapheme_cluster, true);
+    t.setCursorPos(1, 1);
+    try t.printString(s);
+    const pin = t.screens.active.pages.pin(.{ .viewport = .{ .y = y } }).?;
+    var row = try extractRow(alloc, pin, &table);
+    defer row.deinit(alloc);
+
+    const cells = row.cells orelse return error.TestExpectedCells;
+    try std.testing.expectEqual(try std.unicode.utf8CountCodepoints(row.text), cells.len);
+}
+
+test "extractRow の cells は行末で折り返した wide 文字の行でも text の文字数と一致する" {
+    // 2 つ目の漢字は 3 桁目に入らず、spacer_head を残して次の行へ折り返す。
+    try expectCellsCoverText(3, "\u{6F22}\u{6F22}", 0);
+    try expectCellsCoverText(3, "\u{6F22}\u{6F22}", 1);
+}
+
+test "extractRow の cells は FE0F を含む ZWJ 列でも text の文字数と一致する" {
+    try expectCellsCoverText(4, "\u{1F469}\u{200D}\u{2764}\u{FE0F}\u{200D}\u{1F48B}\u{200D}\u{1F468}", 0);
+}
+
 test "cellToIndex は extractRow の文字数と一致する" {
     const alloc = std.testing.allocator;
     var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 10, .rows = 1 });
