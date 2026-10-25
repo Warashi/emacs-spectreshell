@@ -1570,6 +1570,11 @@ disable mouse-wheel scrolling entirely between jobs that want it."
     (define-key map (kbd "C-y") #'spectreshell-yank)
     (define-key map [xterm-paste] #'spectreshell-xterm-paste)
     (define-key map (kbd "C-c C-e") #'spectreshell-emacs-mode)
+    ;; The second C-c is `last-command-event', so this sends one C-c
+    ;; instead of eshell's `eshell-interrupt-process'.  A child in raw
+    ;; mode (Claude Code's press-twice-to-exit) needs the key, not a
+    ;; SIGINT; one with ISIG on still gets SIGINT from the tty driver.
+    (define-key map (kbd "C-c C-c") #'spectreshell-send-key)
     map)
   "Keymap active while `spectreshell-semi-char-mode' is on.
 Sends nearly every key to the terminal; see docs/design.org's semi-char

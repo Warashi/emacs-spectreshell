@@ -298,7 +298,6 @@ READY で待機が抜けないよう、行頭の READY に限る。"
 (ert-deftest spectreshell-eshell-test-c-c-c-c-sends-c-c-to-raw-child ()
   "C-c C-c は SIGINT ではなく C-c を子へ送り、raw モードの子は 0x03 を読む。
 Claude Code などは raw モードで C-c を自分で解釈し、2 回押しで終了する。"
-  :expected-result :failed
   (spectreshell-eshell-test--with-eshell buf
     (spectreshell-eshell-test--send
      buf "*sh -c 'stty raw -echo; echo READY; od -An -tx1 -N1'")
@@ -309,7 +308,7 @@ Claude Code などは raw モードで C-c を自分で解釈し、2 回押し�
     (spectreshell-eshell-test--type buf "C-c C-c")
     (should (spectreshell-eshell-test--wait-until
              (lambda () (with-current-buffer buf
-                          (string-match-p "^ 03" (buffer-string))))))
+                          (string-match-p "^ *03$" (buffer-string))))))
     (should (spectreshell-eshell-test--wait-for-command buf))))
 
 (ert-deftest spectreshell-eshell-test-c-c-c-c-interrupts-cooked-child ()
