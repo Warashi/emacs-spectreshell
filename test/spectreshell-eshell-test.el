@@ -572,6 +572,33 @@ pty と食い違う。"
         (should (member '(fake-bg-proc 30 100) pty-sizes))
         (should (member '(fake-fg-proc 30 100) pty-sizes))))))
 
+(ert-deftest spectreshell-eshell-test-window-configuration-change-keeps-pty-at-terminal-size ()
+  "ウィンドウ構成の変化の後も、子が見る pty のサイズは端末のサイズと同じ。
+Emacs 標準の `window--adjust-process-windows' は、プロセスのバッファを
+表示するウィンドウのうち最小のサイズを pty に設定する。端末は
+`spectreshell-eshell--window' の規則で決めたサイズなので、それに従うと
+子が見るサイズだけが端末とずれる。"
+  :expected-result :failed
+  (spectreshell-eshell-test--with-eshell buf
+    (save-window-excursion
+      (switch-to-buffer buf)
+      (delete-other-windows)
+      (spectreshell-eshell-test--send buf "*sh -c 'echo READY; read x; stty size'")
+      (let* ((proc (spectreshell-eshell-test--wait-for-foreground buf))
+             (obj (process-get proc 'spectreshell-eshell-terminal))
+             (expected (format "%d %d" (spectreshell-rows obj) (spectreshell-cols obj))))
+        ;; 子の pty の大きさを決める stty が済むまで待つ。
+        (should (spectreshell-eshell-test--wait-until
+                 (lambda () (with-current-buffer buf
+                              (string-match-p "^READY" (buffer-string))))))
+        (set-window-buffer (split-window nil 5) buf)
+        (with-current-buffer buf
+          (run-hooks 'window-configuration-change-hook))
+        (process-send-string proc "\n")
+        (should (spectreshell-eshell-test--wait-for-command buf))
+        (with-current-buffer buf
+          (should (string-match-p (concat "^" expected "$") (buffer-string))))))))
+
 (defun spectreshell-eshell-test--wait-for-attach (buffer)
   "BUFFER で新しい端末が attach されるまで待ち、そのプロセスを返す。"
   (spectreshell-eshell-test--wait-until
