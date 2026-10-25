@@ -2092,6 +2092,48 @@ Claude Code は起動時に =\e[?2031h= を送る (記録した実行)。
 Ghostty と同じ形で答える。mode 2031 が有効なら、=background-mode= が
 変わったときに通知する。
 
+** TODO L-51: tty で OSC 8 のリンクをクリックすると daemon のホストで開き、子のマウス追跡中は release が子に届かない
+対象: =spectreshell.el= (=spectreshell--track-mouse-drag= / =spectreshell-hyperlink=)
+
+Copilot CLI は OSC 8 のリンクを出す (記録した実行)。直結では Ghostty
+が手元のブラウザで開く。spectreshell はリンクを button として描く
+(=spectreshell--decorate-row=、=follow-link= 付きで action は
+=browse-url=)。
+
+=emacs -nw -Q= に =xterm-mouse-mode= を入れ、semi-char モードの端末に
+OSC 8 のリンクを描いて SGR のマウス報告 (press / release) を入力した
+(=browse-url-browser-function= を記録用に差し替え):
+
+#+begin_example
+子のマウス追跡    コマンド                                  子へ送ったもの
+無効              spectreshell-mouse-down → push-button     なし
+有効 (1000+1006)  spectreshell-mouse-down → push-button     press だけ
+#+end_example
+
+どちらも =browse-url= が呼ばれた。クリックできないのではなく、差は次
+の 2 つ。
+
+- =browse-url= は daemon が動いているホスト (ssh 先) で走るので、手元の
+  ブラウザでは開かない。
+- 子がマウスを追跡していると、press を子へ送った後の release が
+  =key-translation-map= の =mouse--click-1-maybe-follows-link= で
+  =mouse-2= に変わる。=spectreshell--track-mouse-drag= の =read-key= は
+  これを別ボタンとして =unread-command-events= へ戻すので、release は
+  子に届かず =push-button= が走る。Copilot CLI は起動時に
+  =\e[?1003h\e[?1006h= を送るので、常にこちらになる。
+
+Emacs の tty の再表示で外側の端末へ OSC 8 を出す方法は見つけていない
+(未確認)。
+
+対応方針:
+
+- release の欠落: ドラッグの追跡中は =mouse-1-click-follows-link= を
+  nil に束縛し、release を子へ送る。子がマウスを追跡している間の
+  クリックはリンクを開かない (子に任せる)。
+- 開く場所: daemon のホストで開くことをマニュアルに書く。URL を手元に
+  渡す手段として、リンクの action で M-24 の経路を使い URL をクリップ
+  ボードへ送る選択肢を候補にする。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
