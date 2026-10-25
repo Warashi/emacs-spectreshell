@@ -158,7 +158,7 @@ nix ビルドと同様に自動検出される:
   (端末エミュレータ側の IME など)、その文字は UTF-8 のバイト列として
   そのまま子プロセスへ送られる。 ~C-y~ (kill-ring からの
   bracketed paste) 経由での日本語送信も可能
-- *OSC 52 クリップボード・画像 (kitty graphics/sixel) は未実装*
+- *OSC 52 クリップボードの読み取り・画像 (kitty graphics/sixel) は未実装*
 - *TRAMP / リモート ~default-directory~ は対象外*: リモートでは常に
   eshell 本来の (非端末) 経路にフォールバックする
 - *パイプラインは末尾のプロセスのみ端末に接続*: ~cmd1 | cmd2~ の
