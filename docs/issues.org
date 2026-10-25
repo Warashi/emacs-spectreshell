@@ -340,6 +340,83 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
+** TODO M-27: semi-char で C-x / M-x / C-u / C-y / C-c を子へ送る手段が無く、C-c C-c が SIGINT になって Claude Code が 2 回押しの確認を経ずに即終了する
+対象: =spectreshell.el= (=spectreshell-semi-char-mode-map=)
+
+Claude Code は =ctrl+c= (取り消し、2 回押しで終了)、=ctrl+x ctrl+e= /
+=ctrl+x ctrl+k= などの =ctrl+x= 始まりのキー、=meta+x= 以外の
+=meta+<英字>= を使う (調査時のバンドルの読解)。Copilot CLI も =ctrl+c=
+を 2 回押しの終了に使う。semi-char ではこれらを子へ送れない (調査時の
+=bindings.txt= の実測)。
+
+- =C-c= / =C-x= はプレフィックス、=C-u= は =universal-argument= 、
+  =M-x= は =execute-extended-command= 、=C-y= は =spectreshell-yank= 。
+  どれも design.org の例外として Emacs に残してあり、その打鍵自体を
+  送る経路が無い。
+- eshell では =C-c C-c= が =eshell-interrupt-process= (SIGINT) になる。
+  調査時の実行 (=runs/claude-interrupt=) では SIGINT を受けた Claude
+  Code が 1 回目で終了し、=Press Ctrl-C again to exit= は出なかった。
+  直結と同じ =\e[99;5u= を送ると、1 回目で入力欄が消え、2 回目で確認が
+  約 0.8 秒出て、その間の 3 回目で終了した。
+
+kkp (外側との kitty keyboard) を使うと、さらに次の差が出る。kkp は
+=\e[<数字>= と =\e[<A B C D E F H P Q S>= を =input-decode-map= に登録
+し、CSI u をそれぞれ 1 個の Emacs イベントにする
+(=kkp--terminal-setup= / =kkp--handle-u-or-tilde-terminators=)。
+
+- =C-S-<英字>= は semi-char に束縛が無く、shift-translation で
+  =C-<英字>= に落ちる。flags 5 の子には =C-S-b= が =\e[98;5u= で届く
+  (直結は shift 付きの =\e[98;6u= 、batch で =[?\C-\S-b]= を打って実測)。
+  Claude Code は =ctrl+shift+b= / =ctrl+shift+c= を使う。
+- =C--= =C-1= =C-SPC= =C-;= など英字以外の =C-<文字>= は、kkp 下では
+  C0 と別のイベントになるが束縛が無く、子に何も届かない (batch で実測)。
+  Emacs 側の =negative-argument= / =digit-argument= /
+  =set-mark-command= が走り、=C-/= は =undo= で端末領域を編集しうる
+  (L-27 と同類)。Claude Code は =ctrl+-= を =chat:undo= に使う。
+- =M-O= は =ESC O= が未束縛なので shift-translation で =M-o= に落ち、
+  flags 5 の子に =\e[111;3u= が届く (batch で実測)。=M-[= は何も届か
+  ない。
+
+=M-O= / =M-[= の制約が kkp 下でも残るか:
+
+- =ESC [= を束縛すると、=input-decode-map= の =\e[A= が訳されず
+  =[27 91]= で止まる (batch の =read-key-sequence-vector= で実測)。kkp
+  の登録はすべて =\e[= で始まるので、kkp 下でも =M-[= は束縛できない。
+- ghostty の kitty エンコーダは flags が 0 でなければ矢印・F1〜F4・
+  Home / End を DECCKM によらず CSI で送る (=src/input/key_encode.zig=
+  の =kitty= 、コード読解)。kkp 下の外側からは =ESC O= で始まる列は来
+  ない。ただしキーマップは daemon のすべてのフレームで共有され、kkp の
+  無い端末のフレームでは SS3 の矢印が壊れる (L-24、
+  =test/spectreshell-explore-apps-test.el=) ので、=M-O= も束縛しない。
+
+対応方針 (ユーザーと合意済み):
+
+- =C-c= / =C-x= / =M-x= / =C-u= / =C-y= は今どおり Emacs に残す。
+- =C-\= を「次の 1 キーをそのまま子へ送る」キーにする (今は
+  =spectreshell-send-key= に束縛)。次のキーは =read-key= で読み、
+  =spectreshell-send-key= と同じエンコーダ経路で送る (子の kitty flags
+  に従う)。=C-\ C-\= で =C-\= 自体を送る。=C-x= の組み合わせは 1 キー
+  ずつ送る (=C-\ C-x C-\ C-e=)。キー列をまとめて送る形は採らない。
+  kkp 下では =M-O= / =M-[= も 1 イベントで届くので、=C-\ M-O= /
+  =C-\ M-[= で送れる。kkp の無い tty では =M-x= が =ESC x= の 2 イベン
+  トで届き、=read-key= は =ESC= だけを返して =x= を
+  =this-single-command-keys= に残す (batch で実測) ので、その形を
+  =x= + alt に読み替える。
+- =C-c C-c= は SIGINT ではなく子へ =C-c= を送る (同じエンコーダ。子の
+  flags により =^C= か =\e[99;5u= )。pty の ISIG が有効な子には、
+  直結と同じく tty ドライバが SIGINT を送る。
+  =eshell-interrupt-process= には新しいキーを割り当てない。
+  =C-c C-k= (=eshell-kill-process=) / =C-c C-\= (=eshell-quit-process=) /
+  =C-c C-d= は semi-char の =C-c= プレフィックスに無いので eshell の束縛の
+  まま届き、emacs モードでは =C-c C-c= も eshell の
+  =eshell-interrupt-process= に戻る。
+- =C-S-<英字>= と、制御文字にならない =C-<文字>= (数字・記号・SPC) を
+  =spectreshell-send-key= に束縛する。C0 や DEL になる =C-@= =C-[=
+  =C-\= =C-]= =C-^= =C-_= =C-?= は対象外 (=C-[= は ESC そのもの)。
+- ERT: key-table に =C-\= 経由の各キー、=C-c C-c= 、kkp で別イベントに
+  なるキーを flags 0 / 5 で足す。eshell で =C-c C-c= が raw モードの子に
+  =003= を届け、cooked モードの子 (=sleep=) は終わることを確かめる。
+
 ** TODO M-26: 複数の emacsclient で同じバッファを表示すると、端末と pty のサイズが食い違う
 対象: =spectreshell-eshell.el= (=--attach= / =--window-size-change=)
 
