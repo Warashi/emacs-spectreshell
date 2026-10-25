@@ -590,6 +590,27 @@ WIDTHS は (CHAR . FN) の alist で、FN は `display' の height 倍率を受�
     (spectreshell-feed term "\x1b[38;5;208mHi")
     (should (member '(:foreground "#ff8700") (get-text-property (point-min) 'face)))))
 
+(ert-deftest spectreshell-test-palette-query-above-15-answers-drawn-color ()
+  "OSC 4 の 16〜255 には、描画と同じ `spectreshell--256-color-hex' の色を
+8bit の値を 257 倍した 16bit で答える。"
+  :expected-result :failed
+  (let ((term (spectreshell--create 1 10)))
+    (dotimes (i 240)
+      (let* ((index (+ 16 i))
+             (response (plist-get (spectreshell--feed
+                                   term (format "\e]4;%d;?\e\\" index))
+                                  :responses)))
+        (should (string-match "\\`\e]4;\\([0-9]+\\);rgb:\\(..\\)\\(..\\)/\\(..\\)\\(..\\)/\\(..\\)\\(..\\)\e\\\\\\'"
+                              response))
+        (should (equal (string-to-number (match-string 1 response)) index))
+        (should (equal (match-string 2 response) (match-string 3 response)))
+        (should (equal (match-string 4 response) (match-string 5 response)))
+        (should (equal (match-string 6 response) (match-string 7 response)))
+        (should (equal (format "#%s%s%s" (match-string 2 response)
+                               (match-string 4 response) (match-string 6 response))
+                       (spectreshell--256-color-hex index)))))
+    (spectreshell--release term)))
+
 (ert-deftest spectreshell-test-finalize-in-alt-screen-restores-primary ()
   "alt screen 表示中のまま finalize (プロセス異常死相当) しても、
 保存済みの主画面が復元され (パディングは落とした上で)、TUI 起動前の

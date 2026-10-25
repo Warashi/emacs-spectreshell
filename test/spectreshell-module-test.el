@@ -174,6 +174,39 @@ mode 2026 の中で終わった feed も返す。"
     (should-error (spectreshell--set-color-scheme term 'grey))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-color-queries-are-answered ()
+  "OSC 10 / 11 / 4 の 0〜15 には --set-colors で渡した色で、Ghostty と同じ
+16bit の形と問い合わせの終端で答える。渡していない色には答えない。"
+  :expected-result :failed
+  (let ((term (spectreshell--create 5 10))
+        (palette (make-list 16 nil)))
+    (should-not (plist-member (spectreshell--feed term "\x1b]11;?\x1b\\")
+                              :responses))
+    (setf (nth 1 palette) '(#xcdcd 0 0))
+    (should-not (spectreshell--set-colors term '(#xffff #xeeee #x0102) nil palette))
+    (should (equal (plist-get (spectreshell--feed term "\x1b]10;?\x07\x1b]11;?\x1b\\")
+                              :responses)
+                   "\x1b]10;rgb:ffff/eeee/0102\x07"))
+    (should (equal (plist-get (spectreshell--feed term "\x1b]4;1;?;2;?\x1b\\")
+                              :responses)
+                   "\x1b]4;1;rgb:cdcd/0000/0000\x1b\\"))
+    (spectreshell--release term)))
+
+(ert-deftest spectreshell-module-test-set-colors-rejects-bad-colors ()
+  "--set-colors は 16bit の 3 つ組と nil 以外、16 個でないパレットを受け付けない。"
+  :expected-result :failed
+  (let ((term (spectreshell--create 5 10))
+        (palette (make-list 16 nil)))
+    (should-error (spectreshell--set-colors term '(0 0 65536) nil palette)
+                  :type 'args-out-of-range)
+    (should-error (spectreshell--set-colors term '(0 0) nil palette))
+    (should-error (spectreshell--set-colors term '(0 0 "0") nil palette)
+                  :type 'wrong-type-argument)
+    (should-error (spectreshell--set-colors term nil nil (make-list 15 nil)))
+    (spectreshell--release term)
+    (should-error (spectreshell--set-colors term nil nil palette)
+                  :type 'spectreshell-terminal-released)))
+
 (ert-deftest spectreshell-module-test-flush-draws-pending-frame ()
   "--flush は保留中の描画を通常の update plist で返す。"
   (let* ((term (spectreshell--create 1 10))
