@@ -1980,6 +1980,30 @@ DA1 を返し、=\e[16t= と kitty graphics には応答しなかった。この
 DECRQM =?1016= に 0 (未対応) を返す (直結の 2 とは違うが、子がピク
 セル座標を前提にするのを防ぐ)。=\e[16t= には今のとおり応答しない。
 
+** TODO L-46: 子がカーソルを隠しても、tty の Emacs ではハードウェアカーソルが point に出続ける
+対象: =spectreshell.el= (カーソルの追従)
+
+直結では、子が =\e[?25l= を送るとカーソルが消え、アプリが自分で描く
+カーソルだけが見える。tty の Emacs では point にハードウェアカーソル
+が常に出るので、アプリが描くカーソルと二重に見えたり、意図しない位置
+にブロックが見えたりする。記録した実行では Copilot CLI と Claude Code
+のどちらも起動時に =\e[?25l= を送っていた。
+
+- =emacs -nw -Q= (=TERM=xterm-ghostty=、表示中のバッファで
+  =cursor-type= を nil) の出力を記録すると、再表示のたびに末尾が
+  =\e[?12l\e[?25h\e[?12;25h= で、カーソルは point に置かれた。
+- =xterm-update-cursor= (既定 nil) を =type= にしても、=xterm.el= は
+  =cursor-type= の nil を DECSCUSR 0 (既定の形) に写すだけで隠さない。
+- Lisp から tty のカーソルを隠す手段は見つけていない (未確認)。
+- モジュールは =:cursor-visible= を返しているが、=spectreshell.el= は
+  使っていない。
+
+対応方針: 制約としてマニュアルに書く。緩和策の候補 (どちらも未検証):
+=:cursor-visible= が nil の間は、point を端末領域の目立たない位置へ
+寄せる (M-18 の整列やキー入力時の point の扱いとの両立を確かめる)。
+=cursor-in-echo-area= でカーソルをエコー領域へ移す (グローバルな変数
+なので副作用が大きい)。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
