@@ -340,6 +340,54 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
+** TODO M-25: kitty keyboard 有効時に Shift で打つ英大文字が CSI u になり、Copilot CLI では小文字で入る
+対象: =src/keymap.zig= (=charEvent=)
+
+Copilot CLI (kitty keyboard flags 1) で =A= を打つと、子には
+=\e[97;2u= が届き、入力欄には =a= が入る。英大文字がすべて打てない
+(調査時の実行で、=a= =A= の順に打った入力欄が =❯ aa= になった)。
+Claude Code (flags 5) では =\e[97:65;2u= が届き、alternate key を読む
+ので =A= として入った (入力欄が =❯ aA?Z=)。見た目の差は無いが、直結
+とはバイト列が違う。
+
+batch でモジュールに =("A" shift)= を渡したときの出力:
+
+#+begin_example
+flags 0 (レガシー)      A
+flags 1                 \e[97;2u
+flags 5                 \e[97:65;2u
+modifyOtherKeys 2       \e[27;2;65~
+("a" ctrl shift), flags 1   \e[97;6u
+#+end_example
+
+原因: =charEvent= が =KeyEvent= の =consumed_mods= を設定しない。
+ghostty の kitty エンコーダは、=mods= から =consumed_mods= を除いた修飾
+が空のときだけ文字を平文で送る (=src/input/key_encode.zig= の =kitty=)。
+Ghostty 本体は、OS が文字の生成に使った修飾を =consumed_mods= に入れる
+(GTK の =src/apprt/gtk/class/surface.zig=、macOS の
+=src/apprt/embedded.zig=)。そのため直結の Shift+A は平文の =A= になる
+(コード読解。ghostty のエンコーダに =consumed_mods= を渡したときの出力
+は未実測)。modifyOtherKeys 2 の経路は =consumed_mods= を見ずに全修飾
+で =\e[27;2;65~= を作るので、直結でも同じになるはず (コード読解)。
+
+L-19 と =src/keymap.zig= の =charEvent= のコメントとの関係:
+
+- L-19 は Elisp 側で KEY を =("A" shift)= にし、レガシーモードで =A=
+  を送るようにした。=test/spectreshell-key-table-test.el= の =A= 行は
+  レガシーモードだけを見ているので、この項目は捕まらない。
+- =charEvent= のコメント (cbffdb5、旧 L-3) は、=unshifted_codepoint=
+  に小文字を入れて kitty 有効時にも shift ビットを残し、=C-a= と
+  =C-S-a= を区別させるためのもの。=C-S-a= は KEY が =("a" ctrl shift)=
+  で、文字は shift で変わっていない。shift で変わった文字 (=A=) の
+  shift は文字の生成に使われたので、kitty の平文の判定からは外すべき。
+  両者は文字が shift で変わったかどうかで分けられる。
+
+対応方針: =charEvent= で shift が立ち、文字がシフト前の文字と違う
+(=cp != unshifted=) ときに =consumed_mods.shift= を立てる。=C-S-a= の
+=\e[97;6u= は変わらない。=src/keymap.zig= のテストと
+=test/spectreshell-key-table-test.el= に、flags 1 / 5 で =A= が =A= に
+なり =C-S-a= が =\e[97;6u= のままであることを足す。
+
 ** TODO M-24: 子の OSC 52 (クリップボードへの書き込み) が外側の Ghostty に届かない
 対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el= (M-23 の中継)
 
