@@ -2621,7 +2621,7 @@ release は =mouse-2= に変わらず、同じボタンの release として子�
 未確認: Ghostty → ssh → =emacsclient -t= で Copilot CLI のリンクを
 クリックしたときの Copilot CLI 側の反応。実環境の確認は未実施。
 
-** TODO L-52: 子から見える端末が外側の Ghostty より小さい
+** DONE L-52: 子から見える端末が外側の Ghostty より小さい
 対象: =spectreshell-eshell.el= (=--terminal-size=) / マニュアル
 
 40x120 の端末から =emacs -Q= の daemon に =emacsclient -t= でつなぐと、
@@ -2637,6 +2637,27 @@ release は =mouse-2= に変わらず、同じボタンの release として子�
 対応方針: マニュアルに書く。行は、端末のバッファでモードラインを消す、
 =menu-bar-mode= を切るなどで増やせることを添える。桁の 1 は仕様として
 残す。
+
+対応 (2026-10-26): マニュアル (2d69076) の既知の制限に書いた。実装は
+変えていない。
+
+確認 (pty、=/tmp/parity-scripts/nwrun.py= と =l52-probe.el=): 40x120 の
+=emacs -nw -Q= でウィンドウを 1 つにし、=spectreshell-eshell--terminal-size=
+を測った。
+
+#+begin_example
+設定                                       (行 . 桁)
+既定                                       (37 . 119)
+menu-bar-mode を切る                       (38 . 119)
+さらに mode-line-format を nil             (39 . 119)
+さらに truncate-lines を t                 (39 . 119)
+#+end_example
+
+行の内訳はメニューバー・モードライン・エコー領域の 1 行ずつで、推測と
+合っていた。エコー領域の 1 行は残る。
+
+未確認: Ghostty 1.3 から ssh 先の daemon に =emacsclient -t= でつない
+だときの値 (利用者の設定で変わる)。実環境の確認は未実施。
 
 ** DONE L-53: ボタンを押さないマウス移動 (mode 1003) が子に届かない
 対象: =spectreshell.el= (semi-char のマウス)
