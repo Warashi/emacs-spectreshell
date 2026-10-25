@@ -1035,36 +1035,37 @@ Ghostty と同じ形で答える。"
       (should (null responses)))))
 
 (defmacro spectreshell-test--with-colors (calls &rest body)
-  "BODY で変えた face の色を後で戻す.
+  "BODY を実行し、BODY で変えた face の色を後で戻す。
 `color-values' は \"#rrggbb\" を batch の端末の色に寄せずに 16bit の
 3 つ組にし (それ以外は nil)、呼ばれた回数を変数 CALLS に数える。"
   (declare (indent 1))
-  `(let ((,calls 0)
-         (saved (mapcar (lambda (face)
-                          (list face
-                                (face-attribute face :foreground)
-                                (face-attribute face :background)))
-                        (cons 'default
-                              (mapcar (lambda (i)
-                                        (intern (format "spectreshell-color-%d" i)))
-                                      (number-sequence 0 15))))))
-     (unwind-protect
-         (cl-letf (((symbol-function 'color-values)
-                    (lambda (color &optional _frame)
-                      (setq ,calls (1+ ,calls))
-                      (and (stringp color)
-                           (string-match "\\`#\\(..\\)\\(..\\)\\(..\\)\\'" color)
-                           (mapcar (lambda (i)
-                                     (* 257 (string-to-number (match-string i color) 16)))
-                                   '(1 2 3))))))
-           ,@body)
-       (pcase-dolist (`(,face ,fg ,bg) saved)
-         (set-face-attribute face nil :foreground fg :background bg)))))
+  (let ((saved (make-symbol "saved")))
+    `(let ((,calls 0)
+           (,saved (mapcar (lambda (face)
+                             (list face
+                                   (face-attribute face :foreground)
+                                   (face-attribute face :background)))
+                           (cons 'default
+                                 (mapcar (lambda (i)
+                                           (intern (format "spectreshell-color-%d" i)))
+                                         (number-sequence 0 15))))))
+       (unwind-protect
+           (cl-letf (((symbol-function 'color-values)
+                      (lambda (color &optional _frame)
+                        (setq ,calls (1+ ,calls))
+                        (and (stringp color)
+                             (string-match "\\`#\\(..\\)\\(..\\)\\(..\\)\\'" color)
+                             (mapcar (lambda (i)
+                                       (* 257 (string-to-number (match-string i color) 16)))
+                                     '(1 2 3))))))
+             ,@body)
+         (pcase-dolist (`(,face ,fg ,bg) ,saved)
+           (set-face-attribute face nil :foreground fg :background bg))))))
 
 (ert-deftest spectreshell-test-color-queries-answer-theme-colors ()
   "OSC 10 / 11 には `default' の前景・背景で、OSC 4 の 0〜15 には
 `spectreshell-color-N' の前景で、Ghostty と同じ形で答える。"
-  (spectreshell-test--with-colors _calls
+  (spectreshell-test--with-colors calls
     (set-face-attribute 'default nil :foreground "#ffeedd" :background "#010203")
     (set-face-attribute 'spectreshell-color-1 nil :foreground "#cd0000")
     (spectreshell-test--with-terminal (term 1 10 responses)
@@ -1075,7 +1076,7 @@ Ghostty と同じ形で答える。"
 (ert-deftest spectreshell-test-unspecified-colors-are-not-answered ()
   "色が決まっていない `default' (tty の unspecified-fg / -bg) の問い合わせには
 答えず、続く問い合わせには答える。"
-  (spectreshell-test--with-colors _calls
+  (spectreshell-test--with-colors calls
     (set-face-attribute 'default nil :foreground 'unspecified :background 'unspecified)
     (spectreshell-test--with-terminal (term 1 10 responses)
       (spectreshell-feed term "\e]10;?\e\\\e]11;?\e\\\e[c")
@@ -1097,7 +1098,43 @@ Ghostty と同じ形で答える。"
       (spectreshell-feed term "\e]4;1;?\e\\")
       (should (equal responses '("\e]4;1;rgb:ffff/5555/5555\e\\")))
       (spectreshell-finalize term)
-      (run-hook-with-args 'enable-theme-functions 'some-theme))))
+      (run-hook-with-args 'enable-theme-functions 'some-theme)
+      (should-not (gethash term spectreshell--colors-given)))))
+
+(ert-deftest spectreshell-test-same-colors-are-not-given-again ()
+  "引き直した色が前回と同じなら、モジュールに渡し直さない。"
+  (spectreshell-test--with-colors calls
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term "a")
+      (let ((given 0)
+            (orig (symbol-function 'spectreshell--set-colors)))
+        (cl-letf (((symbol-function 'spectreshell--set-colors)
+                   (lambda (&rest args)
+                     (setq given (1+ given))
+                     (apply orig args))))
+          (run-hook-with-args 'enable-theme-functions 'some-theme)
+          (should (equal given 0))
+          (set-face-attribute 'spectreshell-color-1 nil :foreground "#ff5555")
+          (run-hook-with-args 'enable-theme-functions 'some-theme)
+          (should (equal given 1)))))))
+
+(ert-deftest spectreshell-test-color-queries-follow-window-and-theme-changes ()
+  "ウィンドウの選択・バッファの変化とテーマの無効化でも色を引き直す。"
+  (spectreshell-test--with-colors calls
+    (spectreshell-test--with-terminal (term 1 10 responses)
+      (spectreshell-feed term "a")
+      (pcase-dolist (`(,hook ,color ,answer)
+                     '((window-selection-change-functions "#010203" "0101/0202/0303")
+                       (window-buffer-change-functions "#040506" "0404/0505/0606")
+                       (disable-theme-functions "#070809" "0707/0808/0909")))
+        (set-face-attribute 'spectreshell-color-1 nil :foreground color)
+        (run-hook-with-args hook (if (eq hook 'disable-theme-functions)
+                                     'some-theme
+                                   (selected-frame)))
+        (setq responses nil)
+        (spectreshell-feed term "\e]4;1;?\e\\")
+        (should (equal responses
+                       (list (format "\e]4;1;rgb:%s\e\\" answer))))))))
 
 (ert-deftest spectreshell-test-finalize-releases-terminal ()
   "finalize 後は端末が release され、追加の feed が signal される。"
