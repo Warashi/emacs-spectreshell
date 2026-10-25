@@ -1776,6 +1776,27 @@ PATH の =stty= が GNU なら darwin では失敗させる (=stty --version= �
 - vim / nvim で実際に backspace が効くこと。vim が =c_cc[VERASE]= を
   読むことはソース読解によるもので、実物では未検証
 
+** TODO L-41: 子のデスクトップ通知 (OSC 777 / OSC 9) が外側の Ghostty に届かない
+対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el= (M-23 の中継)
+
+直結では、Claude Code が入力を待つときなどに Ghostty が OS の通知を
+出す (Ghostty の =desktop-notifications= は既定で =true=)。spectreshell
+経由では何も出ない。
+
+- ghostty-vt は OSC 777 (=notify;TITLE;BODY=) と、=9;4= 以外の OSC 9
+  (BODY のみ) をどちらも =show_desktop_notification= にし
+  (=src/terminal/osc/parsers/osc9.zig=)、モジュールはこれを捨てる
+  (M-23)。
+- Claude Code は端末が Ghostty と判定されると OSC 777 を選ぶ、Copilot
+  CLI は通知が既定で無効、というのは調査時のバンドルの読解による。
+  記録した実行では両アプリとも OSC 777 / OSC 9 を出しておらず、どの
+  条件で出すかは未確認。
+
+対応方針: Handler で =show_desktop_notification= を横取りし、タイトル
+と本文を plist に出す。Elisp は M-23 の中継で
+=\e]777;notify;TITLE;BODY\a= を送る。TITLE / BODY からは制御文字を
+除き、TITLE の =;= も除く (区切りと区別できないため)。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
