@@ -290,10 +290,16 @@ eat-eshell-mode と同様の接続方式:
   ~xterm-mouse-mode~ は spectreshell 側では有効にしない。グローバルな
   モードを利用者に断りなく切り替えないため、有効化は利用者に任せる
 - OSC 8 ハイパーリンク
+- OSC 52 クリップボードへの書き込みと、子が外側の端末へ向けて出す
+  通知類 (OSC 777 / OSC 9;4 / タイトル / BEL) の外側の tty への中継
+  (issues.org の M-23)。ssh 先の daemon に ~emacsclient -t~ でつなぎ、
+  tmux の代わりに使ったときに直結と区別がつかないようにするため。
+  書き込みの可否は外側の端末の設定 (Ghostty の ~clipboard-write~) に
+  従う
 
 含まない (将来拡張):
 
-- OSC 52 クリップボード (セキュリティ方針の設計が必要)
+- OSC 52 クリップボードの読み取り
 - 画像 (kitty graphics / sixel)
 - char モード
 - 実行中プロセスでの Emacs 側 input method (前述のブリッジ)
@@ -359,7 +365,7 @@ CLAUDE.md の方針どおり、実装と同じ粒度でテストを書き、
 | 6 | スクロールバックは Emacs バッファに確定化 | eshell の「バッファ=履歴」モデルと整合。Emacs の全機能が効く | ghostty-vt 側で保持 |
 | 7 | semi-char + emacs の 2 モード | eshell 用途で実用十分。char モードは将来拡張 | eat 完全同等の 3 モード |
 | 8 | キーエンコードはモジュール側 | 端末モード (DECCKM 等) 追従が自動で正しくなる | Elisp でエスケープ列対応表 |
-| 9 | v1 機能はマウス + OSC 8 | eat-eshell 同等の体験に必要な範囲に限定 | OSC 52 / 画像も含める |
+| 9 | v1 機能はマウス + OSC 8 + OSC 52 の書き込みと外側の端末への中継 | eat-eshell 同等の体験に加え、ssh 先で tmux の代わりに使うときに直結と区別がつかない範囲 | OSC 52 の読み取り / 画像も含める |
 | 10 | TERM=xterm-ghostty + terminfo 同梱 | エミュレータ実体と能力宣言が一致 | xterm-256color / カスタム terminfo |
 | 11 | Emacs 31+ | 互換コードゼロ。自分用途で最新版のみ | 29+ / 30+ |
 | 12 | コア + eshell の 2 層 Elisp | 描画エンジンが eshell 非依存で単体テスト可能 | 単一ファイル |
