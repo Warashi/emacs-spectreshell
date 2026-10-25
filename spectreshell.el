@@ -508,6 +508,64 @@ Return UPDATE unchanged, for callers that want to inspect it further."
   update)
 
 ;; ---------------------------------------------------------------------
+;; Relay to the outer terminal
+;; ---------------------------------------------------------------------
+
+(defun spectreshell--relay-terminal (frame)
+  "Return FRAME's terminal if things the child sends outward belong there.
+Only tty frames qualify: a GUI frame has no terminal to write escape
+sequences to.  A daemon's initial frame is a non-graphic frame too, but
+its terminal is the daemon's own stdout, not anything the user sees."
+  (unless (or (display-graphic-p frame) (frame-initial-p frame))
+    (frame-terminal frame)))
+
+(defun spectreshell--relay-terminals (buffer)
+  "Return the terminals of the tty frames showing BUFFER, each once."
+  (let (terminals)
+    (dolist (window (get-buffer-window-list buffer nil t))
+      (when-let* ((terminal (spectreshell--relay-terminal (window-frame window))))
+        (cl-pushnew terminal terminals)))
+    (nreverse terminals)))
+
+(defun spectreshell--relay (obj string &optional predicate)
+  "Send STRING to the outer terminals showing OBJ's buffer.
+With PREDICATE, send only to the terminals it returns non-nil for.
+Nothing is sent when no tty frame shows the buffer, and nothing is
+queued for later either: the child is talking to whoever is looking,
+and with nobody looking there is no one to tell."
+  (dolist (terminal (spectreshell--relay-terminals (spectreshell-buffer obj)))
+    (when (or (null predicate) (funcall predicate terminal))
+      (send-string-to-terminal string terminal))))
+
+(defvar-local spectreshell--relay-kept nil
+  "Alist of (KEY . STRING) relayed again whenever this buffer is displayed.
+See `spectreshell--relay-keep'.")
+
+(defun spectreshell--relay-keep (obj key string)
+  "Relay STRING for OBJ and keep it as the latest state under KEY.
+The kept string is sent again to the terminal of every window that
+starts showing OBJ's buffer, for state the outer terminal should keep
+showing (a progress bar) rather than a one-off event.  Keeping is per
+buffer, so a later call with the same KEY replaces the earlier string
+whichever terminal it came from.  STRING nil stops keeping KEY and
+sends nothing."
+  (with-current-buffer (spectreshell-buffer obj)
+    (setf (alist-get key spectreshell--relay-kept nil t) string)
+    (add-hook 'window-buffer-change-functions #'spectreshell--relay-resend nil t))
+  (when string
+    (spectreshell--relay obj string)))
+
+(defun spectreshell--relay-resend (window)
+  "Relay the strings kept for WINDOW's buffer to WINDOW's terminal.
+Buffer-local member of `window-buffer-change-functions', added by
+`spectreshell--relay-keep'."
+  (when-let* ((terminal (spectreshell--relay-terminal (window-frame window))))
+    (pcase-dolist (`(,_ . ,string)
+                   (buffer-local-value 'spectreshell--relay-kept
+                                       (window-buffer window)))
+      (send-string-to-terminal string terminal))))
+
+;; ---------------------------------------------------------------------
 ;; Style table
 ;; ---------------------------------------------------------------------
 

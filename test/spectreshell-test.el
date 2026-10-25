@@ -665,7 +665,6 @@ initial (daemon の初期フレーム)。batch では tty フレームを作れ�
   "中継はバッファを表示している tty フレームの端末へ 1 回ずつ送る。
 同じ端末の複数フレームは 1 回にまとめ、GUI フレームと daemon の初期
 フレームには送らない。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10)
     (spectreshell-test--with-frames
         '((w1 f1 t1 tty) (w2 f1 t1 tty) (w3 f2 t1 tty)
@@ -676,7 +675,6 @@ initial (daemon の初期フレーム)。batch では tty フレームを作れ�
 
 (ert-deftest spectreshell-test-relay-drops-without-tty-frame ()
   "表示している tty フレームが無ければ送らず、後から表示しても送らない。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10)
     (spectreshell-test--with-frames '((w1 f1 x gui)) sent
       (spectreshell--relay term "\a")
@@ -687,7 +685,6 @@ initial (daemon の初期フレーム)。batch では tty フレームを作れ�
 
 (ert-deftest spectreshell-test-relay-predicate-selects-terminals ()
   "PREDICATE が nil を返した端末には送らない。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10)
     (spectreshell-test--with-frames '((w1 f1 t1 tty) (w2 f2 t2 tty)) sent
       (spectreshell--relay term "\a" (lambda (terminal) (eq terminal 't2)))
@@ -697,7 +694,6 @@ initial (daemon の初期フレーム)。batch では tty フレームを作れ�
   "保持した文字列は送ったうえで、バッファが新たに表示されたウィンドウの
 端末へ送り直す。同じ KEY で保持し直すと最新のものだけが残り、nil で
 保持をやめる。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10)
     (spectreshell-test--with-frames '((w1 f1 t1 tty)) sent
       (spectreshell--relay-keep term 'progress "old")
@@ -715,7 +711,6 @@ initial (daemon の初期フレーム)。batch では tty フレームを作れ�
 
 (ert-deftest spectreshell-test-relay-keep-sends-later-when-hidden ()
   "表示している tty フレームが無いときに保持したものは、表示されたときに届く。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10)
     (spectreshell-test--with-frames nil sent
       (spectreshell--relay-keep term 'progress "busy")
