@@ -243,6 +243,8 @@ less や vim などの alternate screen アプリの画面は確定化されず�
   バッファを新たに表示したウィンドウの端末へ送り直す。進捗を残した
   ままジョブが終わったときと、バッファを kill したときは消去
   (~\e]9;4;0\a~) を送る
+- 子の BEL は外側の端末へ BEL で送る (~ding~ は使わない)。どう示すかは
+  外側の端末の設定 (Ghostty の ~bell-features~ ) に従う
 - OSC 8 ハイパーリンク (クリック可能な button として描画)
 - ~xterm-ghostty~ の terminfo をビルド時生成・同梱し、 ~TERM~ /
   ~TERMINFO~ として子プロセスに自動注入
