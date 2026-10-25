@@ -2351,7 +2351,7 @@ spectreshell はどれにも応答しない。=color_operation= を
 fg / bg を module に渡して =rgb:RRRR/GGGG/BBBB= で答え、OSC 10 / 11 の
 設定とリセットは =face-remap= で端末領域の背景に反映する。
 
-** TODO L-48: フォーカス報告 (mode 1004) の =\e[I= / =\e[O= を子へ送らない
+** DONE L-48: フォーカス報告 (mode 1004) の =\e[I= / =\e[O= を子へ送らない
 対象: =spectreshell.el= / =src/module.zig=
 
 Copilot CLI と Claude Code はどちらも起動時に =\e[?1004h= を送る (記録
@@ -2373,6 +2373,35 @@ Emacs 31.1 は外側の端末に =\e[?1004h= を無条件に送り
 =window-selection-change-functions= で求め、子の mode 1004 が有効なら、
 変化したときに =\e[I= / =\e[O= を送る。=?1004h= を受けた時点でも現在の
 状態を 1 回送る。mode 1004 の状態はモジュールから plist で返す。
+
+対応 (2026-10-26, 7d1c9f8): モジュールが mode 1004 の間 =:focus-event t=
+を返す (mode 2026 の中の feed でも返す)。=spectreshell.el= は
+=:focus-event= が立った端末を覚え、その時点の状態を送ったうえで、
+=after-focus-change-function= / =window-selection-change-functions= /
+=window-buffer-change-functions= のたびに判定し直し、変わったときだけ
+=\e[I= / =\e[O= を送る。選択中のウィンドウのバッファが替わっても判定
+は変わるので、方針の 2 つに =window-buffer-change-functions= を足した。
+=frame-focus-state= が =unknown= のフレームはフォーカスありとみなし
+(Ghostty の既定と同じ)、daemon の初期フレームは数えない。
+=:focus-event= の形は =docs/module-api.org= (c8bf2a4) に、送る条件は
+マニュアル (d01214f) に書いた。
+
+確認:
+
+- batch: Zig と ERT で、=:focus-event= の有無、有効にした時点の報告、
+  変化したときだけの報告、無効にした後と finalize 後に送らないこと、
+  判定 (選択中のウィンドウ・=unknown=・初期フレーム) を固定した。
+- pty (=/tmp/parity-scripts/outer-e2e.py= と =query.py=): daemon に
+  =emacsclient -t= でつなぎ、eshell の子が =\e[?1004h= を送った後に
+  外側の端末役から =\e[O=、=\e[I= を書くと、子は =\e[I\e[O\e[I= を
+  受けた。
+
+違い: Ghostty は有効なまま =\e[?1004h= を受け直しても今の状態を送るが、
+spectreshell は無効から有効に変わったときだけ送る。
+
+未確認: Ghostty 1.3 でウィンドウ・タブを切り替えたときに Emacs へ
+=\e[I= / =\e[O= が届くこと、Copilot CLI / Claude Code の振る舞いが
+フォーカスで変わること。実環境の確認は未実施。
 
 ** TODO L-49: 子のパレット色 (SGR 30-37 / 90-97) が外側の Ghostty のテーマを通らず、固定の RGB で出る
 対象: =spectreshell.el= (=spectreshell-color-0= 〜 =15=)
