@@ -220,7 +220,30 @@ the fix as an unexpected pass."
   ("M-<up>" "\e[1;3A")
   ("C-<up>" "\e[1;5A")
   ("C-M-<up>" "\e[1;7A")
-  ("C-<right>" "\e[1;5C"))
+  ("C-<right>" "\e[1;5C")
+
+  ;; Claude Code が使い、kkp (外側との kitty keyboard) が 1 イベントにして
+  ;; 届けるキー。子の flags 5 では直結の Ghostty と同じ列で送る。
+  ("C-]" "\e[93;5u" "\e[>5u")
+  ("C-<return>" "\e[13;5u" "\e[>5u")
+  ("S-<return>" "\e[13;2u" "\e[>5u")
+  ("<escape>" "\e[27u" "\e[>5u")
+  ("C-<home>" "\e[1;5H" "\e[>5u"))
+
+;; ---------------------------------------------------------------------
+;; 既知の穴 (docs/issues.org M-27)
+;; ---------------------------------------------------------------------
+
+(spectreshell-key-table-test--deftests :failed
+  ;; C-S-<英字> は shift-translation で C-<英字> に落ちず、shift を残す。
+  ([?\C-\S-b] "\e[98;6u" "\e[>5u")
+  ([?\C-\S-c] "\e[99;6u" "\e[>5u")
+  ;; 制御文字にならない C-<文字> は Emacs のコマンドに渡らず子へ送る。
+  ([?\C--] "\e[45;5u" "\e[>5u")
+  ([?\C-1] "\e[49;5u" "\e[>5u")
+  ([?\C-\s] "\e[32;5u" "\e[>5u")
+  ([?\C-/] "\e[47;5u" "\e[>5u")
+  ([?\C-\;] "\e[59;5u" "\e[>5u"))
 
 (provide 'spectreshell-key-table-test)
 ;;; spectreshell-key-table-test.el ends here
