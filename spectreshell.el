@@ -847,12 +847,18 @@ forgotten instead."
 The values are argument lists for `spectreshell--set-colors'.")
 
 (defun spectreshell--colors (buffer)
-  "Return (FG BG PALETTE), the colors BUFFER's terminal is drawn with.
+  "Return (FG BG PALETTE), the colors to answer BUFFER's child with.
 FG and BG are the `default' face's, and PALETTE lists the foregrounds
-of `spectreshell-color-0' to 15, the faces `spectreshell--resolve-color'
-draws with, on the frame `spectreshell--buffer-frame' picks.  Each is the
-`color-values' of the color, or nil if it has none (a tty's
-unspecified-fg and -bg)."
+of `spectreshell-color-0' to 15 (the faces `spectreshell--resolve-color'
+draws SGR 30-37 and 90-97 with; their backgrounds, used for SGR 40-47
+and 100-107, are not answered).  Each is the `color-values' of the
+color, or nil if it has none (a tty's unspecified-fg and -bg).
+
+The faces are resolved on the frame `spectreshell--buffer-frame' picks,
+while drawing resolves them on the frame selected at feed time; the two
+can differ when tty and GUI frames are mixed and the theme specifies
+the faces per display type.  Buffer-local face remapping is not
+reflected."
   (let ((frame (spectreshell--buffer-frame buffer)))
     (cl-flet ((rgb (color) (and color (color-values color frame))))
       (list (rgb (face-foreground 'default frame t))
