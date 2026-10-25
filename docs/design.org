@@ -112,9 +112,10 @@ emacs-module で公開する関数。 ~term~ は user-ptr (finalizer 付き)。
 ~spectreshell--feed~ の戻り値 (plist) に含めるもの:
 
 - ~:scrolled-off~ — 可視領域上端から流れ出た行のリスト (確定化用)。
-  各行は ~(TEXT . SPANS)~
-- ~:dirty~ — 変更行のリスト。各要素は ~(ROW TEXT SPANS)~ の形。
-  SPANS はスタイル区間 ~((START END . STYLE-PLIST) ...)~
+  各行は ~(TEXT SPANS CELLS)~
+- ~:dirty~ — 変更行のリスト。各要素は ~(ROW TEXT SPANS CELLS)~ の形。
+  SPANS はスタイル区間 ~((START END ID) ...)~ で、ID の STYLE-PLIST は
+  ~:styles~ で送る。CELLS は書記素ごとのセル数 (詳細は module-api.org)
 - ~:cursor~ — ~(ROW . COL)~ とカーソル可視状態
 - ~:responses~ — DA / DSR / DECRQM / kitty keyboard の問い合わせ等、
   PTY に返送すべきバイト列
