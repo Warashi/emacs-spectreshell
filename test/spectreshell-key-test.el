@@ -331,6 +331,13 @@ ZWJ 列は 5 文字で 2 セル、単独の regional indicator は 1 文字で 2
                               nil (+ (spectreshell-marker term) index)))
                        (cons 0 cell)))))))
 
+(ert-deftest spectreshell-key-test-row-cell-column-uses-pos-row ()
+  "セル列は point ではなく POS のある行のセル情報で解く。"
+  (spectreshell-test--with-terminal (term 2 10)
+    (spectreshell-feed term (encode-coding-string "\N{U+1F1EF}x\r\nab" 'utf-8))
+    (goto-char (point-max))
+    (should (= (spectreshell--row-cell-column (1+ (spectreshell-marker term))) 2))))
+
 (ert-deftest spectreshell-key-test-mouse-posn-coords-inside-grapheme ()
   "書記素の 2 文字目以降の POSN は、その書記素の先頭のセル列になる。"
   (spectreshell-test--with-terminal (term 3 10)

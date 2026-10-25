@@ -1811,7 +1811,7 @@ not a window, e.g. a click below the last line)."
 The row's `spectreshell-cells' (see `spectreshell--mark-row-cells') maps
 characters to cells; a row without it has one cell per character.  A
 character inside a grapheme answers the grapheme's first cell."
-  (let* ((bol (line-beginning-position))
+  (let* ((bol (save-excursion (goto-char pos) (line-beginning-position)))
          (index (- pos bol))
          (cells (get-text-property bol 'spectreshell-cells)))
     (if (null cells)
