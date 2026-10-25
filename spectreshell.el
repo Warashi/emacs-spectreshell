@@ -410,6 +410,9 @@ State OBJ left on the outer terminal (a progress bar) is cleared
               (saved-point (point-marker)))
           (when (spectreshell-alt-saved obj)
             (spectreshell--leave-alt-screen obj))
+          (remove-list-of-text-properties
+           (spectreshell-marker obj) (spectreshell--region-end obj)
+           '(spectreshell-cells))
           (spectreshell--trim-frozen-region obj)
           (setq end (spectreshell--region-end obj))
           (goto-char (if inside end saved-point))
@@ -1051,20 +1054,30 @@ module, not edited."
                 ;; `insert' leaves point at the end of the new row, which
                 ;; is still on line `at-row', so the next `forward-line'
                 ;; delta stays correct.
-                (insert (apply #'spectreshell--decorate-row obj content))))))))))
+                (insert (spectreshell--mark-row-cells
+                         (apply #'spectreshell--decorate-row obj content)
+                         (nth 2 content)))))))))))
+
+(defun spectreshell--mark-row-cells (text cells)
+  "Return TEXT, a terminal-region row, carrying its CELLS for mouse coordinates.
+CELLS is the module's per-character cell counts for TEXT
+\(docs/module-api.org); when non-nil it is kept as the
+`spectreshell-cells' property of TEXT's first character, where
+`spectreshell--row-cell-column' finds it.  Confirmed rows do not get
+it: nothing maps their coordinates, and it would travel with a yank."
+  (when (and cells (> (length text) 0))
+    ;; Only the first character carries it, so the trailing padding stays
+    ;; property-less for `spectreshell--trim-trailing-blanks'.
+    (put-text-property 0 1 'spectreshell-cells cells text))
+  text)
 
 (defun spectreshell--decorate-row (obj text spans cells)
   "Return TEXT with SPANS applied as face/button properties, using OBJ's styles.
 SPANS is the module's per-row span list, each element (START END ID) or
 \(START END ID . URI); TEXT is fresh from the module on every call, so it
 is safe to add properties to it directly.  CELLS is the module's
-per-character cell counts for TEXT (docs/module-api.org); when non-nil
-it is kept as the `spectreshell-cells' property of TEXT's first
-character, where `spectreshell--row-cell-column' finds it."
-  (when (and cells (> (length text) 0))
-    ;; Only the first character carries it, so the trailing padding stays
-    ;; property-less for `spectreshell--trim-trailing-blanks'.
-    (put-text-property 0 1 'spectreshell-cells cells text))
+per-character cell counts for TEXT (docs/module-api.org), which decide
+how its graphemes are fitted or composed."
   (dolist (span spans)
     (pcase-let ((`(,start ,end ,id . ,uri) span))
       (when-let* ((face (spectreshell--style-face obj id)))
@@ -1777,7 +1790,7 @@ not a window, e.g. a click below the last line)."
 
 (defun spectreshell--row-cell-column (pos)
   "Return the terminal cell column of the character at POS in its row.
-The row's `spectreshell-cells' (see `spectreshell--decorate-row') maps
+The row's `spectreshell-cells' (see `spectreshell--mark-row-cells') maps
 characters to cells; a row without it has one cell per character.  A
 character inside a grapheme answers the grapheme's first cell."
   (let* ((bol (line-beginning-position))

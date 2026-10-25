@@ -155,6 +155,17 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
                              "\N{U+1F1EF}\N{U+1F1F5}\r\nx" 'utf-8))
     (should (string-prefix-p "\N{U+1F1EF}\N{U+1F1F5}\n" (buffer-string)))))
 
+(ert-deftest spectreshell-test-confirmed-rows-drop-cells ()
+  "確定した行 (流れ出た行と finalize した領域) には `spectreshell-cells' が残らない。
+セル情報は端末領域の中のマウスの座標にしか使わず、残すと yank で持ち出される。"
+  (spectreshell-test--with-terminal (term 1 6)
+    (spectreshell-feed term (encode-coding-string
+                             "\N{U+1F1EF}\N{U+1F1F5}\r\n\N{U+6F22}" 'utf-8))
+    (should (get-text-property (spectreshell-marker term) 'spectreshell-cells))
+    (spectreshell-finalize term)
+    (should-not (text-property-not-all (point-min) (point-max)
+                                       'spectreshell-cells nil))))
+
 (ert-deftest spectreshell-test-scrolled-off-row-keeps-colors ()
   "確定化した行にも SGR の色が残る。"
   (spectreshell-test--with-terminal (term 1 5)
