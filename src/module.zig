@@ -4,6 +4,7 @@ const emacs = @import("emacs.zig");
 const core = @import("core.zig");
 const style = @import("style.zig");
 const keymap = @import("keymap.zig");
+const handler = @import("handler.zig");
 
 /// Term はユーザーの Elisp コードが保持する限り生き続けるため、Term.init
 /// に渡す確保元は per-call のスコープを持たないプロセス全体の allocator
@@ -553,6 +554,22 @@ fn encodeMouseImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
     return emacs.nilv(env);
 }
 
+/// SCHEME は `dark`/`light` シンボルのいずれか。
+fn setColorSchemeImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
+    const term = try getTerm(env, args[0]);
+
+    var arena = scratchArena();
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const name_val = emacs.funcall(env, emacs.intern(env, "symbol-name"), &.{args[1]});
+    if (emacs.pendingExit(env)) return error.PendingLispSignal;
+    const name = try emacs.copyStringContents(env, a, name_val);
+    const scheme = std.meta.stringToEnum(handler.ColorScheme, name) orelse return error.TypeMismatch;
+    if (term.setColorScheme(scheme)) |report| return emacs.makeUnibyteString(env, report);
+    return emacs.nilv(env);
+}
+
 /// 二重解放safe: 既に解放済み (get_user_ptr が null) なら何もしない。
 /// finalizer と共存できるよう、解放後は set_user_ptr で null にしておき
 /// GC 時の finalizer 呼び出しが no-op になるようにする。
@@ -605,6 +622,11 @@ fn encodeMouseFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*a
     return finish(env, encodeMouseImpl(env, args[0..@intCast(nargs)]));
 }
 
+fn setColorSchemeFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
+    _ = data;
+    return finish(env, setColorSchemeImpl(env, args[0..@intCast(nargs)]));
+}
+
 fn releaseFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
     _ = data;
     return finish(env, releaseImpl(env, args[0..@intCast(nargs)]));
@@ -644,5 +666,6 @@ pub fn registerAll(env: *emacs.Env) void {
     defalias(env, "spectreshell--encode-key", 3, 3, encodeKeyFn, "Encode KEY with MODIFIERS for TERM into PTY bytes.");
     defalias(env, "spectreshell--encode-paste", 2, 2, encodePasteFn, "Encode TEXT as a paste for TERM into PTY bytes.");
     defalias(env, "spectreshell--encode-mouse", 6, 6, encodeMouseFn, "Encode a mouse BUTTON/ACTION at ROW/COL with MODIFIERS for TERM.");
+    defalias(env, "spectreshell--set-color-scheme", 2, 2, setColorSchemeFn, "Set TERM's color SCHEME (dark or light); return the report due to the child, or nil.");
     defalias(env, "spectreshell--release", 1, 1, releaseFn, "Explicitly release TERM. Safe to call more than once.");
 }

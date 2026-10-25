@@ -151,6 +151,7 @@ pub const Term = struct {
     responses: std.ArrayList(u8) = .empty,
     pending_title: ?[]u8 = null,
     pending_relay: std.ArrayList(relay.Event) = .empty,
+    color_scheme: ?handler.ColorScheme = null,
     in_alt_screen: bool = false,
     styles: style.Table,
     /// テストから小さい値にできるよう Term のフィールドにしている。
@@ -176,6 +177,7 @@ pub const Term = struct {
             &self.responses,
             &self.pending_title,
             &self.pending_relay,
+            &self.color_scheme,
         ));
 
         return self;
@@ -252,6 +254,15 @@ pub const Term = struct {
             rest = rest[i + 1 ..];
         }
         try self.stream.nextSlice(rest);
+    }
+
+    /// 子が明暗の変化の通知 (mode 2031) を求めていて、明暗が変わったときは
+    /// 子へ送る通知を返す。
+    pub fn setColorScheme(self: *Term, scheme: handler.ColorScheme) ?[]const u8 {
+        const changed = if (self.color_scheme) |old| old != scheme else true;
+        self.color_scheme = scheme;
+        if (!changed or !self.terminal.modes.get(.report_color_scheme)) return null;
+        return scheme.report();
     }
 
     pub fn resize(self: *Term, alloc: std.mem.Allocator, rows: u16, cols: u16) !Update {
@@ -1088,6 +1099,33 @@ test "フォーカスの報告 (mode 1004) を求めているかを mode 2026 �
     defer held.deinit();
     try testing.expect(held.synchronized);
     try testing.expect(held.focus_event);
+}
+
+test "明暗の問い合わせには渡された明暗で答え、渡される前は答えない" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var before = try t.feed(alloc, "\x1b[?996n");
+    defer before.deinit();
+    try testing.expectEqualStrings("", before.responses);
+    _ = t.setColorScheme(.light);
+    var after = try t.feed(alloc, "\x1b[?996n");
+    defer after.deinit();
+    try testing.expectEqualStrings("\x1b[?997;2n", after.responses);
+}
+
+test "setColorScheme は mode 2031 の間に明暗が変わったときだけ通知を返す" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    try testing.expectEqual(@as(?[]const u8, null), t.setColorScheme(.dark));
+    try testing.expectEqual(@as(?[]const u8, null), t.setColorScheme(.light));
+    var update = try t.feed(alloc, "\x1b[?2031h");
+    defer update.deinit();
+    try testing.expectEqual(@as(?[]const u8, null), t.setColorScheme(.light));
+    try testing.expectEqualStrings("\x1b[?997;1n", t.setColorScheme(.dark).?);
 }
 
 test "DA1 は Ghostty と同じく 52 を含む" {

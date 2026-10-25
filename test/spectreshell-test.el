@@ -983,7 +983,6 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
 (ert-deftest spectreshell-test-color-scheme-query-answers-background-mode ()
   "\\e[?996n には、バッファを表示しているフレームの `background-mode' で
 Ghostty と同じ形で答える。"
-  :expected-result :failed
   (spectreshell-test--with-background-mode mode
     (spectreshell-test--with-terminal (term 1 10 responses)
       (setq mode 'light)
@@ -996,7 +995,6 @@ Ghostty と同じ形で答える。"
 (ert-deftest spectreshell-test-color-scheme-change-is-reported-with-mode-2031 ()
   "子が mode 2031 を有効にしている間は、テーマを替えて明暗が変わったとき
 だけ子へ通知する。無効にした後と、ジョブが終わった後は送らない。"
-  :expected-result :failed
   (spectreshell-test--with-background-mode mode
     (spectreshell-test--with-terminal (term 1 10 responses)
       (spectreshell-feed term "\x1b[?2031h")

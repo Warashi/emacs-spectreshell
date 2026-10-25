@@ -296,9 +296,14 @@ Return a new `spectreshell' object to pass to the other
      :cursor-pos (point)
      :cursor-rowcol (cons 0 0))))
 
+(defvar spectreshell--before-feed-functions nil
+  "Abnormal hook run with OBJ before each `spectreshell-feed' to it.
+For state the module needs current to answer the child's queries.")
+
 (defun spectreshell-feed (obj bytes)
   "Feed BYTES (a unibyte string) to OBJ's terminal and update its buffer.
 Return the raw update plist from `spectreshell--feed' (docs/module-api.org)."
+  (run-hook-with-args 'spectreshell--before-feed-functions obj)
   (let ((update (spectreshell--feed (spectreshell-term obj) bytes)))
     (if (plist-get update :synchronized)
         (spectreshell--hold-synchronized obj update)
@@ -769,6 +774,61 @@ forgotten instead."
 (add-function :after after-focus-change-function #'spectreshell--report-focus)
 (add-hook 'window-selection-change-functions #'spectreshell--report-focus)
 (add-hook 'window-buffer-change-functions #'spectreshell--report-focus)
+
+;; ---------------------------------------------------------------------
+;; Color scheme (?996n / mode 2031)
+;; ---------------------------------------------------------------------
+
+(defvar spectreshell--color-scheme-terminals nil
+  "Terminals whose module was told the color scheme.
+They are told again whenever it may have changed.")
+
+(defun spectreshell--color-scheme (buffer)
+  "Return `light' or `dark', the `background-mode' of a frame showing BUFFER.
+The frame is the selected window's if that shows BUFFER, else any
+showing it, else the selected frame."
+  (let ((window (if (eq (window-buffer (selected-window)) buffer)
+                    (selected-window)
+                  (get-buffer-window buffer t))))
+    (if (eq (frame-parameter (if window (window-frame window) (selected-frame))
+                             'background-mode)
+            'light)
+        'light
+      'dark)))
+
+(defun spectreshell--update-color-scheme (obj)
+  "Tell OBJ's module the current color scheme.
+The module answers the child's queries with it, and returns a report
+for the child when the scheme changed while the child asks for them
+\(mode 2031); that report is sent here."
+  (when-let* ((report (spectreshell--set-color-scheme
+                       (spectreshell-term obj)
+                       (spectreshell--color-scheme (spectreshell-buffer obj)))))
+    (funcall (spectreshell-send-fn obj) report)))
+
+(defun spectreshell--track-color-scheme (obj)
+  "Tell OBJ's module the current color scheme and keep it told.
+Member of `spectreshell--before-feed-functions'."
+  (unless (memq obj spectreshell--color-scheme-terminals)
+    (push obj spectreshell--color-scheme-terminals))
+  (spectreshell--update-color-scheme obj))
+
+(add-hook 'spectreshell--before-feed-functions #'spectreshell--track-color-scheme)
+
+(defun spectreshell--report-color-scheme (&rest _)
+  "Tell every tracked terminal the color scheme, which may have changed.
+Terminals that have been finalized, or whose buffer is gone, are
+forgotten instead."
+  (dolist (obj spectreshell--color-scheme-terminals)
+    (if (marker-buffer (spectreshell-marker obj))
+        (spectreshell--update-color-scheme obj)
+      (setq spectreshell--color-scheme-terminals
+            (delq obj spectreshell--color-scheme-terminals)))))
+
+(add-hook 'enable-theme-functions #'spectreshell--report-color-scheme)
+(add-hook 'disable-theme-functions #'spectreshell--report-color-scheme)
+(add-hook 'window-buffer-change-functions #'spectreshell--report-color-scheme)
+(add-hook 'window-selection-change-functions #'spectreshell--report-color-scheme)
 
 ;; ---------------------------------------------------------------------
 ;; Style table

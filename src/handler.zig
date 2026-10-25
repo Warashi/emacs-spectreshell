@@ -4,6 +4,21 @@ const ghostty_terminfo = @import("ghostty-terminfo");
 const relay = @import("relay.zig");
 const build_options = @import("build_options");
 
+/// 子の明暗の問い合わせ (CSI ? 996 n) に答える値。Ghostty と同じく
+/// 外側のテーマの明暗を使うが、知っているのは Elisp なので外から渡す。
+pub const ColorScheme = enum {
+    dark,
+    light,
+
+    /// Ghostty の colorSchemeReport と同じ形。
+    pub fn report(self: ColorScheme) []const u8 {
+        return switch (self) {
+            .dark => "\x1b[?997;1n",
+            .light => "\x1b[?997;2n",
+        };
+    }
+};
+
 /// ReadonlyHandler は DSR/DA など応答が必要なアクションを無視する
 /// (ghostty のドキュメント通り、応答不要な再生専用ユースケース向けのため)。
 /// PTY への応答を組み立てる必要があるので、クエリ系アクションだけを
@@ -14,6 +29,7 @@ pub const Handler = struct {
     responses: *std.ArrayList(u8),
     title: *?[]u8,
     relay: *std.ArrayList(relay.Event),
+    color_scheme: *?ColorScheme,
     /// DCS 系アクションは ghostty_vt.Stream が状態を持たず生バイトで
     /// 渡してくるので、組み立ては ghostty 本体と同じこのハンドラに任せる。
     dcs: ghostty_vt.dcs.Handler = .{},
@@ -24,6 +40,7 @@ pub const Handler = struct {
         responses: *std.ArrayList(u8),
         title: *?[]u8,
         relay_events: *std.ArrayList(relay.Event),
+        color_scheme: *?ColorScheme,
     ) Handler {
         return .{
             .inner = terminal.vtHandler(),
@@ -31,6 +48,7 @@ pub const Handler = struct {
             .responses = responses,
             .title = title,
             .relay = relay_events,
+            .color_scheme = color_scheme,
         };
     }
 
@@ -92,7 +110,10 @@ pub const Handler = struct {
                 });
                 try self.responses.appendSlice(self.alloc, resp);
             },
-            .color_scheme => {},
+            // まだ渡されていなければ、推測で答えず黙る。
+            .color_scheme => if (self.color_scheme.*) |scheme| {
+                try self.responses.appendSlice(self.alloc, scheme.report());
+            },
         }
     }
 
@@ -227,6 +248,7 @@ test "setTitle は dupe 失敗時に旧タイトルを dangling にしない" {
         .responses = undefined,
         .title = &title,
         .relay = undefined,
+        .color_scheme = undefined,
     };
 
     try h.setTitle("first");
