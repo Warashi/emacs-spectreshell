@@ -1709,7 +1709,9 @@ ERT: =test/spectreshell-explore-geometry-test.el= の
 数えるので、Z の =current-column= は 2 (セル列 3)、80 セルぴったりの ❤️
 の行の Z は 69 桁のまま (外側の画面では正しい位置に出る)。マニュアルの
 既知の制限に書いた。全角の右半分のクリックは、今までどおり先頭のセルを
-報告する。
+報告する。端末領域の中の行を yank すると =spectreshell-cells= が付いた
+まま持ち出される。確定した行の =display= (GUI) と静的合成 (tty) は、
+M-21 / M-22 と同じく yank すると持ち出される。
 
 未確認: 実機の Ghostty → ssh → =emacsclient -t= と実機の GUI での目視、
 Claude Code / Copilot CLI の実際の出力、子が mode 2027 を無効にしたときの
