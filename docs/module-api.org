@@ -42,6 +42,7 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
  :cursor-visible t-or-nil
  :responses "raw-bytes-or-omitted"
  :relay ((SYMBOL ARGS...) ...)
+ :focus-event t-or-omitted
  :alt-screen entered-or-left-or-omitted
  :title "title-or-omitted")
 #+end_src
@@ -84,6 +85,8 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
     0〜100 の整数か ~nil~ 。ghostty-vt の解釈どおり、0 と 3 の VALUE は
     常に ~nil~ で、1 の VALUE を省くと 0 になる。
   - ~(bell)~: BEL。OSC などの終端の BEL は含まない。
+- *~:focus-event~*: 子がフォーカスの報告 (mode 1004) を有効にしている
+  間は ~t~ 。無効ならキーごと省略される。
 - *~:alt-screen~*: このバッチで alternate screen への出入りが
   あった場合のみ ~entered~ / ~left~ シンボルを持つ。変化なしならキー
   ごと省略される。
@@ -92,8 +95,8 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
 ** 描画の保留 (mode 2026)
 
 ~--feed~ が mode 2026 (synchronized output) の中で終わると、戻り値は
-~(:synchronized t :responses "raw-bytes-or-omitted" :relay ...)~ だけに
-なる (~:relay~ は描画ではないので保留しない)。
+~(:synchronized t :responses "raw-bytes-or-omitted" :relay ... :focus-event ...)~
+だけになる (~:relay~ と ~:focus-event~ は描画ではないので保留しない)。
 保留した変更は、mode 2026 が閉じた ~--feed~ の戻り値にまとめて載る。
 ~--resize~ と ~--flush~ は mode 2026 を解除してから通常の plist を返す。
 ~--flush~ はアプリが mode 2026 を閉じないまま止まったときに使う。
