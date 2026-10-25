@@ -228,6 +228,10 @@ less や vim などの alternate screen アプリの画面は確定化されず�
 - OSC 8 ハイパーリンク (クリック可能な button として描画)
 - ~xterm-ghostty~ の terminfo をビルド時生成・同梱し、 ~TERM~ /
   ~TERMINFO~ として子プロセスに自動注入
+- ~emacsclient~ のフレームでコマンドを始めると、その ~emacsclient~ の
+  環境にある ~TERM_PROGRAM~ / ~TERM_PROGRAM_VERSION~ を子プロセスに
+  渡す。無い変数は、daemon や eshell で設定した値があっても子から外す。
+  ~emacsclient~ のフレームでなければ Emacs 自身の値がそのまま渡る
 - 端末サイズはウィンドウの表示桁数・行数を pty に設定して伝える。
   この段の子プロセスからは環境変数 ~COLUMNS~ / ~LINES~ を外すので、
   幅・高さの情報源は pty ( ~TIOCGWINSZ~ ) だけになり、リサイズにも
