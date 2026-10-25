@@ -443,6 +443,27 @@ position (a marker is resolved to its integer position, since
       (should (null responses))
       (should (= 1 (length unread-command-events))))))
 
+(ert-deftest spectreshell-key-test-mouse-click-on-link-goes-to-tracking-child ()
+  "子がマウスを追跡している間の OSC 8 リンクのクリックは、press も release
+も子へ届き、リンクは開かない。`mouse-1-click-follows-link' が release を
+mouse-2 に変えると、release が子に届かずにリンクが開く。"
+  :expected-result :failed
+  (spectreshell-test--with-terminal (term 5 40 responses)
+    (spectreshell-feed term "\x1b[?1000h\x1b[?1006h")
+    (spectreshell-feed term "\x1b]8;;https://example.com/\x1b\\LINK\x1b]8;;\x1b\\")
+    (let ((browsed nil))
+      (save-window-excursion
+        (switch-to-buffer (current-buffer))
+        (setq spectreshell--current term)
+        (spectreshell-semi-char-mode 1)
+        (let ((posn (spectreshell-key-test--posn (selected-window)
+                                                 (+ (spectreshell-marker term) 2)))
+              (browse-url-browser-function
+               (lambda (url &rest _) (push url browsed))))
+          (execute-kbd-macro (vector (list 'down-mouse-1 posn) (list 'mouse-1 posn)))))
+      (should (equal (reverse responses) '("\x1b[<0;3;1M" "\x1b[<0;3;1m")))
+      (should (null browsed)))))
+
 (ert-deftest spectreshell-key-test-mouse-wheel-sends-single-press ()
   "wheel-up はボタン64 (wheel_up) の press 1回として送信される。"
   (spectreshell-test--with-terminal (term 5 10 responses)
