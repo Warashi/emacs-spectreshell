@@ -720,6 +720,86 @@ eshell が渡す値を取り上げてしまうと幅の手掛かりが無くな�
                           lines))))))
 
 ;; ---------------------------------------------------------------------
+;; クライアント側の TERM_PROGRAM の引き継ぎ
+;; ---------------------------------------------------------------------
+
+(defmacro spectreshell-eshell-test--with-frame-parameters (parameters &rest body)
+  "選択中のフレームに PARAMETERS (alist) を設定して BODY を実行する。
+emacsclient のフレームを batch で模すため。BODY の後で元の値に戻す。"
+  (declare (indent 1))
+  (let ((saved (gensym "spectreshell-eshell-test-saved")))
+    `(let ((,saved (mapcar (lambda (p) (cons (car p) (frame-parameter nil (car p))))
+                           ,parameters)))
+       (unwind-protect
+           (progn (modify-frame-parameters nil ,parameters)
+                  ,@body)
+         (modify-frame-parameters nil ,saved)))))
+
+(defun spectreshell-eshell-test--term-program-seen-by-child (environment)
+  "ENVIRONMENT を Emacs の環境にして子が見た TERM_PROGRAM(_VERSION) を返す。
+戻り値は \"TP=... TPV=...\" の行で、無い変数は unset と書く。"
+  (let (seen)
+    (spectreshell-eshell-test--with-eshell buf
+      (let ((process-environment (append environment process-environment)))
+        (spectreshell-eshell-test--send
+         buf (concat "sh -c 'echo TP=${TERM_PROGRAM-unset}"
+                     " TPV=${TERM_PROGRAM_VERSION-unset}'")))
+      (should (spectreshell-eshell-test--wait-for-command buf))
+      (with-current-buffer buf
+        (setq seen (seq-find (lambda (line) (string-prefix-p "TP=" line))
+                             (mapcar #'string-trim-right
+                                     (split-string (buffer-string) "\n"))))))
+    seen))
+
+(ert-deftest spectreshell-eshell-test-child-gets-client-term-program ()
+  "emacsclient の環境にある TERM_PROGRAM(_VERSION) が子へそのまま渡る。
+直結では ssh 先のアプリが外側の端末から送られた値を見るので、daemon
+自身の環境の値ではなくクライアントの値が見えることを検査する。"
+  :expected-result :failed
+  (spectreshell-eshell-test--with-frame-parameters
+      '((environment "TERM_PROGRAM=ghostty" "TERM_PROGRAM_VERSION=1.3.1"))
+    (should (equal (spectreshell-eshell-test--term-program-seen-by-child
+                    '("TERM_PROGRAM=daemon" "TERM_PROGRAM_VERSION=0.1"))
+                   "TP=ghostty TPV=1.3.1"))))
+
+(ert-deftest spectreshell-eshell-test-child-drops-term-program-missing-from-client ()
+  "emacsclient の環境に無い TERM_PROGRAM(_VERSION) は子に渡らない。
+daemon の値は daemon を起動した端末のもので、今見ている端末とは関係が
+無い。直結で ssh が送らなかったときと同じく、どちらも未設定になる。"
+  :expected-result :failed
+  (spectreshell-eshell-test--with-frame-parameters
+      '((environment "HOME=/nonexistent"))
+    (should (equal (spectreshell-eshell-test--term-program-seen-by-child
+                    '("TERM_PROGRAM=daemon" "TERM_PROGRAM_VERSION=0.1"))
+                   "TP=unset TPV=unset"))))
+
+(ert-deftest spectreshell-eshell-test-child-gets-term-program-of-frame-made-from-client ()
+  "client のフレームから作ったフレームでも、client の環境の値が子へ渡る。
+`make-frame' は `environment' を引き継がず `client' だけを引き継ぐので、
+そのフレームで始めたコマンドにも同じ端末の値が見えることを検査する。"
+  :expected-result :failed
+  (let ((client (make-pipe-process :name "spectreshell-test-client" :noquery t)))
+    (unwind-protect
+        (progn
+          (process-put client 'env '("TERM_PROGRAM=ghostty"
+                                     "TERM_PROGRAM_VERSION=1.3.1"))
+          (spectreshell-eshell-test--with-frame-parameters
+              `((environment) (client . ,client))
+            (should (equal (spectreshell-eshell-test--term-program-seen-by-child
+                            '("TERM_PROGRAM=daemon"))
+                           "TP=ghostty TPV=1.3.1"))))
+      (delete-process client))))
+
+(ert-deftest spectreshell-eshell-test-child-keeps-emacs-term-program-outside-client ()
+  "emacsclient のフレームでなければ Emacs 自身の TERM_PROGRAM が渡る。
+`emacs -nw' を端末から直接起動したときは Emacs の環境がその端末の
+環境なので、取り上げると直結より情報が減る。"
+  (spectreshell-eshell-test--with-frame-parameters '((environment) (client))
+    (should (equal (spectreshell-eshell-test--term-program-seen-by-child
+                    '("TERM_PROGRAM=ghostty" "TERM_PROGRAM_VERSION=1.3.1"))
+                   "TP=ghostty TPV=1.3.1"))))
+
+;; ---------------------------------------------------------------------
 ;; 同梱 terminfo の自動検出
 ;; ---------------------------------------------------------------------
 
