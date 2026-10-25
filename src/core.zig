@@ -984,6 +984,29 @@ test "encodeKey は alt 付きの文字を ESC 前置でエンコードする" {
     try testing.expectEqualStrings("\x1ba", bytes.?);
 }
 
+test "encodeKey は kitty keyboard 有効時も Shift の英大文字を平文で送り C-S-a は区別する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    {
+        var update = try t.feed(alloc, "\x1b[>5u");
+        defer update.deinit();
+    }
+
+    const keymap = @import("keymap.zig");
+    {
+        const bytes = try t.encodeKey(alloc, keymap.charEvent('A', "A", .{ .shift = true }));
+        defer if (bytes) |b| alloc.free(b);
+        try testing.expectEqualStrings("A", bytes.?);
+    }
+    {
+        const bytes = try t.encodeKey(alloc, keymap.charEvent('a', "a", .{ .ctrl = true, .shift = true }));
+        defer if (bytes) |b| alloc.free(b);
+        try testing.expectEqualStrings("\x1b[97;6u", bytes.?);
+    }
+}
+
 test "encodePaste は bracketed paste モードに追従する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);

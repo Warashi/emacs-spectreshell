@@ -77,11 +77,16 @@ pub fn charEvent(cp: u21, utf8: []const u8, mods: Mods) KeyEvent {
     // シフト前の小文字を入れる。cp をそのまま入れると kitty/CSIu 有効時に
     // shift ビットが脱落し、アプリが C-a と C-S-a を区別できなくなる。
     const unshifted: u21 = if (cp < 128) std.ascii.toLower(@intCast(cp)) else 0;
+    // 一方で shift で文字が変わったなら、その shift は文字の生成に使われた
+    // ので consumed_mods に入れる。kitty エンコーダは consumed_mods を
+    // 除いた修飾が空のときだけ平文で送るため、入れないと Shift の英大文字
+    // が CSI u になる。文字が変わらない C-S-a の shift は残る。
     return .{
         .key = key,
         .utf8 = utf8,
         .unshifted_codepoint = unshifted,
         .mods = mods,
+        .consumed_mods = .{ .shift = mods.shift and cp != unshifted },
     };
 }
 
@@ -121,6 +126,11 @@ test "charEvent は ascii 文字を Key.fromASCII と紐付ける" {
 test "charEvent は ascii 大文字にシフト前の小文字を unshifted として持たせる" {
     const ev = charEvent('A', "A", .{ .shift = true });
     try testing.expectEqual(@as(u21, 'a'), ev.unshifted_codepoint);
+}
+
+test "charEvent は shift で変わった文字の shift だけを消費済みにする" {
+    try testing.expect(charEvent('A', "A", .{ .shift = true }).consumed_mods.shift);
+    try testing.expect(!charEvent('a', "a", .{ .ctrl = true, .shift = true }).consumed_mods.shift);
 }
 
 test "charEvent は非 ascii 文字を unidentified のまま utf8 だけで運ぶ" {
