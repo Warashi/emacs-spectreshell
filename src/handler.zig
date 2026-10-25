@@ -56,6 +56,7 @@ pub const Handler = struct {
             .dcs_unhook => try self.dcsUnhook(),
             .window_title => try self.setTitle(value.title),
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
+            .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
             else => try self.inner.vt(action, value),
         }
     }
@@ -176,6 +177,12 @@ pub const Handler = struct {
         const owned = try self.alloc.dupe(u8, data);
         errdefer self.alloc.free(owned);
         try self.relay.append(self.alloc, .{ .clipboard = .{ .kind = kind, .data = owned } });
+    }
+
+    fn showDesktopNotification(self: *Handler, title: []const u8, body: []const u8) !void {
+        const n = try relay.Notification.init(self.alloc, title, body);
+        errdefer n.deinit(self.alloc);
+        try self.relay.append(self.alloc, .{ .notification = n });
     }
 
     fn setTitle(self: *Handler, title: []const u8) !void {

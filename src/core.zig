@@ -990,6 +990,20 @@ test "OSC 52 の読み取りは無視する" {
     try testing.expectEqualStrings("", update.responses);
 }
 
+test "OSC 777 と OSC 9 の通知は中継にタイトルと本文を積む" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b]777;notify;T;a;b\x07\x1b]9;done\x07");
+    defer update.deinit();
+    try testing.expectEqual(@as(usize, 2), update.relay.len);
+    try testing.expectEqualStrings("T", update.relay[0].notification.title);
+    try testing.expectEqualStrings("a;b", update.relay[0].notification.body);
+    try testing.expectEqualStrings("", update.relay[1].notification.title);
+    try testing.expectEqualStrings("done", update.relay[1].notification.body);
+}
+
 test "mode 2026 の中でも中継するものは保留しない" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);

@@ -4,10 +4,12 @@ const std = @import("std");
 /// Elisp がそのまま外側の tty へ中継する (docs/issues.org M-23)。
 pub const Event = union(enum) {
     clipboard: Clipboard,
+    notification: Notification,
 
     pub fn deinit(self: *Event, alloc: std.mem.Allocator) void {
         switch (self.*) {
             .clipboard => |c| alloc.free(c.data),
+            .notification => |n| n.deinit(alloc),
         }
         self.* = undefined;
     }
@@ -15,6 +17,7 @@ pub const Event = union(enum) {
     fn clone(self: Event, alloc: std.mem.Allocator) !Event {
         return switch (self) {
             .clipboard => |c| .{ .clipboard = .{ .kind = c.kind, .data = try alloc.dupe(u8, c.data) } },
+            .notification => |n| .{ .notification = try Notification.init(alloc, n.title, n.body) },
         };
     }
 };
@@ -23,6 +26,23 @@ pub const Event = union(enum) {
 pub const Clipboard = struct {
     kind: u8,
     data: []u8,
+};
+
+/// OSC 777 / OSC 9 の通知。OSC 9 には TITLE が無いので空になる。
+pub const Notification = struct {
+    title: []u8,
+    body: []u8,
+
+    pub fn init(alloc: std.mem.Allocator, title: []const u8, body: []const u8) !Notification {
+        const owned_title = try alloc.dupe(u8, title);
+        errdefer alloc.free(owned_title);
+        return .{ .title = owned_title, .body = try alloc.dupe(u8, body) };
+    }
+
+    pub fn deinit(self: Notification, alloc: std.mem.Allocator) void {
+        alloc.free(self.title);
+        alloc.free(self.body);
+    }
 };
 
 pub fn deinitAll(alloc: std.mem.Allocator, events: []Event) void {

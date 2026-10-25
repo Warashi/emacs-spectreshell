@@ -97,7 +97,6 @@
 (ert-deftest spectreshell-module-test-desktop-notification-produces-relay ()
   "OSC 777 の通知と、9;4 などの ConEmu 拡張でない OSC 9 の通知は :relay に
 \(notification TITLE BODY) を積む。OSC 9 には TITLE が無いので空になる。"
-  :expected-result :failed
   (let* ((term (spectreshell--create 5 10))
          (update (spectreshell--feed term "\x1b]777;notify;T;a;b\x07\x1b]9;done\x07")))
     (should (equal (plist-get update :relay)

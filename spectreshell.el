@@ -606,6 +606,27 @@ xterm.el refuses for its own writes too."
       #'spectreshell--relay-clipboard)
 
 ;; ---------------------------------------------------------------------
+;; Desktop notifications (OSC 777 / OSC 9)
+;; ---------------------------------------------------------------------
+
+(defun spectreshell--relay-notification (obj title body)
+  "Relay the child's desktop notification of TITLE and BODY for OBJ.
+Both OSC 777 and OSC 9 go out as OSC 777: an OSC 9 body starting with
+a digit and a semicolon would read as a ConEmu command instead.  Control
+characters are dropped from both so the child cannot slip other escape
+sequences to the outer terminal, and so is a semicolon in TITLE, which
+would otherwise end it early."
+  (spectreshell--relay
+   obj (concat "\e]777;notify;"
+               (replace-regexp-in-string "[\0-\37\177;]" "" title)
+               ";"
+               (replace-regexp-in-string "[\0-\37\177]" "" body)
+               "\a")))
+
+(setf (alist-get 'notification spectreshell--relay-handlers)
+      #'spectreshell--relay-notification)
+
+;; ---------------------------------------------------------------------
 ;; Style table
 ;; ---------------------------------------------------------------------
 
