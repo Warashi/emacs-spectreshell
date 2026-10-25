@@ -2057,7 +2057,7 @@ PATH の =stty= が GNU なら darwin では失敗させる (=stty --version= �
 - vim / nvim で実際に backspace が効くこと。vim が =c_cc[VERASE]= を
   読むことはソース読解によるもので、実物では未検証
 
-** TODO L-41: 子のデスクトップ通知 (OSC 777 / OSC 9) が外側の Ghostty に届かない
+** DONE L-41: 子のデスクトップ通知 (OSC 777 / OSC 9) が外側の Ghostty に届かない
 対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el= (M-23 の中継)
 
 直結では、Claude Code が入力を待つときなどに Ghostty が OS の通知を
@@ -2077,6 +2077,28 @@ PATH の =stty= が GNU なら darwin では失敗させる (=stty --version= �
 と本文を plist に出す。Elisp は M-23 の中継で
 =\e]777;notify;TITLE;BODY\a= を送る。TITLE / BODY からは制御文字を
 除き、TITLE の =;= も除く (区切りと区別できないため)。
+
+対応 (2026-10-25, d202bee): Handler が =show_desktop_notification= を
+横取りし、=:relay= に =(notification TITLE BODY)= を出す。
+=spectreshell--relay-notification= が制御文字 (=\0= 〜 =\37= と =\177=)
+を除き、TITLE からは =;= も除いて =\e]777;notify;TITLE;BODY\a= を送る。
+OSC 9 由来の通知も OSC 777 で送る (本文が数字と =;= で始まると OSC 9 の
+ConEmu 拡張として読まれるため)。=:relay= の形は =docs/module-api.org=
+(24a7f80) に、届く形はマニュアル (b140823) に書いた。
+
+確認:
+
+- batch: Zig と ERT で =\e]777;notify;T;a;b\a= が TITLE =T= / BODY
+  =a;b=、=\e]9;done\a= が TITLE 空 / BODY =done= になることを固定した。
+  ERT で、UTF-8 のタイトルと本文がそのままのバイト列 (unibyte) で各
+  端末に届くこと、制御文字とタイトルの =;= を除くことを固定した。
+- pty (=/tmp/parity-scripts/relay-e2e.py=、M-24 の確認と同じ組み方):
+  spectreshell の eshell で
+  =printf '\e]777;notify;T;b;c\a\e]9;done\a'= を実行すると、pty に
+  =\e]777;notify;T;b;c\a= と =\e]777;notify;;done\a= が出た。
+
+未確認: Ghostty で OS の通知が出ること、Claude Code / Copilot CLI が
+通知を出す条件。実環境の確認は未実施。
 
 ** TODO L-42: 子の進捗表示 (OSC 9;4) が外側の Ghostty に届かない
 対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el= (M-23 の中継)
