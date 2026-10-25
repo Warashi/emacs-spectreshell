@@ -1903,6 +1903,40 @@ spectreshell 経由では何も起きない。モジュールは =bell= を捨�
 =ring-bell-function= や =visible-bell= の設定にも左右されるので使わ
 ない。
 
+** TODO L-45: XTVERSION (CSI > q) に応答しない
+対象: =src/handler.zig=
+
+Ghostty は =\e[>q= に =\eP>|ghostty <version>\e\\= を返す
+(=src/termio/stream_handler.zig= の =reportXtversion=)。spectreshell は
+=xtversion= を =ReadonlyHandler= に渡し、そこで捨てられる
+(=stream_readonly.zig= 181 行。batch で =\e[>0q= を feed しても応答は
+空)。
+
+Claude Code は起動時に =\e[>0q= を送る。記録した実行で偽の応答
+=\eP>|ghostty 1.3.1\e\\= を注入すると、次のラウンドとして
+=\e[?2026$p= と kitty graphics の問い合わせを送り、続けて
+=\e[16t\e[?1016$p\e[c= を送った。spectreshell は =\e[?1016;2$y= と
+DA1 を返し、=\e[16t= と kitty graphics には応答しなかった。この実行
+で Claude は =\e[?1016h= を送っていない (=\e[16t= に応答が無いため
+と推測)。応答しないことで Claude Code のどの機能が変わるか
+(=TERM= が =xterm-ghostty= でないときの同期出力、fullscreen でのリンク
+のクリックなど) は調査時のバンドルの読解によるもので、未実測。既定の
+=TERM=xterm-ghostty= では、応答が無くても Claude は同期出力 (2026) を
+使った (18 組)。
+
+リスク: spectreshell は DECRQM =?1016= (SGR pixel 座標のマウス報告) に
+既知のモードとして答える (未設定で 2、設定後は 1) が、マウスの
+エンコーダは =sgr_pixels= を =sgr= と同じに扱い、セル座標を送る
+(=src/core.zig= の =encodeMouse=)。XTVERSION に応答すると Claude が
+=?1016= を問い合わせるようになり、=?1016h= を立てた場合は子がセル
+座標をピクセルとして読むので、クリック位置が左上へずれるはず (未実測)。
+
+対応方針: Handler で =xtversion= を横取りし、Ghostty と同じ
+=\eP>|ghostty <version>\e\\= を返す (version は同梱する ghostty の
+もの)。先に =?1016= の扱いを決める: ピクセル座標を出せない間は
+DECRQM =?1016= に 0 (未対応) を返す (直結の 2 とは違うが、子がピク
+セル座標を前提にするのを防ぐ)。=\e[16t= には今のとおり応答しない。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
