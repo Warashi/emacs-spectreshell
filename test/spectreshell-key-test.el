@@ -316,6 +316,30 @@ position (a marker is resolved to its integer position, since
                      term (spectreshell-key-test--posn nil (+ (spectreshell-marker term) 3)))
                     '(0 . 6)))))
 
+(ert-deftest spectreshell-key-test-mouse-posn-coords-after-graphemes ()
+  "書記素の後ろの POSN は、ghostty-vt がその文字を置いたセル列になる。
+ZWJ 列は 5 文字で 2 セル、単独の regional indicator は 1 文字で 2 セル
+だが、Emacs の `char-width' はそれぞれ 6 と 1 と数える。"
+  (dolist (case '(("\N{U+1F468}\N{U+200D}\N{U+1F469}\N{U+200D}\N{U+1F467}x" 5 2)
+                  ("\N{U+1F1EF}x" 1 2)
+                  ("\N{U+1F44D}\N{U+1F3FD}x" 2 2)))
+    (pcase-let ((`(,text ,index ,cell) case))
+      (spectreshell-test--with-terminal (term 3 10)
+        (spectreshell-feed term (encode-coding-string text 'utf-8))
+        (should (equal (spectreshell--posn-terminal-coords
+                        term (spectreshell-key-test--posn
+                              nil (+ (spectreshell-marker term) index)))
+                       (cons 0 cell)))))))
+
+(ert-deftest spectreshell-key-test-mouse-posn-coords-inside-grapheme ()
+  "書記素の 2 文字目以降の POSN は、その書記素の先頭のセル列になる。"
+  (spectreshell-test--with-terminal (term 3 10)
+    (spectreshell-feed term (encode-coding-string "a\N{U+1F1EF}\N{U+1F1F5}" 'utf-8))
+    (should (equal (spectreshell--posn-terminal-coords
+                    term (spectreshell-key-test--posn
+                          nil (+ (spectreshell-marker term) 2)))
+                   '(0 . 1)))))
+
 (ert-deftest spectreshell-key-test-mouse-posn-coords-before-terminal-region-is-nil ()
   "端末領域より前 (確定済みスクロールバック) の POSN は nil になる。"
   (spectreshell-test--with-terminal (term 1 5)

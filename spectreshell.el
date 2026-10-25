@@ -1040,26 +1040,31 @@ module, not edited."
           (at-row 0))
       (goto-char (spectreshell-marker obj))
       (dolist (entry dirty)
-        (pcase-let ((`(,row ,text ,spans ,_cells) entry))
+        (pcase-let ((`(,row . ,content) entry))
           (forward-line (- row at-row))
           (setq at-row row)
           (let ((cached (gethash row cache)))
-            (unless (and cached
-                         (equal (car cached) text)
-                         (equal (cdr cached) spans))
-              (puthash row (cons text spans) cache)
+            (unless (equal cached content)
+              (puthash row content cache)
               (let ((beg (point)))
                 (delete-region beg (line-end-position))
                 ;; `insert' leaves point at the end of the new row, which
                 ;; is still on line `at-row', so the next `forward-line'
                 ;; delta stays correct.
-                (insert (spectreshell--decorate-row obj text spans))))))))))
+                (insert (apply #'spectreshell--decorate-row obj content))))))))))
 
-(defun spectreshell--decorate-row (obj text spans)
+(defun spectreshell--decorate-row (obj text spans cells)
   "Return TEXT with SPANS applied as face/button properties, using OBJ's styles.
 SPANS is the module's per-row span list, each element (START END ID) or
 \(START END ID . URI); TEXT is fresh from the module on every call, so it
-is safe to add properties to it directly."
+is safe to add properties to it directly.  CELLS is the module's
+per-character cell counts for TEXT (docs/module-api.org); when non-nil
+it is kept as the `spectreshell-cells' property of TEXT's first
+character, where `spectreshell--row-cell-column' finds it."
+  (when (and cells (> (length text) 0))
+    ;; Only the first character carries it, so the trailing padding stays
+    ;; property-less for `spectreshell--trim-trailing-blanks'.
+    (put-text-property 0 1 'spectreshell-cells cells text))
   (dolist (span spans)
     (pcase-let ((`(,start ,end ,id . ,uri) span))
       (when-let* ((face (spectreshell--style-face obj id)))
@@ -1255,7 +1260,7 @@ real terminal content and are kept."
       (goto-char marker)
       (insert (mapconcat (lambda (entry)
                             (spectreshell--trim-trailing-blanks
-                             (spectreshell--decorate-row obj (nth 0 entry) (nth 1 entry))))
+                             (apply #'spectreshell--decorate-row obj entry)))
                           scrolled-off "\n")
               "\n")
       ;; The marker's default (nil) insertion-type leaves it *behind* text
@@ -1723,6 +1728,24 @@ not a window, e.g. a click below the last line)."
               ((windowp window)))
     (buffer-local-value 'spectreshell--current (window-buffer window))))
 
+(defun spectreshell--row-cell-column (pos)
+  "Return the terminal cell column of the character at POS in its row.
+The row's `spectreshell-cells' (see `spectreshell--decorate-row') maps
+characters to cells; a row without it has one cell per character.  A
+character inside a grapheme answers the grapheme's first cell."
+  (let* ((bol (line-beginning-position))
+         (index (- pos bol))
+         (cells (get-text-property bol 'spectreshell-cells)))
+    (if (null cells)
+        index
+      (setq index (min index (length cells)))
+      (while (and (> index 0) (< index (length cells)) (= 0 (aref cells index)))
+        (setq index (1- index)))
+      (let ((column 0))
+        (dotimes (i index)
+          (setq column (+ column (aref cells i))))
+        column))))
+
 (defun spectreshell--posn-terminal-coords (obj posn)
   "Return OBJ's 0-origin (ROW . COL) terminal coordinates for POSN.
 POSN is an `event-start'/`event-end' position object.  Return nil when
@@ -1738,15 +1761,14 @@ neither of which is part of the live terminal grid."
       (save-excursion
         (goto-char pt)
         ;; COL must be a terminal *cell* column (`spectreshell--encode-mouse'
-        ;; encodes it as-is into the mouse report), so use `current-column'
-        ;; -- display columns, counting a double-width character as two --
-        ;; rather than the character offset from the line start.  Clamp in
-        ;; case POSN lands past a short row's last character (rows are
-        ;; padded to `spectreshell-cols' by `spectreshell--pad-rows'/
-        ;; dirty-row replacement, so this is mostly a defensive bound
-        ;; rather than a normal occurrence).
+        ;; encodes it as-is into the mouse report).  Clamp in case POSN
+        ;; lands past a short row's last character (rows are padded to
+        ;; `spectreshell-cols' by `spectreshell--pad-rows'/dirty-row
+        ;; replacement, so this is mostly a defensive bound rather than a
+        ;; normal occurrence).
         (cons (count-lines marker-pos (line-beginning-position))
-              (max 0 (min (1- (spectreshell-cols obj)) (current-column))))))))
+              (max 0 (min (1- (spectreshell-cols obj))
+                          (spectreshell--row-cell-column pt))))))))
 
 (defun spectreshell--send-mouse (obj button action posn mods)
   "Encode a BUTTON/ACTION mouse report at POSN through OBJ and send it.

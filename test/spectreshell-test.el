@@ -148,6 +148,13 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
     (should (string-prefix-p "3    \n4    \n     "
                              (buffer-substring (spectreshell-marker term) (point-max))))))
 
+(ert-deftest spectreshell-test-scrolled-off-row-with-grapheme-drops-padding ()
+  "書記素を含む行も、確定化するときは行末の空白が落ちる。"
+  (spectreshell-test--with-terminal (term 1 6)
+    (spectreshell-feed term (encode-coding-string
+                             "\N{U+1F1EF}\N{U+1F1F5}\r\nx" 'utf-8))
+    (should (string-prefix-p "\N{U+1F1EF}\N{U+1F1F5}\n" (buffer-string)))))
+
 (ert-deftest spectreshell-test-scrolled-off-row-keeps-colors ()
   "確定化した行にも SGR の色が残る。"
   (spectreshell-test--with-terminal (term 1 5)

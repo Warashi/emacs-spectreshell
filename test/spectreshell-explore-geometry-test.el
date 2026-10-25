@@ -3,9 +3,8 @@
 ;; 2026-09-05 の探索的テスト (worker 6 / 方向名 geometry) で見つけた
 ;; 「ghostty-vt のセル幅と Emacs の表示幅 (char-width) が食い違う」ケースと、
 ;; 0 桁ウィンドウでの端末生成の失敗を、batch Emacs で固定したファイル。
-;; 起票時は `:expected-result :failed' の Probe だったが、L-33 / L-35 の
-;; 修正で通常の期待に反転済み。国旗の表示幅だけは描画側の未対応 (L-37)
-;; として `:expected-result :failed' のまま残る。
+;; 起票時は `:expected-result :failed' の Probe だったが、L-33 / L-35 /
+;; L-37 の修正で通常の期待に反転済み。
 ;; 観察の記録は docs/issues.org の該当項目を参照 (2026-09-05 の探索的テスト)。
 
 (require 'ert)
@@ -24,19 +23,30 @@ BYTES は「測りたい文字列」の生バイト列。ghostty-vt は X を必
       (backward-char 1)
       (current-column))))
 
+(defun spectreshell-explore-geometry-test--marker-cell (bytes)
+  "BYTES を 1 行の端末へ流し、CSI 20 G で置いた X のセル列を Emacs 側で解く。
+`spectreshell-explore-geometry-test--marker-column' と違い、表示桁ではなく行のセル情報
+\(`spectreshell--row-cell-column') で数える。"
+  (with-temp-buffer
+    (let ((obj (spectreshell-start (current-buffer) 3 79 (lambda (_)) nil)))
+      (spectreshell-feed obj (concat bytes "\e[20GX"))
+      (goto-char (point-min))
+      (search-forward "X")
+      (spectreshell--row-cell-column (1- (point))))))
+
 (ert-deftest spectreshell-explore-geometry-test-regional-indicator-width ()
-  "国旗 (regional indicator) の幅が ghostty 2 セル / Emacs 1 桁でずれる。
-ghostty-vt は U+1F1E6..U+1F1FF を wide (2 セル) として扱うが、Emacs の
-`char-width' は 1 を返す。カーソル位置そのものは L-33 の `:cursor-index'
-で正しく解けるが、この Probe が測る `current-column' (表示幅) は Emacs が
-国旗を 1 桁で描く限り一致しない。描画側の対応 (L-37) の Probe として
-`:expected-result :failed' のまま残す。"
-  :expected-result :failed
-  ;; 🇯 単独 (RI 1 つ) で 1 桁、🇯🇵 (RI 2 つ) で 2 桁ずれる。
-  (should (equal 19 (spectreshell-explore-geometry-test--marker-column
+  "国旗 (regional indicator) の後ろの文字のセル列が ghostty-vt と食い違う。
+ghostty-vt は単独の RI も国旗も 2 セルとして扱うが、Emacs の
+`char-width' は RI 1 つを 1 と数えるので、表示桁からはセル列が
+求まらない。"
+  (should (equal 19 (spectreshell-explore-geometry-test--marker-cell
                      (encode-coding-string "\N{U+1F1EF}" 'utf-8))))
-  (should (equal 19 (spectreshell-explore-geometry-test--marker-column
-                     (encode-coding-string "\N{U+1F1EF}\N{U+1F1F5}" 'utf-8)))))
+  (should (equal 19 (spectreshell-explore-geometry-test--marker-cell
+                     (encode-coding-string "\N{U+1F1EF}\N{U+1F1F5}" 'utf-8))))
+  (should (equal 19 (spectreshell-explore-geometry-test--marker-cell
+                     (encode-coding-string
+                      "\N{U+1F468}\N{U+200D}\N{U+1F469}\N{U+200D}\N{U+1F467}"
+                      'utf-8)))))
 
 (ert-deftest spectreshell-explore-geometry-test-del-is-not-stored ()
   "DEL (0x7F) がセルに格納され、Emacs では `^?' の 2 桁で表示される。
