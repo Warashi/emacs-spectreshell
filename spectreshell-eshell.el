@@ -214,6 +214,18 @@ pty had already been told the new one."
         (spectreshell-resize obj rows cols)
         (set-process-window-size proc rows cols)))))
 
+(defun spectreshell-eshell--frame-deleted (_frame)
+  "Resize the spectreshell terminals of every buffer to their window.
+Member of `after-delete-frame-functions' while `spectreshell-eshell-mode'
+is on.  The windows still showing a buffer keep their size when another
+frame showing it goes away (another emacsclient closing), so
+`window-size-change-functions' is not called and the terminals would
+keep the deleted frame's size."
+  (dolist (buffer (buffer-list))
+    (when (buffer-local-value 'spectreshell-eshell--terminals buffer)
+      (with-current-buffer buffer
+        (spectreshell-eshell--window-size-change nil)))))
+
 ;; ---------------------------------------------------------------------
 ;; Attach / detach
 ;; ---------------------------------------------------------------------
@@ -681,7 +693,8 @@ terminal as it would with the child running there directly."
                     #'spectreshell-eshell--visual-command-p-advice)
         (advice-add 'eshell-send-input :around
                     #'spectreshell-eshell--send-input-advice)
-        (add-hook 'spectreshell-title-functions #'spectreshell-relay-title))
+        (add-hook 'spectreshell-title-functions #'spectreshell-relay-title)
+        (add-hook 'after-delete-frame-functions #'spectreshell-eshell--frame-deleted))
     (advice-remove 'eshell-gather-process-output
                     #'spectreshell-eshell--gather-process-output-advice)
     (advice-remove 'make-process
@@ -690,7 +703,8 @@ terminal as it would with the child running there directly."
                     #'spectreshell-eshell--visual-command-p-advice)
     (advice-remove 'eshell-send-input
                     #'spectreshell-eshell--send-input-advice)
-    (remove-hook 'spectreshell-title-functions #'spectreshell-relay-title)))
+    (remove-hook 'spectreshell-title-functions #'spectreshell-relay-title)
+    (remove-hook 'after-delete-frame-functions #'spectreshell-eshell--frame-deleted)))
 
 ;; Defined after `spectreshell-eshell-mode' itself (rather than up with the
 ;; other advice functions) purely so this can refer to that variable

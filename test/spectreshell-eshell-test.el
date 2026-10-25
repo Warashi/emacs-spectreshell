@@ -603,7 +603,6 @@ Emacs 標準の `window--adjust-process-windows' は、プロセスのバッフ�
 残ったフレームのウィンドウはサイズが変わらないので
 `window-size-change-functions' が呼ばれず、消したフレームのサイズが
 残る。"
-  :expected-result :failed
   (let ((was-on spectreshell-eshell-mode))
     (unwind-protect
         (progn
