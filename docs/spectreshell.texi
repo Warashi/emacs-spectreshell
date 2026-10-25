@@ -467,6 +467,12 @@ tty フレームでは、子がカーソルを隠しても ( @code{\e[?25l} ) Em
 子の色の問い合わせ (OSC 10 / 11 / 4) には答えない。明暗の問い合わせ
 ( @code{\e[?996n} ) には答える (機能一覧)
 @item
+子から見える端末はウィンドウの本文の大きさなので、外側の端末より
+小さい。行はメニューバー・モードライン・エコー領域などのぶん減る
+( @code{menu-bar-mode} を切る、端末のバッファで @code{mode-line-format} を
+@code{nil} にすると増える)。桁は折り返しの印のために最後の 1 桁を使わない
+( @code{truncate-lines} でも変わらない)
+@item
 OSC 52 クリップボードの読み取り・画像 (kitty graphics/sixel) は未実装
 @item
 TRAMP / リモート @code{default-directory} は対象外: リモートでは常に
