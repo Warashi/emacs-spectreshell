@@ -271,6 +271,14 @@ eat-eshell-mode と同様の接続方式:
 - 起動時に process-filter を spectreshell のフィルタに差し替え、
   環境変数 ~TERM=xterm-ghostty~ と ~TERMINFO~ (同梱 terminfo への
   パス) を注入する。
+- ~TERM_PROGRAM~ / ~TERM_PROGRAM_VERSION~ は、コマンドを始めたときの
+  選択中のフレームの ~emacsclient~ の環境 (フレームの ~environment~ 、
+  無ければ ~client~ プロセスの ~env~ ) から取って注入する。直結で
+  ssh 先のアプリに見えるのは外側の端末が送った値なので、クライアントに
+  無い変数は外す。daemon の値は daemon を起動した端末のもので、今見て
+  いる端末とは関係が無い。eshell の ~export~ も ~TERM~ と同じく上書き
+  する。 ~emacsclient~ のフレームでなければ Emacs 自身の環境がその端末
+  の環境なので、触らない。
 - pty を付ける段では、逆に環境変数 ~COLUMNS~ / ~LINES~ を子から外す
   (詳細は後述の「端末サイズの伝え方」)。
 - 前景ジョブ (~eshell-current-subjob-p~ が nil で起動されたもの) の
