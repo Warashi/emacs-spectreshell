@@ -2297,7 +2297,7 @@ Copilot CLI は起動時に =\e[?1003h= を、Claude Code は fullscreen で
 =emacs -nw= に =\e[<35;5;5M= を入力して =mouse-movement= が届くかを
 先に確かめる。無理ならマニュアルに対象外と書く。
 
-** TODO L-54: 子に TERM_PROGRAM / TERM_PROGRAM_VERSION が渡らない
+** DONE L-54: 子に TERM_PROGRAM / TERM_PROGRAM_VERSION が渡らない
 対象: =spectreshell-eshell.el= (=--process-environment=)
 
 直結で ssh 先に =TERM_PROGRAM= / =TERM_PROGRAM_VERSION= が届くかは、
@@ -2326,6 +2326,33 @@ Claude Code は =TERM_PROGRAM= で次を切り替える (調査時のバンド�
 =server--create-frame= が設定する) から、2 つの変数をそのまま子へ渡す。
 クライアントの環境に無い変数は子から外す (daemon の値は外側の端末と
 関係が無い)。
+
+対応 (2026-10-25, 1e1c76f): =spectreshell-eshell--client-environment= が
+選択中のフレームの =environment= を、無ければ =client= プロセスの
+=env= を読み (=make-frame= は =client= だけを引き継ぐ)、2 つの変数を
+値付きか未設定のエントリにして =--process-environment= に前置する。
+どちらも無いフレーム (=emacs -nw= を直接起動したとき) では何もしない。
+=(getenv VAR FRAME)= は、=environment= の無いフレームでは
+=process-environment= の値を返すので使わない (下の実測)。
+
+確認:
+
+- ERT: クライアントの値が daemon の値より優先されること、クライアントに
+  無ければ未設定になること、=client= だけのフレームでもクライアントの値
+  になること、クライアントの無いフレームでは Emacs の値が渡ること。
+- =script= の pty で daemon (=TERM_PROGRAM=daemonval=) に
+  =emacsclient -t= でつなぎ、eshell から =sh -c 'echo $TERM_PROGRAM ...'=
+  を実行した。=TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION=1.3.1= の
+  クライアントでは =ghostty= / =1.3.1=、そこから =make-frame= したフレーム
+  でも同じ、2 つの変数を外したクライアントでは両方 unset。=emacs -nw= を
+  直接起動したときは Emacs の値。同じ方法で、=(getenv "TERM_PROGRAM" FRAME)=
+  は =make-frame= したフレームと =emacs -nw= のフレームで
+  =process-environment= の値を返した。
+
+未確認: Ghostty の =ssh-env= と sshd の =AcceptEnv= で実際に
+=TERM_PROGRAM= が ssh 先の =emacsclient= まで届くこと、Claude Code で
+取り消し線・OSC 8・OSC 9;4 が直結と同じになること。実環境の確認は
+未実施。
 
 * ビルド・パッケージング
 
