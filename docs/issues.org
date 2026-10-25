@@ -2151,6 +2151,29 @@ Emacs の tty の再表示で外側の端末へ OSC 8 を出す方法は見つ�
 =menu-bar-mode= を切るなどで増やせることを添える。桁の 1 は仕様として
 残す。
 
+** TODO L-53: ボタンを押さないマウス移動 (mode 1003) が子に届かない
+対象: =spectreshell.el= (semi-char のマウス)
+
+Copilot CLI は起動時に =\e[?1003h= を、Claude Code は fullscreen で
+=\e[?1000h\e[?1002h\e[?1003h\e[?1006h= を送る (記録した実行)。直結では
+ボタンを押さない移動も子に届くが、spectreshell 経由では届かない。クリック・
+ドラッグ・ホイールは届く。
+
+- =xterm-mouse-mode= は外側の端末で 1003 を有効にする
+  (=xt-mouse.el= の =xterm-mouse-tracking-enable-sequence=) ので、移動の
+  報告は Emacs まで届く。ただしボタンを押していない移動は、
+  =track-mouse= が nil なら空のイベントとして捨てる
+  (=xterm-mouse-translate-1= の =is-move= の分岐)。
+- spectreshell は =track-mouse= をドラッグの追跡中にしか立てない
+  (=spectreshell--track-mouse-drag=)。ボタン無しの移動はモジュールが
+  mode 1003 のときだけ符号化する (=src/core.zig= の =encodeMouse=)。
+
+対応方針: 子が mode 1003 の間だけ =track-mouse= を立て、
+=mouse-movement= を =spectreshell--send-mouse= に束縛して送る。
+=track-mouse= をバッファローカルにして効くかは未確認なので、
+=emacs -nw= に =\e[<35;5;5M= を入力して =mouse-movement= が届くかを
+先に確かめる。無理ならマニュアルに対象外と書く。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
