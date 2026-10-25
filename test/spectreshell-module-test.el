@@ -104,6 +104,17 @@
     (should-not (multibyte-string-p (nth 2 (car (plist-get update :relay)))))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-progress-report-produces-relay ()
+  "OSC 9;4 の進捗は :relay に (progress STATE VALUE) を積む。値を持たない
+状態 (0 消去・3 不定) の VALUE は nil で、値を省いた 1 (設定) は 0 になる。"
+  :expected-result :failed
+  (let* ((term (spectreshell--create 5 10))
+         (update (spectreshell--feed
+                  term "\x1b]9;4;1;50\x07\x1b]9;4;1\x07\x1b]9;4;3;0\x07\x1b]9;4;0;0\x07")))
+    (should (equal (plist-get update :relay)
+                   '((progress 1 50) (progress 1 0) (progress 3 nil) (progress 0 nil))))
+    (spectreshell--release term)))
+
 (ert-deftest spectreshell-module-test-flush-draws-pending-frame ()
   "--flush は保留中の描画を通常の update plist で返す。"
   (let* ((term (spectreshell--create 1 10))
