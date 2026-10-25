@@ -631,6 +631,99 @@ spectreshell-title-functions がバッファをカレントにして呼ばれる
       (should (equal (spectreshell-title term) "hello title"))
       (should (equal seen (list term "hello title" (current-buffer)))))))
 
+;; ---------------------------------------------------------------------
+;; 外側の端末への中継 (M-23)
+;; ---------------------------------------------------------------------
+
+(defmacro spectreshell-test--with-frames (frames sent &rest body)
+  "FRAMES のウィンドウがカレントバッファを表示しているとして BODY を実行する.
+FRAMES は (WINDOW FRAME TERMINAL KIND) の並びで、KIND は tty / gui /
+initial (daemon の初期フレーム)。batch では tty フレームを作れないので、
+フレームと端末を引く関数を FRAMES から引くものに差し替える。SENT には
+`send-string-to-terminal' に渡った (STRING . TERMINAL) が送った順に溜まる。"
+  (declare (indent 2))
+  `(let ((frames ,frames)
+         (,sent nil))
+     (cl-letf (((symbol-function 'get-buffer-window-list)
+                (lambda (&rest _) (mapcar #'car frames)))
+               ((symbol-function 'window-frame)
+                (lambda (w) (nth 1 (assq w frames))))
+               ((symbol-function 'window-buffer)
+                (let ((buffer (current-buffer))) (lambda (_) buffer)))
+               ((symbol-function 'frame-terminal)
+                (lambda (f) (nth 2 (seq-find (lambda (e) (eq (nth 1 e) f)) frames))))
+               ((symbol-function 'display-graphic-p)
+                (lambda (f) (eq (nth 3 (seq-find (lambda (e) (eq (nth 1 e) f)) frames)) 'gui)))
+               ((symbol-function 'frame-initial-p)
+                (lambda (f) (eq (nth 3 (seq-find (lambda (e) (eq (nth 1 e) f)) frames)) 'initial)))
+               ((symbol-function 'send-string-to-terminal)
+                (lambda (string terminal)
+                  (setq ,sent (append ,sent (list (cons string terminal)))))))
+       ,@body)))
+
+(ert-deftest spectreshell-test-relay-sends-once-per-tty-terminal ()
+  "中継はバッファを表示している tty フレームの端末へ 1 回ずつ送る。
+同じ端末の複数フレームは 1 回にまとめ、GUI フレームと daemon の初期
+フレームには送らない。"
+  :expected-result :failed
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-frames
+        '((w1 f1 t1 tty) (w2 f1 t1 tty) (w3 f2 t1 tty)
+          (w4 f3 t2 tty) (w5 f4 x gui) (w6 f5 init initial))
+        sent
+      (spectreshell--relay term "\a")
+      (should (equal sent '(("\a" . t1) ("\a" . t2)))))))
+
+(ert-deftest spectreshell-test-relay-drops-without-tty-frame ()
+  "表示している tty フレームが無ければ送らず、後から表示しても送らない。"
+  :expected-result :failed
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-frames '((w1 f1 x gui)) sent
+      (spectreshell--relay term "\a")
+      (should (null sent))
+      (setq frames '((w2 f2 t1 tty)))
+      (run-hook-with-args 'window-buffer-change-functions 'w2)
+      (should (null sent)))))
+
+(ert-deftest spectreshell-test-relay-predicate-selects-terminals ()
+  "PREDICATE が nil を返した端末には送らない。"
+  :expected-result :failed
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-frames '((w1 f1 t1 tty) (w2 f2 t2 tty)) sent
+      (spectreshell--relay term "\a" (lambda (terminal) (eq terminal 't2)))
+      (should (equal sent '(("\a" . t2)))))))
+
+(ert-deftest spectreshell-test-relay-keep-resends-when-displayed ()
+  "保持した文字列は送ったうえで、バッファが新たに表示されたウィンドウの
+端末へ送り直す。同じ KEY で保持し直すと最新のものだけが残り、nil で
+保持をやめる。"
+  :expected-result :failed
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-frames '((w1 f1 t1 tty)) sent
+      (spectreshell--relay-keep term 'progress "old")
+      (spectreshell--relay-keep term 'progress "new")
+      (should (equal sent '(("old" . t1) ("new" . t1))))
+      (setq sent nil
+            frames '((w1 f1 t1 tty) (w2 f2 t2 tty) (w3 f3 x gui)))
+      (run-hook-with-args 'window-buffer-change-functions 'w2)
+      (run-hook-with-args 'window-buffer-change-functions 'w3)
+      (should (equal sent '(("new" . t2))))
+      (setq sent nil)
+      (spectreshell--relay-keep term 'progress nil)
+      (run-hook-with-args 'window-buffer-change-functions 'w2)
+      (should (null sent)))))
+
+(ert-deftest spectreshell-test-relay-keep-sends-later-when-hidden ()
+  "表示している tty フレームが無いときに保持したものは、表示されたときに届く。"
+  :expected-result :failed
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-frames nil sent
+      (spectreshell--relay-keep term 'progress "busy")
+      (should (null sent))
+      (setq frames '((w1 f1 t1 tty)))
+      (run-hook-with-args 'window-buffer-change-functions 'w1)
+      (should (equal sent '(("busy" . t1)))))))
+
 (ert-deftest spectreshell-test-finalize-releases-terminal ()
   "finalize 後は端末が release され、追加の feed が signal される。"
   (spectreshell-test--with-terminal (term 1 10)
