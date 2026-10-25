@@ -675,6 +675,23 @@ once and stops the keeping instead."
       #'spectreshell--relay-progress)
 
 ;; ---------------------------------------------------------------------
+;; Window titles (OSC 0/2)
+;; ---------------------------------------------------------------------
+
+(defun spectreshell-relay-title (obj title)
+  "Send OBJ's child's TITLE to the outer terminals showing its buffer.
+Meant for `spectreshell-title-functions'; spectreshell does not add it
+there itself.  Sent as OSC 2 in UTF-8, with control characters dropped
+so the child cannot slip other escape sequences to the outer terminal.
+With `xterm-set-window-title' on, Emacs replaces this title with
+`frame-title-format' after the next command."
+  (spectreshell--relay
+   obj (concat "\e]2;"
+               (encode-coding-string
+                (replace-regexp-in-string "[\0-\37\177]" "" title) 'utf-8)
+               "\a")))
+
+;; ---------------------------------------------------------------------
 ;; Bell
 ;; ---------------------------------------------------------------------
 

@@ -660,7 +660,11 @@ gets a pty, TERM/TERMINFO and the emacsclient\'s TERM_PROGRAM/
 TERM_PROGRAM_VERSION in its environment (and COLUMNS/LINES unset, so
 the pty\'s size is the only size it sees), and drives the buffer
 through spectreshell's VT emulation instead of eshell's own plain-text
-output filter for as long as it runs."
+output filter for as long as it runs.
+
+The mode also adds `spectreshell-relay-title' to
+`spectreshell-title-functions', so a child's title reaches the outer
+terminal as it would with the child running there directly."
   :global t
   :group 'spectreshell-eshell
   (if spectreshell-eshell-mode
@@ -672,7 +676,8 @@ output filter for as long as it runs."
         (advice-add 'eshell-visual-command-p :around
                     #'spectreshell-eshell--visual-command-p-advice)
         (advice-add 'eshell-send-input :around
-                    #'spectreshell-eshell--send-input-advice))
+                    #'spectreshell-eshell--send-input-advice)
+        (add-hook 'spectreshell-title-functions #'spectreshell-relay-title))
     (advice-remove 'eshell-gather-process-output
                     #'spectreshell-eshell--gather-process-output-advice)
     (advice-remove 'make-process
@@ -680,7 +685,8 @@ output filter for as long as it runs."
     (advice-remove 'eshell-visual-command-p
                     #'spectreshell-eshell--visual-command-p-advice)
     (advice-remove 'eshell-send-input
-                    #'spectreshell-eshell--send-input-advice)))
+                    #'spectreshell-eshell--send-input-advice)
+    (remove-hook 'spectreshell-title-functions #'spectreshell-relay-title)))
 
 ;; Defined after `spectreshell-eshell-mode' itself (rather than up with the
 ;; other advice functions) purely so this can refer to that variable

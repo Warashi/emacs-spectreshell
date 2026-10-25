@@ -804,7 +804,6 @@ daemon の値は daemon を起動した端末のもので、今見ている端�
   "`spectreshell-eshell-mode' の下では、子のタイトルが外側の端末の
 タブ名に届く。直結ではアプリのタイトルがタブ名になるため。モードを切ると
 届けない。"
-  :expected-result :failed
   (let (sent)
     (cl-letf (((symbol-function 'spectreshell--relay-terminals)
                (lambda (_) '(t1)))

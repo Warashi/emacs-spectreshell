@@ -870,7 +870,6 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
 (ert-deftest spectreshell-test-relay-title-sends-osc2 ()
   "`spectreshell-relay-title' を hook に入れると、子のタイトルが外側の
 端末へ UTF-8 の OSC 2 で届く。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10)
     (spectreshell-test--with-relay-terminals '(t1) nil sent
       (let ((spectreshell-title-functions '(spectreshell-relay-title)))
@@ -882,10 +881,9 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
 (ert-deftest spectreshell-test-relay-title-drops-control-characters ()
   "外側へ送るタイトルから制御文字を除く。子に外側の端末へ任意の制御列を
 書かせないため。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10)
     (spectreshell-test--with-relay-terminals '(t1) nil sent
-      (spectreshell-relay-title term "a\eb\ac\x7fd")
+      (spectreshell-relay-title term "a\eb\ac\177d")
       (should (equal sent '(("\e]2;abcd\a" . t1)))))))
 
 (ert-deftest spectreshell-test-finalize-releases-terminal ()
