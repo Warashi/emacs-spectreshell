@@ -1421,6 +1421,11 @@ Ghostty アプリは =grapheme-width-method= の既定が =unicode= で
 ZWJ と肌色修飾のずれ (L-33 では Emacs 側が +4 / +2 桁)、および M-21
 による国旗の縮小との組み合わせを確かめる必要がある。
 
+直結との差 (2026-10-25): 2027 が既定で無効なので、DECRQM =?2027= に
+spectreshell は 2 を返す (batch で実測)。直結の Ghostty は上記のとおり
+有効で始まるので 1 を返すはず。Claude Code や Copilot CLI の ZWJ 絵文字
+などを含む行で、アプリと ghostty-vt のセル数がずれるかは未実測。
+
 ERT: =test/spectreshell-explore-geometry-test.el= の
 =spectreshell-explore-geometry-test-regional-indicator-width=
 (=:expected-result :failed=)。この Probe は =current-column= (表示幅)
