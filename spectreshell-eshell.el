@@ -189,7 +189,8 @@ Buffer-local member of `window-size-change-functions' and
 `window-buffer-change-functions' (the latter covers a buffer being
 \(re)displayed in an existing window without any size change -- e.g. a
 job attached while the buffer was buried, then brought back with
-`switch-to-buffer'), both added by `spectreshell-eshell--attach'.  Left
+`switch-to-buffer'), both added by `spectreshell-eshell--attach', and
+called from `spectreshell-eshell--frame-deleted' as well.  Left
 in place after the last terminal it was added for finalizes
 \(`spectreshell-eshell--detach' does not remove it): an empty
 `spectreshell-eshell--terminals' then makes every subsequent call of
