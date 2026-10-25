@@ -94,6 +94,15 @@
     (should (equal (plist-get update :responses) "\x1b[?62;22;52c"))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-decrqm-sgr-pixels-is-unsupported ()
+  "DECRQM ?1016 (SGR pixel 座標) には、設定の前後とも 0 (未対応) で答える。
+マウス報告はセル座標しか出せないので、子にピクセル座標を前提にさせない。"
+  :expected-result :failed
+  (let* ((term (spectreshell--create 5 10))
+         (update (spectreshell--feed term "\x1b[?1016$p\x1b[?1016h\x1b[?1016$p")))
+    (should (equal (plist-get update :responses) "\x1b[?1016;0$y\x1b[?1016;0$y"))
+    (spectreshell--release term)))
+
 (ert-deftest spectreshell-module-test-desktop-notification-produces-relay ()
   "OSC 777 の通知と、9;4 などの ConEmu 拡張でない OSC 9 の通知は :relay に
 \(notification TITLE BODY) を積む。OSC 9 には TITLE が無いので空になる。"
