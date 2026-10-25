@@ -598,6 +598,29 @@ Emacs 標準の `window--adjust-process-windows' は、プロセスのバッフ�
         (with-current-buffer buf
           (should (string-match-p (concat "^" expected "$") (buffer-string))))))))
 
+(ert-deftest spectreshell-eshell-test-frame-deletion-resizes-terminal-and-pty ()
+  "フレームを消した後は、残ったウィンドウの規則で端末と pty を合わせ直す。
+残ったフレームのウィンドウはサイズが変わらないので
+`window-size-change-functions' が呼ばれず、消したフレームのサイズが
+残る。"
+  :expected-result :failed
+  (let ((was-on spectreshell-eshell-mode))
+    (unwind-protect
+        (progn
+          (spectreshell-eshell-mode 1)
+          (spectreshell-eshell-test--with-two-windows buf top _bottom
+            (with-current-buffer buf
+              (let ((obj (spectreshell-start buf 5 5 #'ignore))
+                    (pty-size nil))
+                (setq spectreshell-eshell--terminals (list (cons 'fake-proc obj)))
+                (cl-letf (((symbol-function 'set-process-window-size)
+                           (lambda (_proc rows cols) (setq pty-size (cons rows cols)))))
+                  (run-hook-with-args 'after-delete-frame-functions (selected-frame))
+                  (should (= (spectreshell-rows obj) (window-body-height top)))
+                  (should (equal pty-size (cons (window-body-height top)
+                                                (window-max-chars-per-line top)))))))))
+      (spectreshell-eshell-mode (if was-on 1 -1)))))
+
 (defun spectreshell-eshell-test--wait-for-attach (buffer)
   "BUFFER で新しい端末が attach されるまで待ち、そのプロセスを返す。"
   (spectreshell-eshell-test--wait-until
