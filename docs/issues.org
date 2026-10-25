@@ -2377,7 +2377,7 @@ XTVERSION への応答で Claude Code の振る舞い (同期出力、リンク�
 未確認: Ghostty 1.3 で Claude Code / Copilot CLI を動かしたときに
 カーソルが二重に見える度合い。実環境の確認は未実施。
 
-** TODO L-47: 色の問い合わせ (OSC 10 / 11 / 4) に応答しない
+** DONE L-47: 色の問い合わせ (OSC 10 / 11 / 4) に応答しない
 対象: =src/handler.zig=
 
 Copilot CLI は起動時に OSC 10 / 11 と OSC 4 の 0〜15 (計 17 件) を問い
@@ -2399,6 +2399,15 @@ spectreshell はどれにも応答しない。=color_operation= を
 アプリは応答が無いまま起動した)。代案: Elisp から既定の
 fg / bg を module に渡して =rgb:RRRR/GGGG/BBBB= で答え、OSC 10 / 11 の
 設定とリセットは =face-remap= で端末領域の背景に反映する。
+
+対応 (2026-10-26): 応答しないままにし、マニュアル (c736787) の既知の
+制限に書いた。代案は実装していない。
+
+確認: batch で =\e]10;?\e\\= ・ =\e]11;?\a= ・ =\e]4;1;?\e\\= を feed
+しても子へ送るものは無く、続けて送った DA1 には答えた。
+
+未確認: 直結で Copilot CLI / Claude Code が応答をもとに表示を変えるか
+(変えるなら spectreshell 経由との差になる)。実環境の確認は未実施。
 
 ** DONE L-48: フォーカス報告 (mode 1004) の =\e[I= / =\e[O= を子へ送らない
 対象: =spectreshell.el= / =src/module.zig=
