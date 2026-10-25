@@ -94,6 +94,17 @@
     (should (equal (plist-get update :responses) "\x1b[?62;22;52c"))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-desktop-notification-produces-relay ()
+  "OSC 777 の通知と、9;4 などの ConEmu 拡張でない OSC 9 の通知は :relay に
+\(notification TITLE BODY) を積む。OSC 9 には TITLE が無いので空になる。"
+  :expected-result :failed
+  (let* ((term (spectreshell--create 5 10))
+         (update (spectreshell--feed term "\x1b]777;notify;T;a;b\x07\x1b]9;done\x07")))
+    (should (equal (plist-get update :relay)
+                   '((notification "T" "a;b") (notification "" "done"))))
+    (should-not (multibyte-string-p (nth 2 (car (plist-get update :relay)))))
+    (spectreshell--release term)))
+
 (ert-deftest spectreshell-module-test-flush-draws-pending-frame ()
   "--flush は保留中の描画を通常の update plist で返す。"
   (let* ((term (spectreshell--create 1 10))

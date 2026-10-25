@@ -773,6 +773,34 @@ SENT には `send-string-to-terminal' に渡った (STRING . TERMINAL) が
         (spectreshell-feed term "\x1b]52;c;aGk=aGk=\x07")
         (should (null sent))))))
 
+;; ---------------------------------------------------------------------
+;; デスクトップ通知の中継 (L-41)
+;; ---------------------------------------------------------------------
+
+(ert-deftest spectreshell-test-notification-reaches-terminals-as-osc777 ()
+  "子の通知は OSC 777 でも OSC 9 でも、外側の端末へ OSC 777 で届く。
+UTF-8 のタイトルと本文はそのままのバイト列で送る。"
+  :expected-result :failed
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-relay-terminals '(t1 t2) nil sent
+      (let ((osc777 (encode-coding-string
+                     "\e]777;notify;✳ Claude Code;入力待ち\a" 'utf-8)))
+        (spectreshell-feed term osc777)
+        (spectreshell-feed term "\x1b]9;done\x07")
+        (should (equal sent `((,osc777 . t1) (,osc777 . t2)
+                              ("\e]777;notify;;done\a" . t1)
+                              ("\e]777;notify;;done\a" . t2))))
+        (should-not (multibyte-string-p (car (car sent))))))))
+
+(ert-deftest spectreshell-test-notification-drops-control-characters ()
+  "通知のタイトルと本文から制御文字を除き、タイトルからは区切りと区別
+できない ; も除く。子に外側の端末へ任意の制御列を書かせないため。"
+  :expected-result :failed
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-relay-terminals '(t1) nil sent
+      (spectreshell--relay-notification term "a;b\e\x7f" "c;d\a\n")
+      (should (equal sent '(("\e]777;notify;ab;c;d\a" . t1)))))))
+
 (ert-deftest spectreshell-test-finalize-releases-terminal ()
   "finalize 後は端末が release され、追加の feed が signal される。"
   (spectreshell-test--with-terminal (term 1 10)
