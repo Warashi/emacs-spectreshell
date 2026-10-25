@@ -340,6 +340,46 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
+** TODO M-23: 子が外側の端末へ向けて出す OSC 52 / 777 / 9;4 / タイトル / BEL を中継する経路が無い
+対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el=
+
+ssh 先の Emacs daemon に =emacsclient -t= でつなぎ、spectreshell の中で
+Claude Code や Copilot CLI を動かすと、直結 (Ghostty → ssh → アプリ)
+なら外側の Ghostty に届くクリップボードの書き込み・通知・進捗・タイ
+トル・ベルがどれも外へ出ない。個々の症状は M-24 (OSC 52)、L-41
+(OSC 777)、L-42 (OSC 9;4)、L-43 (タイトル)、L-44 (BEL) に分け、この
+項目では共通の中継を扱う。
+
+- ghostty-vt の =ReadonlyHandler= は =bell= / =show_desktop_notification=
+  / =progress_report= / =clipboard_contents= を捨てる
+  (=stream_readonly.zig= 176-189 行)。=src/handler.zig= が横取りする
+  のはクエリ系と =window_title= だけで、batch で =\e]52;c;…\a= /
+  =\e]777;notify;T;B\a= / =\e]9;4;3;0\a= / BEL を feed しても plist に
+  キーは増えない (=:title= だけは出る)。
+- Emacs から外側の tty へ書く手段は =send-string-to-terminal= で、
+  TERMINAL 引数で送り先を選べる。=gui-set-selection= の tty 実装
+  (=xterm.el= の =gui-backend-set-selection=) は選択中のフレームの
+  端末にしか書かない。
+- daemon ではフレームが 0 個の間も子の出力の処理は続く (調査時の実測)。
+  直結の ssh は切断でアプリごと終わるので、この間に出たものに比較対象
+  は無い。
+- 同じバッファを複数の =emacsclient= で表示していると、送り先の tty が
+  複数ある。
+
+対応方針: 中継を 1 か所にまとめ、各項目はそれを使う (項目ごとに中継を
+作らない)。
+
+- モジュールは捨てられていた action を横取りして plist に出す。
+- Elisp の中継関数は、バッファを表示している tty フレームの端末へ送る。
+  =(get-buffer-window-list buf nil t)= の各ウィンドウのフレームのうち
+  =display-graphic-p= が nil のものを =frame-terminal= で重複を除いて
+  列挙する。GUI フレームには送らない。
+- 表示している tty フレームが無ければ捨て、後から再送しない。
+- 例外は進捗で、最新の状態だけをバッファごとに保持し、バッファが再び
+  表示されたとき (attach で足している =window-buffer-change-functions=)
+  に送り直す。
+- フレーム 0 個のときに捨てることは設計判断としてマニュアルに書く。
+
 ** DONE M-22: GUI の Emacs で M-21 が縮めた文字の幅がセルに数 px 足りず、後続の文字が左へずれる
 対象: =spectreshell.el= (=spectreshell--fit-height= / =spectreshell--fit-overwide-glyphs=)
 
