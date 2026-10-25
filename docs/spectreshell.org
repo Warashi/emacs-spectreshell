@@ -106,12 +106,15 @@ zig build            # zig-out/lib/libspectreshell.so ほかを生成
 (setq frame-title-format '(:eval (or my-spectreshell-title "%b")))
 #+end_src
 
-子の 16 色 (SGR 30〜37 ・ 90〜97 と 40〜47 ・ 100〜107) は ~ansi-color-*~
-の face の色で描く。tty フレームの Emacs が 24bit 色で描くとき
+子の 16 色 (SGR 30〜37 ・ 90〜97 と 40〜47 ・ 100〜107) は Emacs の
+テーマに従い、 ~ansi-color-*~ の face の色で描く。子の色の問い合わせ
+(OSC 4) にもその色で答える。tty フレームの Emacs が 24bit 色で描くとき
 ( ~(display-color-cells)~ が 16777216。 ~TERM=xterm-ghostty~ や
 ~COLORTERM=truecolor~ のとき) は、その色が RGB で外側の端末へ出るので、
-外側の端末のテーマの色にならない。合わせるには face をテーマの色に
-する (face を変えても、描いた後の文字の色は変わらない):
+外側の端末のテーマの色とは違う。外側のテーマに合わせたいときは、任意で
+face をその色にする (face を変えても、描いた後の文字の色は変わらない。
+問い合わせには、次にテーマを切り替えるかウィンドウが変わるまで前の色で
+答える):
 
 #+begin_src emacs-lisp
 ;; 色は外側の端末のテーマの値。16 色ぶん書く
@@ -122,7 +125,8 @@ zig build            # zig-out/lib/libspectreshell.so ほかを生成
 
 Emacs が 256 色で描くとき ( ~COLORTERM~ の無い ~TERM=xterm-256color~
 など) は、既定の face のままなら bright black と bright blue 以外は
-色番号で出るので、外側のテーマの色になる。
+色番号で出るので、外側のテーマの色で見える。問い合わせには Emacs の
+色で答えるので、見える色とは違うことがある。
 
 * 使い方
 
@@ -350,8 +354,9 @@ less や vim などの alternate screen アプリの画面は確定化されず�
   カーソルは point (semi-char モードでは端末のカーソル位置) に出たまま
   になる。カーソルを自分で描くプログラム (Claude Code ・ Copilot CLI
   など) では、カーソルが 2 つ見えることがある
-- Emacs が 24bit 色で描く tty フレームでは、子の 16 色が外側の端末の
-  テーマの色にならない (合わせる face の設定は「設定」を参照)
+- 子の 16 色は Emacs のテーマ ( ~ansi-color-*~ ) に従い、外側の端末の
+  テーマには従わない。Emacs が 24bit 色で描く tty フレームでは、外側で
+  直接動かしたときと色が違う (合わせる face の設定は「設定」を参照)
 - 子から見える端末はウィンドウの本文の大きさなので、外側の端末より
   小さい。行はメニューバー・モードライン・エコー領域などのぶん減る
   ( ~menu-bar-mode~ を切る、端末のバッファで ~mode-line-format~ を
