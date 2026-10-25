@@ -1104,7 +1104,10 @@ how its graphemes are fitted or composed."
 ;; ---------------------------------------------------------------------
 
 (defvar spectreshell--glyph-fit-cache (make-hash-table :test 'equal)
-  "Map (CELLS . GRAPHEME) to its `spectreshell--glyph-fit' result, or `none'.
+  "Map a grapheme and its cells to its `spectreshell--glyph-fit' result, or `none'.
+A single character's key is a fixnum packing the cell count above the
+character's 22 bits, so the common lookup conses nothing; a longer
+grapheme's is (CELLS . STRING).
 Valid only for the frame font recorded in `spectreshell--glyph-fit-font'.")
 
 (defvar spectreshell--glyph-fit-font nil
@@ -1137,25 +1140,32 @@ bisect below it then.  nil when no height fits."
             (setq high mid))))
       (and (> low 0.0) low))))
 
+(defun spectreshell--glyph-fit-check-font ()
+  "Empty `spectreshell--glyph-fit-cache' if the selected frame's font changed."
+  (let ((font (frame-parameter nil 'font)))
+    (unless (equal font spectreshell--glyph-fit-font)
+      (clrhash spectreshell--glyph-fit-cache)
+      (setq spectreshell--glyph-fit-font font))))
+
 (defun spectreshell--glyph-fit (grapheme cells)
   "Return (HEIGHT . PAD) that fits GRAPHEME's glyph to its CELLS, or nil.
-GRAPHEME, a string, occupies CELLS cells of `frame-char-width' pixels in
+GRAPHEME, a character or a string, occupies CELLS cells of `frame-char-width' pixels in
 the terminal, but a GUI frame draws it at its own width: an emoji font
 may pick a wider glyph and stretch the line, wrapping a full-width row,
 while a narrower one shifts everything after it left.  HEIGHT scales a
 wide glyph down, or is nil to leave it; PAD is the width in pixels to
 pad the glyph to, or nil when it already fills the cells.  nil when the
 glyph fits exactly or there is no GUI frame to measure in.  Results are
-cached per selected frame font."
-  (let ((font (frame-parameter nil 'font)))
-    (unless (equal font spectreshell--glyph-fit-font)
-      (clrhash spectreshell--glyph-fit-cache)
-      (setq spectreshell--glyph-fit-font font)))
-  (let* ((key (cons cells grapheme))
+cached in `spectreshell--glyph-fit-cache', which the caller keeps to the
+selected frame's font with `spectreshell--glyph-fit-check-font'."
+  (let* ((key (if (characterp grapheme)
+                  (logior grapheme (ash cells 22))
+                (cons cells grapheme)))
          (cached (gethash key spectreshell--glyph-fit-cache)))
     (if cached
         (and (not (eq cached 'none)) cached)
-      (let* ((target (* cells (frame-char-width)))
+      (let* ((grapheme (if (characterp grapheme) (string grapheme) grapheme))
+             (target (* cells (frame-char-width)))
              (width (spectreshell--pixel-width grapheme))
              (fit (and width (> target 0)
                        (if (> width target)
@@ -1178,8 +1188,11 @@ All of the grapheme's characters share one `display' value, so it is
 fitted as one run and its composition is kept.  The value is a fresh
 list per grapheme: `min-width' treats neighbours sharing one as a
 single run too."
-  (when-let* ((fit (spectreshell--glyph-fit (substring-no-properties text start end)
-                                            cells)))
+  (when-let* ((fit (spectreshell--glyph-fit
+                    (if (= end (1+ start))
+                        (aref text start)
+                      (substring-no-properties text start end))
+                    cells)))
     (let ((shrink (and (car fit) (list 'height (car fit))))
           (pad (and (cdr fit) (list 'min-width (list (list (cdr fit)))))))
       (put-text-property start end 'display
@@ -1193,16 +1206,21 @@ single run too."
 CELLS is the module's per-character cell counts for TEXT, nil when every
 character is one cell (docs/module-api.org).  Only the `display' property
 changes, so TEXT's characters stay as the module sent them."
-  (if (null cells)
-      (let ((i 0))
-        (while (setq i (string-match "[^[:ascii:]]" text i))
-          (spectreshell--fit-grapheme text i (1+ i) 1)
-          (setq i (1+ i))))
-    (spectreshell--map-graphemes
-     (lambda (start end)
-       (unless (and (= end (1+ start)) (< (aref text start) 128))
-         (spectreshell--fit-grapheme text start end (aref cells start))))
-     cells)))
+  (let ((len (length text))
+        ;; Jumping to the next non-ASCII character keeps ASCII runs as
+        ;; cheap as a row without CELLS.
+        (start (string-match "[^[:ascii:]]" text)))
+    (when start
+      (spectreshell--glyph-fit-check-font))
+    (while start
+      (let ((end (1+ start)))
+        (when cells
+          (while (and (> start 0) (= 0 (aref cells start)))
+            (setq start (1- start)))
+          (while (and (< end len) (= 0 (aref cells end)))
+            (setq end (1+ end))))
+        (spectreshell--fit-grapheme text start end (if cells (aref cells start) 1))
+        (setq start (string-match "[^[:ascii:]]" text end))))))
 
 (defun spectreshell--map-graphemes (function cells)
   "Call FUNCTION with the START and END of each grapheme that CELLS describes.
