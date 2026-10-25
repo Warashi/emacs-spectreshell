@@ -202,6 +202,12 @@ underline (スタイル種別含む)・strikethrough・inverse・faint・
     最初の実装から Emacs 側にあり、そのまま残している。
   - ~C-y~ は kill-ring の内容を ~spectreshell--encode-paste~ 経由
     (bracketed paste) で送信。押したキー自体は送らない。
+  - 上の 2 項のキーは ~C-\~ (次の 1 キーをそのまま送る) に続けて
+    1 キーずつ送る。次のキーは ~read-key~ で読み、他のキーと同じ
+    エンコーダを通す。キー列をまとめて送る形は採らない。
+  - ~C-c C-c~ は SIGINT ではなく ~C-c~ を送る。raw モードの子
+    (Claude Code の 2 回押しの終了) はキーとして受け、ISIG が有効な子
+    は tty ドライバの SIGINT で止まる。
   - ~C-g~ は Emacs の ~quit-char~ だが、Emacs がキー入力を待っている
     間は通常のキーとして読まれるので送信に束縛すれば子に届く (実端末で
     確認)。Lisp 実行中に押した場合だけ quit になって送られない。
@@ -210,7 +216,9 @@ underline (スタイル種別含む)・strikethrough・inverse・faint・
   - ~M-O~ / ~M-[~ は束縛しない。端末が矢印・F1〜F4・Home/End を送る
     ~ESC O …~ (SS3) / ~ESC [ …~ (CSI) の前置そのもので、
     ~input-decode-map~ の変換はそこまでのキー列が未束縛のときしか
-    働かないため、束縛すると矢印類が壊れる。
+    働かないため、束縛すると矢印類が壊れる。kkp の変換も ~ESC [~ で
+    始まり、キーマップは daemon の全フレームで共有されるので、kkp 下
+    でも束縛しない。kkp 下では 1 イベントで届くので ~C-\~ 経由で送る。
   - ESC 単体は ~meta-prefix-char~ の性質上 1 打鍵で送れないので
     ~ESC ESC~ を脱出口にする。 ~ESC ESC ESC~
     (~keyboard-escape-quit~) はその影に入る。
@@ -218,7 +226,8 @@ underline (スタイル種別含む)・strikethrough・inverse・faint・
 - *emacs モード*: 全キーが通常の Emacs。バッファ閲覧・コピー用。
   ~C-c C-j~ (仮) で semi-char に復帰。
 
-*char モード (C-c 含む全キー送信) は v1 では実装しない。*
+*char モード (C-c 含む全キー送信) は v1 では実装しない。* Emacs に
+残したキーは ~C-\~ で 1 キーずつ送る。
 eshell 用途では上記 2 モードで実用十分。設計上は semi-char の拡張として
 追加可能な形にしておく。
 
@@ -231,7 +240,7 @@ eshell 用途では上記 2 モードで実用十分。設計上は semi-char �
 - *実行中プロセスでの Emacs 側 input method は v1 スコープ外。*
   ddskk は minor-mode keymap でバッファに直接挿入する方式のため、
   キー直送の semi-char モードとは素朴には両立しない。切り替えの
-  ~C-\~ 自体も semi-char では子プロセスへ送られる。
+  ~C-\~ も semi-char では次のキーを子へ送るキーになっている。
   回避経路として、日本語を kill-ring に用意して semi-char の ~C-y~
   (bracketed paste) で送る方法が v1 でも使える。
 - *文字が Emacs のキーイベントになりさえすれば送信は通る。*
