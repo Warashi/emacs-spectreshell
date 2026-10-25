@@ -776,6 +776,19 @@ forgotten instead."
 (add-hook 'window-buffer-change-functions #'spectreshell--report-focus)
 
 ;; ---------------------------------------------------------------------
+;; Frame for answering color queries
+;; ---------------------------------------------------------------------
+
+(defun spectreshell--buffer-frame (buffer)
+  "Return the frame whose colors BUFFER's terminal answers the child with.
+That is the selected window's frame if that window shows BUFFER, else
+a frame of any window showing it, else the selected frame."
+  (let ((window (if (eq (window-buffer (selected-window)) buffer)
+                    (selected-window)
+                  (get-buffer-window buffer t))))
+    (if window (window-frame window) (selected-frame))))
+
+;; ---------------------------------------------------------------------
 ;; Color scheme (?996n / mode 2031)
 ;; ---------------------------------------------------------------------
 
@@ -785,16 +798,11 @@ They are told again whenever it may have changed.")
 
 (defun spectreshell--color-scheme (buffer)
   "Return `light' or `dark', the `background-mode' of a frame showing BUFFER.
-The frame is the selected window's if that shows BUFFER, else any
-showing it, else the selected frame."
-  (let ((window (if (eq (window-buffer (selected-window)) buffer)
-                    (selected-window)
-                  (get-buffer-window buffer t))))
-    (if (eq (frame-parameter (if window (window-frame window) (selected-frame))
-                             'background-mode)
-            'light)
-        'light
-      'dark)))
+The frame is the one `spectreshell--buffer-frame' picks."
+  (if (eq (frame-parameter (spectreshell--buffer-frame buffer) 'background-mode)
+          'light)
+      'light
+    'dark))
 
 (defun spectreshell--update-color-scheme (obj)
   "Tell OBJ's module the current color scheme.
