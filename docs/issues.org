@@ -2009,6 +2009,29 @@ DECRQM =?1016= に 0 (未対応) を返す (直結の 2 とは違うが、子が
 =cursor-in-echo-area= でカーソルをエコー領域へ移す (グローバルな変数
 なので副作用が大きい)。
 
+** TODO L-47: 色の問い合わせ (OSC 10 / 11 / 4) に応答しない
+対象: =src/handler.zig=
+
+Copilot CLI は起動時に OSC 10 / 11 と OSC 4 の 0〜15 (計 17 件) を問い
+合わせ、Claude Code は OSC 11 を問い合わせる (記録した実行)。
+spectreshell はどれにも応答しない。=color_operation= を
+=ReadonlyHandler= に渡し、問い合わせは捨てられる (=stream_readonly.zig=
+355 行。batch で =\e]11;?\e\\= などを feed しても応答は空)。
+
+- Copilot CLI は、色深度の判定値が 3 でテーマ設定が =github= のときだけ、
+  読んだ背景色をもとに OSC 11 / 10 で端末の既定色を書き換える
+  (=cli-main.pretty.js= の読解)。記録した実行で偽の応答を返しても OSC
+  10 / 11 の設定は出ず (110 / 111 のリセットだけ)、直結で書き換えが
+  起きるかは未確認。
+- spectreshell が外側の色を知る手段も今は無い。Emacs の =xterm.el= は
+  DA2 の version が 242 以上のときだけ外側の背景色を問い合わせ、Ghostty
+  の DA2 (=\e[>1;10;0c=) では問い合わせない。
+
+対応方針: 応答しないままにし、マニュアルに書く (記録した実行でも、両
+アプリは応答が無いまま起動した)。代案: Elisp から既定の
+fg / bg を module に渡して =rgb:RRRR/GGGG/BBBB= で答え、OSC 10 / 11 の
+設定とリセットは =face-remap= で端末領域の背景に反映する。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
