@@ -1468,7 +1468,7 @@ ERT: =test/spectreshell-explore-geometry-test.el= の
 → セル列の逆写像で、これは L-37 として切り出した。
 =spectreshell-explore-geometry-test-regional-indicator-width= は
 =current-column= (表示幅) を測る Probe なので L-37 の Probe として
-=:expected-result :failed= のまま残す。
+=:expected-result :failed= のまま残す (L-37 で対応)。
 
 ERT: =--del-is-not-stored= / =--c1-control-width= (=:expected-result
 :failed= を外した)、=spectreshell-test-cursor-lands-after-regional-indicator=。
@@ -1617,7 +1617,7 @@ C-g が届かない機構は、当初「キーマップ照合の前に quit と�
 (L-27 の再確認を参照)。マニュアル・README・design.org は 6bef89c で
 訂正した。
 
-** TODO L-37: 国旗 (regional indicator) の表示幅が ghostty と Emacs で食い違い、マウスの逆写像もずれる
+** DONE L-37: 国旗 (regional indicator) の表示幅が ghostty と Emacs で食い違い、マウスの逆写像もずれる
 対象: =spectreshell.el= (=spectreshell--decorate-row= / マウス座標の変換)
 
 L-33 から切り出した残件。ghostty は regional indicator 1 つを 2 セル
@@ -1655,6 +1655,64 @@ ERT: =test/spectreshell-explore-geometry-test.el= の
 =spectreshell-explore-geometry-test-regional-indicator-width=
 (=:expected-result :failed=)。この Probe は =current-column= (表示幅)
 を測っており、L-33 の範囲 (位置の正しさ) ではなくこの項目の Probe。
+
+対応 (2026-10-26, 3319218 / 4dcafb3 / 132e20a / 5fc7071 / b7125bc):
+
+- mode 2027 を =Terminal.Options.default_modes= で既定で有効にした
+  (RIS 後も有効に戻る)。
+- モジュールが =:dirty= と =:scrolled-off= の各行に CELLS を返す。
+  TEXT の文字数と同じ長さの unibyte 文字列で、i バイト目は文字 i から
+  始まる書記素のセル数 (1 か 2)、書記素の続きは 0、全文字が 1 なら
+  =nil= 。=:scrolled-off= は =(TEXT SPANS CELLS)= にした。
+- マウス: CELLS を行の先頭文字の =spectreshell-cells= に持たせ、
+  =spectreshell--row-cell-column= でセル列を解く。書記素の途中の文字は
+  書記素の先頭のセル。行全体ではなく先頭 1 文字に付けるのは、確定化
+  での行末の空白の除去を妨げないため。
+- GUI: =spectreshell--glyph-fit= / =--fit-glyphs= を書記素単位にした。
+  目標はセル数 × =frame-char-width= 、キャッシュのキーは
+  =(セル数 . 書記素)= (同じ文字列でも mode 2027 の有無でセル数が変わり
+  うるため)。書記素の全文字で 1 つの =display= を共有し、隣の書記素
+  には新しいリストを渡す。
+- tty: =string-width= がセル数を超える書記素 (ZWJ 列・肌色修飾・🏳️‍🌈)
+  だけを =compose-string= で静的に合成する。国旗は合成すると Emacs 2 /
+  外側 3 桁に悪化する (調査の実測) ので合成しない。GUI では合成しない。
+  どちらを使うかは描いたときの選択中のフレームで決まる (M-21 / M-22 と
+  同じ制約。マニュアルの既知の制限に書いた)。
+
+確認:
+
+- batch: Zig で DECRQM =?2027= が 1 → =?2027l= 後 2 → RIS 後 1、CELLS
+  の値 (ASCII は =nil= 、国旗・ZWJ・肌色・❤️・CJK・RI 3 つ、2027 無効の
+  国旗)。ERT で CELLS の形、書記素の後ろと途中のクリックのセル列、
+  幅揃えの =display= の共有と目標、tty の合成の有無、GUI で合成しない
+  こと、書記素を含む確定行の行末の空白。Probe
+  =spectreshell-explore-geometry-test-regional-indicator-width= は表示桁
+  ではなくセル情報で X のセル列を解く形に定義し直し、=:expected-result
+  :failed= を外した。
+- Xvfb の GUI Emacs 31 (X11、DejaVu Sans Mono + Noto Color Emoji + Noto
+  Sans CJK)、9 / 12 / 14 / 15 / 16 / 20pt、2027 有効: 国旗・国旗 2 つ・
+  単独 RI・ZWJ・肌色・❤️・🏳️‍🌈・😀・漢・⏱・ASCII と M-22 の
+  「⏱⏸⚠❌漢Z」で、後ろの Z の x がセル列 × セル幅と全ケース 0px で
+  一致した。各ケースを詰めた 80 セルぴったりの行は 1 行で、末尾の Z も
+  一致した。書記素はどれも 1 つの自動合成のまま描かれ
+  (=find-composition=)、静的合成は付かない。
+- pty の tty Emacs (=emacs -nw -Q=、=TERM=xterm-256color=、100 桁):
+  ZWJ・肌色・🏳️‍🌈 の後ろの Z の =current-column= が 3 でセル列と一致
+  した (対応前 7 / 5 / 4)。80 セルぴったりの行は 1 行。Emacs の出力を
+  2027 有効の ghostty-vt に通した外側の画面では、全ケースの Z が
+  セル列どおりに置かれた。
+
+残る制限: tty の単独 RI と VS16 の絵文字 (❤️ など) は Emacs が 1 桁と
+数えるので、Z の =current-column= は 2 (セル列 3)、80 セルぴったりの ❤️
+の行の Z は 69 桁のまま (外側の画面では正しい位置に出る)。マニュアルの
+既知の制限に書いた。全角の右半分のクリックは、今までどおり先頭のセルを
+報告する。
+
+未確認: 実機の Ghostty → ssh → =emacsclient -t= と実機の GUI での目視、
+Claude Code / Copilot CLI の実際の出力、子が mode 2027 を無効にしたときの
+GUI と tty の見え方 (CELLS の値は batch でのみ確認)、tty の単独 RI・❤️ の
+後ろで外側のクリック位置と Emacs のバッファ位置がずれるか、測った以外
+の文字 (ghostty-vt と =char-width= の幅が食い違う 719 字など)。
 
 ** DONE L-38: macOS ビルドでは alt 付きの文字が ESC 前置なしでエンコードされる
 対象: =src/core.zig= (=encodeKey=) / 同梱の ghostty-vt (=key_encode.zig=)
@@ -3163,4 +3221,5 @@ import する。dep のパスをそのまま root にすると =ghostty-vt= が
   =*scratch*= に直接打ち込んでも tmux の =cursor_x= と Emacs の桁数が
   ずれる (Emacs 31 の tty 描画がグラフェム連結を考慮しない)。ghostty
   のセル数と =char-width= の和は一致しており、
-  =spectreshell--row-col-pos= の対応は正しい。
+  =spectreshell--row-col-pos= の対応は正しい。L-37 で 2027 を既定で
+  有効にしてからは一致しないので、L-37 で静的に合成してそろえた。
