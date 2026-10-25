@@ -335,6 +335,13 @@ GUI フレームには送らない。どの tty フレームも表示してい�
 (daemon にクライアントがつながっていないときなど) に出たものは捨て、
 後から送り直さない
 @item
+OSC 52 によるクリップボードへの書き込みは、Emacs (xterm.el) が
+OSC 52 で選択範囲を書ける端末 (端末パラメータ
+@code{xterm--set-selection} が @code{t} ) にだけ送る。Emacs は外側の端末の DA1
+でこれを決めるので、外側が書き込みを許していなければ (Ghostty の
+@code{clipboard-write = deny} ) 送らない。 @code{xterm-max-cut-length} を超える
+書き込みは送らない
+@item
 OSC 8 ハイパーリンク (クリック可能な button として描画)
 @item
 @code{xterm-ghostty} の terminfo をビルド時生成・同梱し、 @code{TERM} /
@@ -381,7 +388,7 @@ GUI フレームでは、選ばれたグリフが端末のセル幅を超える�
 端末のセル幅にそろえ、後続の文字の位置がずれないようにする。幅は
 選択中のフレームで測る
 @item
-OSC 52 クリップボード・画像 (kitty graphics/sixel) は未実装
+OSC 52 クリップボードの読み取り・画像 (kitty graphics/sixel) は未実装
 @item
 TRAMP / リモート @code{default-directory} は対象外: リモートでは常に
 eshell 本来の (非端末) 経路にフォールバックする

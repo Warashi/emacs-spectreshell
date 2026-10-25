@@ -230,6 +230,12 @@ less や vim などの alternate screen アプリの画面は確定化されず�
   GUI フレームには送らない。どの tty フレームも表示していない間
   (daemon にクライアントがつながっていないときなど) に出たものは捨て、
   後から送り直さない
+- OSC 52 によるクリップボードへの書き込みは、Emacs (xterm.el) が
+  OSC 52 で選択範囲を書ける端末 (端末パラメータ
+  ~xterm--set-selection~ が ~t~ ) にだけ送る。Emacs は外側の端末の DA1
+  でこれを決めるので、外側が書き込みを許していなければ (Ghostty の
+  ~clipboard-write = deny~ ) 送らない。 ~xterm-max-cut-length~ を超える
+  書き込みは送らない
 - OSC 8 ハイパーリンク (クリック可能な button として描画)
 - ~xterm-ghostty~ の terminfo をビルド時生成・同梱し、 ~TERM~ /
   ~TERMINFO~ として子プロセスに自動注入
@@ -266,7 +272,7 @@ less や vim などの alternate screen アプリの画面は確定化されず�
   防ぐ。縮めても、元から狭いグリフ (CJK など) でも、足りない幅は余白で
   端末のセル幅にそろえ、後続の文字の位置がずれないようにする。幅は
   選択中のフレームで測る
-- OSC 52 クリップボード・画像 (kitty graphics/sixel) は未実装
+- OSC 52 クリップボードの読み取り・画像 (kitty graphics/sixel) は未実装
 - TRAMP / リモート ~default-directory~ は対象外: リモートでは常に
   eshell 本来の (非端末) 経路にフォールバックする
 - パイプラインは末尾のプロセスのみ端末に接続: ~cmd1 | cmd2~ の
