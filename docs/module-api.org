@@ -35,8 +35,8 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
 * ~--feed~ / ~--resize~ / ~--flush~ の戻り値 plist
 
 #+begin_src elisp
-(:dirty ((ROW TEXT SPANS) ...)
- :scrolled-off ((TEXT . SPANS) ...)
+(:dirty ((ROW TEXT SPANS CELLS) ...)
+ :scrolled-off ((TEXT SPANS CELLS) ...)
  :styles ((ID . STYLE-PLIST) ...)
  :styles-reset t-or-omitted
  :cursor (ROW . COL)
@@ -50,11 +50,10 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
 #+end_src
 
 - *~:dirty~*: 変更のあった行。ROW は 0-origin の整数、TEXT は行の内容
-  (下記「文字列の扱い」参照)、SPANS は下記のスタイル区間リスト。
-- *~:scrolled-off~*: 可視領域上端から流れ出て確定化すべき行。
-  ~(TEXT . SPANS)~ の cons で、SPANS は TEXT の後ろに続く proper list
-  ではなく「SPANS というリスト値そのもの」を cdr に持つ点に注意
-  (~(cdr entry)~ で SPANS 全体が取れる)。
+  (下記「文字列の扱い」参照)、SPANS は下記のスタイル区間リスト、CELLS
+  は下記の書記素ごとのセル数。
+- *~:scrolled-off~*: 可視領域上端から流れ出て確定化すべき行。TEXT・
+  SPANS・CELLS は ~:dirty~ と同じ。
 - *~:styles~*: この update で *初めて使われた* スタイル ID とその内容。
   ID は端末ごとの通し番号で、一度送ったスタイルは二度と送らない。
   受け手は ID→スタイル (および ID→face) を覚えておく必要がある。
@@ -102,6 +101,18 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
 保留した変更は、mode 2026 が閉じた ~--feed~ の戻り値にまとめて載る。
 ~--resize~ と ~--flush~ は mode 2026 を解除してから通常の plist を返す。
 ~--flush~ はアプリが mode 2026 を閉じないまま止まったときに使う。
+
+** CELLS
+
+TEXT の文字数と同じ長さの unibyte 文字列で、i バイト目は TEXT の
+i 文字目から始まる書記素のセル数 (1 か 2)。書記素の 2 文字目以降は 0。
+全文字が 1 (1 文字 1 セル) の行では ~nil~ 。
+
+書記素の区切りとセル数は ghostty-vt のセルそのもので、mode 2027 の
+有無で変わる (例: 国旗は有効なら ~"\2\0"~ 、無効なら ~"\2\2"~ )。
+Emacs の ~char-width~ からは導けない (単独のコードポイントでも食い違う
+ものがあり、ZWJ 列などは mode 2027 が無効でも 1 セルに複数の文字が入る)
+ので、セル列と文字位置の対応はこれで解く。
 
 ** SPANS
 
@@ -220,10 +231,12 @@ OSC 4 の 0〜15 (PALETTE) に Ghostty と同じく
   挙動であり、モジュール境界のバグではない)。
 - *~:dirty~ / ~:scrolled-off~ の TEXT*: 画面上の文字列なので常に
   UTF-8 の multibyte Lisp 文字列 (~make_string~) として返す。
-  TEXT の 1 文字は必ず 1 セルに対応させる (全角は 1 文字 2 セル)。
-  そのため DEL (0x7F) は ECMA-48 どおり無視してセルに入れず、C1 制御
+  セル 1 つは TEXT の 1 文字以上 (1 つの書記素) になり、対応は CELLS
+  が表す。DEL (0x7F) は ECMA-48 どおり無視してセルに入れず、C1 制御
   (U+0080-U+009F) は U+FFFD に置き換えて返す。どちらも Emacs では
   ~^?~ ・ ~\205~ のように複数桁で描かれ、セル列と表示桁がずれるため。
+- *~:dirty~ / ~:scrolled-off~ の CELLS*: 文字ではなく数の並びなので
+  unibyte 文字列。
 - *~:responses~*: DA/DSR 等の制御応答は unibyte 文字列
   (~make_unibyte_string~) として返す。
 - *~:relay~ の文字列*: 外側の端末へ書くバイト列の材料なので unibyte

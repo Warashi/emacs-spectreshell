@@ -281,6 +281,28 @@ UTF-8 マルチバイト文字列として戻る。"
     (should (multibyte-string-p text))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-dirty-row-carries-cells ()
+  ":dirty の 4 要素目 CELLS は、1 文字 1 セルの行で nil、それ以外で
+文字ごとのセル数を持つ unibyte 文字列になる。"
+  (let* ((term (spectreshell--create 2 4))
+         (update (spectreshell--feed
+                  term (encode-coding-string "ab\r\n\N{U+1F1EF}\N{U+1F1F5}a" 'utf-8)))
+         (rows (plist-get update :dirty)))
+    (should (null (nth 3 (assq 0 rows))))
+    (let ((cells (nth 3 (assq 1 rows))))
+      (should (equal cells (unibyte-string 2 0 1 1)))
+      (should (not (multibyte-string-p cells))))
+    (spectreshell--release term)))
+
+(ert-deftest spectreshell-module-test-scrolled-off-row-carries-cells ()
+  ":scrolled-off の各要素は (TEXT SPANS CELLS) になる。"
+  (let* ((term (spectreshell--create 1 4))
+         (update (spectreshell--feed
+                  term (encode-coding-string "\N{U+6F22}a\r\nb" 'utf-8)))
+         (entry (car (plist-get update :scrolled-off))))
+    (should (equal entry (list "\N{U+6F22}a " nil (unibyte-string 2 1 1))))
+    (spectreshell--release term)))
+
 (ert-deftest spectreshell-module-test-finalizer-survives-garbage-collect ()
   "参照を手放した TERM が GC を跨いでもクラッシュしない
 (finalizer が正しく呼ばれるかどうかを直接観測はできないが、

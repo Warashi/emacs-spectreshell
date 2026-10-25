@@ -56,11 +56,13 @@ pub const DirtyRow = struct {
     row: usize,
     text: []u8,
     spans: []Span,
+    cells: ?[]u8,
 
     pub fn deinit(self: *DirtyRow, alloc: std.mem.Allocator) void {
         for (self.spans) |*s| s.deinit(alloc);
         alloc.free(self.spans);
         alloc.free(self.text);
+        if (self.cells) |c| alloc.free(c);
         self.* = undefined;
     }
 };
@@ -492,7 +494,12 @@ pub const Term = struct {
             if (!row_dirty[y] and !styles_reset) continue;
             var extracted = try row_mod.extractRow(alloc, row_pins[y], &self.styles);
             errdefer extracted.deinit(alloc);
-            try dirty.append(alloc, .{ .row = y, .text = extracted.text, .spans = extracted.spans });
+            try dirty.append(alloc, .{
+                .row = y,
+                .text = extracted.text,
+                .spans = extracted.spans,
+                .cells = extracted.cells,
+            });
             // RenderState の行 dirty フラグは「ハンドリングした側が false に
             // 戻す」契約 (ghostty render.zig の doc コメント)。戻さないと
             // 一度 dirty になった行が以後の全 feed で再送され続ける。
@@ -682,6 +689,19 @@ test "変更のない feed は dirty を返さない" {
         defer update.deinit();
         try testing.expectEqual(@as(usize, 0), update.dirty.len);
     }
+}
+
+test "dirty と scrolled_off の行は書記素ごとのセル数を持つ" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 1, 4);
+    defer t.deinit();
+
+    // 既定で mode 2027 が有効なので、国旗は 1 書記素 2 セル。
+    var update = try t.feed(alloc, "\u{6F22}a\r\n\u{1F1EF}\u{1F1F5}a");
+    defer update.deinit();
+    try testing.expectEqual(@as(usize, 1), update.scrolled_off.len);
+    try testing.expectEqualSlices(u8, &.{ 2, 1, 1 }, update.scrolled_off[0].cells.?);
+    try testing.expectEqualSlices(u8, &.{ 2, 0, 1, 1 }, update.dirty[0].cells.?);
 }
 
 test "スクロールアウトした行は重複なく抽出される" {

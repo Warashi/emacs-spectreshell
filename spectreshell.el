@@ -1040,7 +1040,7 @@ module, not edited."
           (at-row 0))
       (goto-char (spectreshell-marker obj))
       (dolist (entry dirty)
-        (pcase-let ((`(,row ,text ,spans) entry))
+        (pcase-let ((`(,row ,text ,spans ,_cells) entry))
           (forward-line (- row at-row))
           (setq at-row row)
           (let ((cached (gethash row cache)))
@@ -1255,7 +1255,7 @@ real terminal content and are kept."
       (goto-char marker)
       (insert (mapconcat (lambda (entry)
                             (spectreshell--trim-trailing-blanks
-                             (spectreshell--decorate-row obj (car entry) (cdr entry))))
+                             (spectreshell--decorate-row obj (nth 0 entry) (nth 1 entry))))
                           scrolled-off "\n")
               "\n")
       ;; The marker's default (nil) insertion-type leaves it *behind* text

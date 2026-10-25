@@ -148,6 +148,13 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
     (should (string-prefix-p "3    \n4    \n     "
                              (buffer-substring (spectreshell-marker term) (point-max))))))
 
+(ert-deftest spectreshell-test-scrolled-off-row-keeps-colors ()
+  "確定化した行にも SGR の色が残る。"
+  (spectreshell-test--with-terminal (term 1 5)
+    (spectreshell-feed term "\x1b[31mr\x1b[0m\r\nx")
+    (should (string-prefix-p "r\n" (buffer-string)))
+    (should (member '(:foreground "red3") (get-text-property (point-min) 'face)))))
+
 (ert-deftest spectreshell-test-alt-screen-restores-primary-content-on-exit ()
   "alternate screen へ出入りすると、元の主画面の内容が復元される。"
   (spectreshell-test--with-terminal (term 5 10)
@@ -424,7 +431,7 @@ rows / cols も更新されないままであるべき。"
     ;; なので、行キャッシュも一緒に捨てないと古い色が残る。
     (spectreshell--apply-update
      term '(:styles-reset t :styles ((0 . (:fg 2))) :cursor (0 . 0)
-            :dirty ((0 "hi        " ((0 2 0))))))
+            :dirty ((0 "hi        " ((0 2 0)) nil))))
     (should (member (list :foreground (face-foreground 'spectreshell-color-2 nil 'default))
                     (get-text-property (point-min) 'face)))))
 

@@ -186,19 +186,23 @@ fn spansListValue(env: *emacs.Env, arena: std.mem.Allocator, spans: []const styl
     return emacs.list(env, items.items);
 }
 
-/// :dirty の1要素 (ROW TEXT SPANS)。
+fn cellsValue(env: *emacs.Env, cells: ?[]const u8) *emacs.Value {
+    const c = cells orelse return emacs.nilv(env);
+    return emacs.makeUnibyteString(env, c);
+}
+
+/// :dirty の1要素 (ROW TEXT SPANS CELLS)。
 fn dirtyRowValue(env: *emacs.Env, arena: std.mem.Allocator, d: core.DirtyRow) !*emacs.Value {
     const text = emacs.makeString(env, d.text);
     const spans = try spansListValue(env, arena, d.spans);
-    return emacs.list(env, &.{ emacs.makeInteger(env, @intCast(d.row)), text, spans });
+    return emacs.list(env, &.{ emacs.makeInteger(env, @intCast(d.row)), text, spans, cellsValue(env, d.cells) });
 }
 
-/// :scrolled-off の1要素 (TEXT . SPANS)。SPANS はリストそのものを cdr に
-/// 持たせる正真正銘のドット対 (proper list である TEXT の後ろに続けるのとは違う)。
+/// :scrolled-off の1要素 (TEXT SPANS CELLS)。
 fn scrolledOffValue(env: *emacs.Env, arena: std.mem.Allocator, r: core.Row) !*emacs.Value {
     const text = emacs.makeString(env, r.text);
     const spans = try spansListValue(env, arena, r.spans);
-    return emacs.cons(env, text, spans);
+    return emacs.list(env, &.{ text, spans, cellsValue(env, r.cells) });
 }
 
 fn buildUpdatePlist(env: *emacs.Env, arena: std.mem.Allocator, update: *const core.Update) !*emacs.Value {

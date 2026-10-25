@@ -4,15 +4,19 @@ const style = @import("style.zig");
 
 pub const Span = style.Span;
 
-/// text と spans をまとめて所有する、1 行分の抽出結果。
+/// text と spans と cells をまとめて所有する、1 行分の抽出結果。
 pub const Extracted = struct {
     text: []u8,
     spans: []Span,
+    /// text の文字 i から始まる書記素のセル数 (1 か 2) を i バイト目に、
+    /// 書記素の 2 文字目以降には 0 を持つ。全文字が 1 なら null。
+    cells: ?[]u8,
 
     pub fn deinit(self: *Extracted, alloc: std.mem.Allocator) void {
         for (self.spans) |*s| s.deinit(alloc);
         alloc.free(self.spans);
         alloc.free(self.text);
+        if (self.cells) |c| alloc.free(c);
         self.* = undefined;
     }
 };
@@ -88,6 +92,9 @@ pub fn extractRow(
         for (spans.items) |*s| s.deinit(alloc);
         spans.deinit(alloc);
     }
+    var cell_counts: std.ArrayList(u8) = .empty;
+    defer cell_counts.deinit(alloc);
+    var all_single = true;
 
     var cur_style: ?style.Style = null;
     var cur_uri: ?[]const u8 = null;
@@ -113,6 +120,9 @@ pub fn extractRow(
             cur_uri = uri;
             cur_span_start = cp_index;
         }
+        const width: u8 = if (cell.wide == .wide) 2 else 1;
+        if (width != 1) all_single = false;
+        try cell_counts.append(alloc, width);
         var buf: [4]u8 = undefined;
         const cp = cell.codepoint();
         if (cp == 0) {
@@ -128,6 +138,8 @@ pub fn extractRow(
                     for (extra) |ecp| {
                         const en = try std.unicode.utf8Encode(ecp, &buf);
                         try text.appendSlice(alloc, buf[0..en]);
+                        try cell_counts.append(alloc, 0);
+                        all_single = false;
                         cp_index += 1;
                     }
                 }
@@ -137,9 +149,14 @@ pub fn extractRow(
 
     try closeSpan(alloc, table, &spans, cur_style, cur_uri, cur_span_start, cp_index);
 
+    const row_cells: ?[]u8 = if (all_single) null else try cell_counts.toOwnedSlice(alloc);
+    errdefer if (row_cells) |c| alloc.free(c);
+    const owned_text = try text.toOwnedSlice(alloc);
+    errdefer alloc.free(owned_text);
     return .{
-        .text = try text.toOwnedSlice(alloc),
+        .text = owned_text,
         .spans = try spans.toOwnedSlice(alloc),
+        .cells = row_cells,
     };
 }
 
@@ -228,6 +245,51 @@ test "extractRow は C1 制御を幅 1 の代替文字に置き換える" {
     try std.testing.expectEqualStrings("\u{fffd}\u{fffd}a", row.text);
 }
 
+/// テスト用: COLS 桁 1 行の端末に S を書いた行の cells を EXPECTED と比べる。
+fn expectCells(grapheme_cluster: bool, cols: u16, s: []const u8, expected: ?[]const u8) !void {
+    const alloc = std.testing.allocator;
+    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = cols, .rows = 1 });
+    defer t.deinit(alloc);
+    var table: style.Table = .init(alloc);
+    defer table.deinit();
+
+    t.modes.set(.grapheme_cluster, grapheme_cluster);
+    t.setCursorPos(1, 1);
+    try t.printString(s);
+    const pin = t.screens.active.pages.pin(.{ .viewport = .{ .y = 0 } }).?;
+    var row = try extractRow(alloc, pin, &table);
+    defer row.deinit(alloc);
+
+    if (expected) |e| {
+        try std.testing.expectEqualSlices(u8, e, row.cells orelse return error.TestExpectedEqual);
+    } else {
+        try std.testing.expectEqual(@as(?[]u8, null), row.cells);
+    }
+}
+
+test "extractRow は全セルが 1 文字 1 セルの行の cells を null にする" {
+    try expectCells(true, 4, "ab", null);
+    try expectCells(true, 4, "\u{23F1}a", null);
+}
+
+test "extractRow の cells は文字ごとに、そこから始まる書記素のセル数を持つ" {
+    // 国旗 (RI 2 つ) は 1 書記素 2 セル。2 文字目は書記素の続きなので 0。
+    try expectCells(true, 4, "\u{1F1EF}\u{1F1F5}a", &.{ 2, 0, 1, 1 });
+    // ZWJ でつないだ家族は 5 コードポイントで 1 書記素 2 セル。
+    try expectCells(true, 3, "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", &.{ 2, 0, 0, 0, 0, 1 });
+    // 肌色修飾と VS16 も 1 書記素 2 セル。
+    try expectCells(true, 3, "\u{1F44D}\u{1F3FD}", &.{ 2, 0, 1 });
+    try expectCells(true, 3, "\u{2764}\u{FE0F}", &.{ 2, 0, 1 });
+    // CJK は 1 文字 2 セル。
+    try expectCells(true, 3, "\u{6F22}a", &.{ 2, 1 });
+    // RI が 3 つ続くと先頭 2 つが国旗、残る 1 つは単独の 2 セル。
+    try expectCells(true, 6, "\u{1F1EF}\u{1F1F5}\u{1F1FA}", &.{ 2, 0, 2, 1, 1 });
+}
+
+test "extractRow の cells は mode 2027 無効の国旗を RI ごとの 2 セルにする" {
+    try expectCells(false, 4, "\u{1F1EF}\u{1F1F5}", &.{ 2, 2 });
+}
+
 test "cellToIndex は extractRow の文字数と一致する" {
     const alloc = std.testing.allocator;
     var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 10, .rows = 1 });
@@ -235,7 +297,7 @@ test "cellToIndex は extractRow の文字数と一致する" {
     var table: style.Table = .init(alloc);
     defer table.deinit();
 
-    // 国旗は RI 1 つが 2 セル。セル 4 (= "a") は 3 文字目 (index 2)。
+    // mode 2027 無効の国旗は RI 1 つが 2 セル。セル 4 (= "a") は 3 文字目 (index 2)。
     t.setCursorPos(1, 1);
     try t.printString("\u{1F1EF}\u{1F1F5}ab");
     const pin = t.screens.active.pages.pin(.{ .viewport = .{ .y = 0 } }).?;
