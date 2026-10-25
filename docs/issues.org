@@ -340,6 +340,49 @@ F-apps-12 (端末クエリの応答が前段データに混入) だけなら「�
 候補としてのみ記す。非パイプのコマンドは stdin も pty で影響は無い
 (=process-tty-name 'stdin= で確認)。
 
+** TODO M-26: 複数の emacsclient で同じバッファを表示すると、端末と pty のサイズが食い違う
+対象: =spectreshell-eshell.el= (=--attach= / =--window-size-change=)
+
+daemon (=emacs -Q --fg-daemon=) に大きさの違う 2 つの
+=emacsclient -t= (本文 22x89 の B と 47x199 の C) をつなぎ、同じ
+eshell バッファを表示した (調査時の実測)。
+
+#+begin_example
+                端末 (ghostty-vt)   子が見るサイズ (SIGWINCH 後の stty)
+C で表示した後  47x199              22x89
+C を閉じた後    47x199              22x89
+#+end_example
+
+原因は 2 つある。
+
+- C で表示した時点で、spectreshell は L-32 の規則 (選択ウィンドウ =
+  C) で端末を 47x199 にして =set-process-window-size= も呼ぶ。その直後
+  に Emacs 標準の =window--adjust-process-windows=
+  (=window-configuration-change-hook=) が、全フレームでバッファを表示
+  しているウィンドウの最小 (=window-adjust-process-window-size-smallest=、
+  既定) で =set-process-window-size= を呼び、pty だけを 22x89 に戻す
+  (=window.el=)。プロセス属性 =adjust-window-size-function= があれば
+  そちらが優先され、戻り値が nil なら何もしない。
+- C を閉じても B のウィンドウのサイズは変わらないので、
+  =window-size-change-functions= が呼ばれず、端末は 47x199 のまま残る。
+
+L-32 との関係: L-32 は追従先を =spectreshell-eshell--window= に一本
+化したが、標準の hook が別の規則で pty だけを書き換える経路は残って
+いる。L-32 の ERT は偽のプロセスで hook を直接呼ぶので、
+=process-list= に載る実プロセスが要るこの経路を通らない。単一フレームの
+2 ウィンドウ (L-32 の状況) でも同じ経路で最小のウィンドウに戻るはず
+(未実測)。対応は L-32 の規則を置き換えず、それを唯一の規則にするため
+の追加。
+
+対応方針:
+
+- attach で =(process-put proc 'adjust-window-size-function #'ignore)=
+  を足し、pty のサイズを決めるのを L-32 の規則だけにする。
+- フレームの削除 (=after-delete-frame-functions=) でも
+  =spectreshell-eshell--window-size-change= を走らせる。
+- ERT: 実プロセスと 2 ウィンドウで =window-configuration-change-hook=
+  を走らせ、pty のサイズが端末と一致することを確かめる。
+
 ** TODO M-25: kitty keyboard 有効時に Shift で打つ英大文字が CSI u になり、Copilot CLI では小文字で入る
 対象: =src/keymap.zig= (=charEvent=)
 
