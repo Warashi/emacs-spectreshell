@@ -344,6 +344,10 @@ alternate screen (less・vim 等)、bracketed paste
 @item
 マウス (SGR mouse mode)
 @item
+XTVERSION ( @code{\e[>q} ) には Ghostty と同じく、同梱する ghostty の版で
+@code{ghostty 1.3.1} のように答える。マウスはセル座標でしか送れないので、
+DECRQM @code{?1016} (SGR pixel 座標) には未対応 (0) と答える
+@item
 子が外側の端末へ向けて出すものは、バッファを表示している tty
 フレームの端末へ送る。同じ端末のフレームが複数あっても 1 回だけ送り、
 GUI フレームには送らない。どの tty フレームも表示していない間
