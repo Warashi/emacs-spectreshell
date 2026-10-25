@@ -2134,6 +2134,23 @@ Emacs の tty の再表示で外側の端末へ OSC 8 を出す方法は見つ�
   渡す手段として、リンクの action で M-24 の経路を使い URL をクリップ
   ボードへ送る選択肢を候補にする。
 
+** TODO L-52: 子から見える端末が外側の Ghostty より小さい
+対象: =spectreshell-eshell.el= (=--terminal-size=) / マニュアル
+
+40x120 の端末から =emacs -Q= の daemon に =emacsclient -t= でつなぐと、
+子から見える端末は 37x119 になった (調査時の実測)。直結なら 40x120。
+
+- 桁: =window-max-chars-per-line= は、折り返しの継続グリフのために最終
+  桁を予約するので 1 桁減る (design.org の「端末サイズの伝え方」で決め
+  た仕様)。
+- 行: =window-body-height= なので、ウィンドウ以外の行が減る。=-Q= では
+  メニューバー・モードライン・エコー領域の 3 行と見られる (内訳は推測。
+  利用者の設定で変わる)。
+
+対応方針: マニュアルに書く。行は、端末のバッファでモードラインを消す、
+=menu-bar-mode= を切るなどで増やせることを添える。桁の 1 は仕様として
+残す。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
