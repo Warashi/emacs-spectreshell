@@ -234,7 +234,8 @@ and the new title string, with the terminal's buffer current.  The
 latest title is also always readable from `spectreshell-title'.
 spectreshell itself deliberately renames nothing (a buffer rename would
 break eshell's buffer bookkeeping, a frame title is not this layer's
-to own); displaying the title anywhere is entirely up to these hooks.")
+to own); displaying the title anywhere is entirely up to these hooks.
+`spectreshell-relay-title' is one that sends it to the outer terminal.")
 
 (defun spectreshell--check-size (rows cols)
   "Signal unless ROWS and COLS are both positive integers.
