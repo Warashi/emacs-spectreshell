@@ -168,6 +168,9 @@ pub const Term = struct {
                 .rows = rows,
                 .cols = cols,
                 .max_scrollback = unlimited_scrollback,
+                // Ghostty アプリ (termio/Termio.zig) と同じ既定。modes.set で
+                // 立てるだけだと RIS で無効に戻ってしまう。
+                .default_modes = .{ .grapheme_cluster = true },
             }),
             .stream = undefined,
             .styles = .init(alloc),
@@ -883,6 +886,16 @@ test "DECRQM は既知モードの現在値で応答する" {
     var update = try t.feed(alloc, "\x1b[?25$p\x1b[?2026$p");
     defer update.deinit();
     try testing.expectEqualStrings("\x1b[?25;1$y\x1b[?2026;2$y", update.responses);
+}
+
+test "書記素クラスタ (?2027) は既定で有効で、RIS で既定に戻る" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[?2027$p\x1b[?2027l\x1b[?2027$p\x1bc\x1b[?2027$p");
+    defer update.deinit();
+    try testing.expectEqualStrings("\x1b[?2027;1$y\x1b[?2027;2$y\x1b[?2027;1$y", update.responses);
 }
 
 test "ANSI 形式の DECRQM (CSI Ps $ p) には応答しない" {

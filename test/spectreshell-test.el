@@ -66,13 +66,13 @@ Emacs の `invisible\' text property はレイアウトごと文字を潰して
       (should (member '(:foreground "red3" :background "red3") face)))))
 
 (ert-deftest spectreshell-test-cursor-lands-after-regional-indicator ()
-  "国旗の後ろに置かれたカーソルが、桁ではなく文字の位置で解決される。
-ghostty は regional indicator 1 つを 2 セルと数えるが Emacs の
+  "単独の regional indicator の後ろのカーソルが、桁ではなく文字の位置で解決される。
+ghostty は単独の regional indicator を 2 セルと数えるが Emacs の
 `char-width' は 1 なので、セル列を `move-to-column' で解くと
-2 桁ぶん手前の文字に着く。"
+1 桁ぶん後ろの文字に着く。"
   (spectreshell-test--with-terminal (term 1 10)
     (spectreshell-feed term (encode-coding-string
-                             "\N{U+1F1EF}\N{U+1F1F5}ab\e[5G" 'utf-8))
+                             "\N{U+1F1EF}ab\e[3G" 'utf-8))
     (should (equal ?a (char-after (spectreshell-cursor-pos term))))))
 
 (ert-deftest spectreshell-test-split-escape-sequence-across-feeds ()

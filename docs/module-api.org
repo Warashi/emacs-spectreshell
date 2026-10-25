@@ -68,7 +68,7 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
   ~:cursor-index~ は同じ位置を「その行の TEXT 内のコードポイント
   オフセット」で表したもの。表示桁 (~move-to-column~) で解くと、
   ghostty が 2 セルと数えて Emacs の ~char-width~ が 1 を返す文字
-  (国旗 = regional indicator など) でずれるので、カーソル位置は
+  (単独の regional indicator など) でずれるので、カーソル位置は
   ~:cursor-index~ で解くこと。
 - *~:responses~*: PTY に送り返すべき応答バイト列 (DA / DSR / DECRQM /
   kitty keyboard の問い合わせ等)。
