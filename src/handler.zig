@@ -19,6 +19,17 @@ pub const ColorScheme = enum {
     }
 };
 
+/// 子の色の問い合わせ (OSC 10 / 11 / 4 の 0〜15) に答える値。描く色を
+/// 知っているのは Elisp なので外から渡す。null の色には答えない。
+pub const Colors = struct {
+    foreground: ?Rgb16 = null,
+    background: ?Rgb16 = null,
+    palette: [16]?Rgb16 = @splat(null),
+
+    /// Emacs の color-values と同じ 16bit の 3 つ組。
+    pub const Rgb16 = struct { r: u16, g: u16, b: u16 };
+};
+
 /// ReadonlyHandler は DSR/DA など応答が必要なアクションを無視する
 /// (ghostty のドキュメント通り、応答不要な再生専用ユースケース向けのため)。
 /// PTY への応答を組み立てる必要があるので、クエリ系アクションだけを
@@ -30,6 +41,7 @@ pub const Handler = struct {
     title: *?[]u8,
     relay: *std.ArrayList(relay.Event),
     color_scheme: *?ColorScheme,
+    colors: *const Colors,
     /// DCS 系アクションは ghostty_vt.Stream が状態を持たず生バイトで
     /// 渡してくるので、組み立ては ghostty 本体と同じこのハンドラに任せる。
     dcs: ghostty_vt.dcs.Handler = .{},
@@ -41,6 +53,7 @@ pub const Handler = struct {
         title: *?[]u8,
         relay_events: *std.ArrayList(relay.Event),
         color_scheme: *?ColorScheme,
+        colors: *const Colors,
     ) Handler {
         return .{
             .inner = terminal.vtHandler(),
@@ -49,6 +62,7 @@ pub const Handler = struct {
             .title = title,
             .relay = relay_events,
             .color_scheme = color_scheme,
+            .colors = colors,
         };
     }
 
@@ -82,6 +96,12 @@ pub const Handler = struct {
             .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
             .progress_report => try self.progressReport(value),
             .bell => try self.relay.append(self.alloc, .bell),
+            .color_operation => {
+                // 子による色の設定・リセットは描画に効かないが、従来どおり
+                // 内側の状態には反映しておく。
+                try self.inner.vt(action, value);
+                try self.colorReports(&value.requests, value.terminator);
+            },
             else => try self.inner.vt(action, value),
         }
     }
@@ -115,6 +135,53 @@ pub const Handler = struct {
                 try self.responses.appendSlice(self.alloc, scheme.report());
             },
         }
+    }
+
+    /// ghostty 本体の colorOperation (src/termio/stream_handler.zig) の
+    /// 既定 (osc-color-report-format = 16-bit) と同じく、問い合わせ 1 件
+    /// ごとに、受けたときの終端で答える。
+    fn colorReports(
+        self: *Handler,
+        requests: *const ghostty_vt.osc.color.List,
+        terminator: ghostty_vt.osc.Terminator,
+    ) !void {
+        var it = requests.constIterator(0);
+        while (it.next()) |req| {
+            const kind = switch (req.*) {
+                .query => |kind| kind,
+                else => continue,
+            };
+            var buf: [64]u8 = undefined;
+            const resp = switch (kind) {
+                .palette => |i| report: {
+                    const rgb = self.paletteColor(i) orelse continue;
+                    break :report try std.fmt.bufPrint(&buf, "\x1b]4;{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}{s}", .{
+                        i, rgb.r, rgb.g, rgb.b, terminator.string(),
+                    });
+                },
+                .dynamic => |dynamic| report: {
+                    const color = switch (dynamic) {
+                        .foreground => self.colors.foreground,
+                        .background => self.colors.background,
+                        else => null,
+                    };
+                    const rgb = color orelse continue;
+                    break :report try std.fmt.bufPrint(&buf, "\x1b]{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}{s}", .{
+                        @intFromEnum(dynamic), rgb.r, rgb.g, rgb.b, terminator.string(),
+                    });
+                },
+                .special => continue,
+            };
+            try self.responses.appendSlice(self.alloc, resp);
+        }
+    }
+
+    /// 16〜255 は描画と同じく固定の xterm パレット。子が設定した値
+    /// (current) は描画に使わないので、元の値 (original) で答える。
+    fn paletteColor(self: *Handler, i: u8) ?Colors.Rgb16 {
+        if (i < self.colors.palette.len) return self.colors.palette[i];
+        const rgb = self.inner.terminal.colors.palette.original[i];
+        return .{ .r = @as(u16, rgb.r) * 257, .g = @as(u16, rgb.g) * 257, .b = @as(u16, rgb.b) * 257 };
     }
 
     fn deviceAttributes(self: *Handler, req: ghostty_vt.DeviceAttributeReq) !void {
@@ -249,6 +316,7 @@ test "setTitle は dupe 失敗時に旧タイトルを dangling にしない" {
         .title = &title,
         .relay = undefined,
         .color_scheme = undefined,
+        .colors = undefined,
     };
 
     try h.setTitle("first");

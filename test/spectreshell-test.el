@@ -593,7 +593,6 @@ WIDTHS は (CHAR . FN) の alist で、FN は `display' の height 倍率を受�
 (ert-deftest spectreshell-test-palette-query-above-15-answers-drawn-color ()
   "OSC 4 の 16〜255 には、描画と同じ `spectreshell--256-color-hex' の色を
 8bit の値を 257 倍した 16bit で答える。"
-  :expected-result :failed
   (let ((term (spectreshell--create 1 10)))
     (dotimes (i 240)
       (let* ((index (+ 16 i))

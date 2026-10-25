@@ -152,6 +152,7 @@ pub const Term = struct {
     pending_title: ?[]u8 = null,
     pending_relay: std.ArrayList(relay.Event) = .empty,
     color_scheme: ?handler.ColorScheme = null,
+    colors: handler.Colors = .{},
     in_alt_screen: bool = false,
     styles: style.Table,
     /// テストから小さい値にできるよう Term のフィールドにしている。
@@ -178,6 +179,7 @@ pub const Term = struct {
             &self.pending_title,
             &self.pending_relay,
             &self.color_scheme,
+            &self.colors,
         ));
 
         return self;
@@ -263,6 +265,10 @@ pub const Term = struct {
         self.color_scheme = scheme;
         if (!changed or !self.terminal.modes.get(.report_color_scheme)) return null;
         return scheme.report();
+    }
+
+    pub fn setColors(self: *Term, colors: handler.Colors) void {
+        self.colors = colors;
     }
 
     pub fn resize(self: *Term, alloc: std.mem.Allocator, rows: u16, cols: u16) !Update {
@@ -1126,6 +1132,86 @@ test "setColorScheme は mode 2031 の間に明暗が変わったときだけ通
     defer update.deinit();
     try testing.expectEqual(@as(?[]const u8, null), t.setColorScheme(.light));
     try testing.expectEqualStrings("\x1b[?997;1n", t.setColorScheme(.dark).?);
+}
+
+test "色の問い合わせには渡された色で、問い合わせと同じ終端で答える" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var colors: handler.Colors = .{
+        .foreground = .{ .r = 0xffff, .g = 0xeeee, .b = 0x0102 },
+        .background = .{ .r = 0, .g = 0x1010, .b = 0x2020 },
+    };
+    colors.palette[1] = .{ .r = 0xcdcd, .g = 0, .b = 0 };
+    colors.palette[2] = .{ .r = 0, .g = 0xcdcd, .b = 0 };
+    t.setColors(colors);
+    var update = try t.feed(alloc, "\x1b]10;?\x07\x1b]11;?\x1b\\\x1b]4;1;?;2;?\x1b\\");
+    defer update.deinit();
+    try testing.expectEqualStrings(
+        "\x1b]10;rgb:ffff/eeee/0102\x07" ++
+            "\x1b]11;rgb:0000/1010/2020\x1b\\" ++
+            "\x1b]4;1;rgb:cdcd/0000/0000\x1b\\" ++
+            "\x1b]4;2;rgb:0000/cdcd/0000\x1b\\",
+        update.responses,
+    );
+}
+
+test "OSC 10 に続けて ? を並べると、前景・背景の順に答える" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    t.setColors(.{
+        .foreground = .{ .r = 1, .g = 2, .b = 3 },
+        .background = .{ .r = 4, .g = 5, .b = 6 },
+    });
+    var update = try t.feed(alloc, "\x1b]10;?;?\x1b\\");
+    defer update.deinit();
+    try testing.expectEqualStrings(
+        "\x1b]10;rgb:0001/0002/0003\x1b\\\x1b]11;rgb:0004/0005/0006\x1b\\",
+        update.responses,
+    );
+}
+
+test "渡されていない色と OSC 12 には答えず、続く問い合わせには答える" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    t.setColors(.{ .foreground = .{ .r = 1, .g = 2, .b = 3 } });
+    var update = try t.feed(alloc, "\x1b]11;?\x1b\\\x1b]4;1;?\x1b\\\x1b]12;?\x1b\\\x1b[c");
+    defer update.deinit();
+    try testing.expectEqualStrings("\x1b[?62;22;52c", update.responses);
+}
+
+test "16〜255 の問い合わせには、子が設定しても xterm パレットの値で答える" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b]4;196;rgb:00/00/ff\x1b\\\x1b]4;196;?;232;?\x07");
+    defer update.deinit();
+    try testing.expectEqualStrings(
+        "\x1b]4;196;rgb:ffff/0000/0000\x07\x1b]4;232;rgb:0808/0808/0808\x07",
+        update.responses,
+    );
+}
+
+test "子が 0〜15 や既定の色を設定しても、渡された色で答える" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var colors: handler.Colors = .{ .background = .{ .r = 0, .g = 0, .b = 0 } };
+    colors.palette[1] = .{ .r = 0xcdcd, .g = 0, .b = 0 };
+    t.setColors(colors);
+    var update = try t.feed(alloc, "\x1b]11;#ffffff\x1b\\\x1b]4;1;#00ff00\x1b\\\x1b]11;?\x1b\\\x1b]4;1;?\x1b\\");
+    defer update.deinit();
+    try testing.expectEqualStrings(
+        "\x1b]11;rgb:0000/0000/0000\x1b\\\x1b]4;1;rgb:cdcd/0000/0000\x1b\\",
+        update.responses,
+    );
 }
 
 test "DA1 は Ghostty と同じく 52 を含む" {

@@ -570,6 +570,59 @@ fn setColorSchemeImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value
     return emacs.nilv(env);
 }
 
+/// 色は nil か、Emacs の color-values と同じ (R G B) (各 0〜65535)。
+fn extractRgb16(env: *emacs.Env, value: *emacs.Value) !?handler.Colors.Rgb16 {
+    if (!emacs.isNotNil(env, value)) return null;
+    var c: [3]u16 = undefined;
+    try extractList(env, value, &c, extractComponent);
+    return .{ .r = c[0], .g = c[1], .b = c[2] };
+}
+
+fn extractComponent(env: *emacs.Env, value: *emacs.Value) !u16 {
+    const n = emacs.extractInteger(env, value);
+    if (emacs.pendingExit(env)) return error.PendingLispSignal;
+    if (n < 0 or n > std.math.maxInt(u16)) {
+        emacs.nonLocalExitSignal(env, emacs.intern(env, "args-out-of-range"), emacs.list(env, &.{value}));
+        return error.PendingLispSignal;
+    }
+    return @intCast(n);
+}
+
+/// LIST の要素を out と同じ数だけ読む。長さが違えば args-out-of-range。
+/// 循環リストは length が circular-list を signal する。
+fn extractList(
+    env: *emacs.Env,
+    list: *emacs.Value,
+    out: anytype,
+    comptime extract: anytype,
+) !void {
+    const len_val = emacs.funcall(env, emacs.intern(env, "length"), &.{list});
+    if (emacs.pendingExit(env)) return error.PendingLispSignal;
+    if (emacs.extractInteger(env, len_val) != out.len) {
+        emacs.nonLocalExitSignal(env, emacs.intern(env, "args-out-of-range"), emacs.list(env, &.{list}));
+        return error.PendingLispSignal;
+    }
+    var cur = list;
+    for (out) |*slot| {
+        const head = emacs.funcall(env, emacs.intern(env, "car"), &.{cur});
+        if (emacs.pendingExit(env)) return error.PendingLispSignal;
+        slot.* = try extract(env, head);
+        cur = emacs.funcall(env, emacs.intern(env, "cdr"), &.{cur});
+        if (emacs.pendingExit(env)) return error.PendingLispSignal;
+    }
+}
+
+fn setColorsImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
+    const term = try getTerm(env, args[0]);
+    var colors: handler.Colors = .{
+        .foreground = try extractRgb16(env, args[1]),
+        .background = try extractRgb16(env, args[2]),
+    };
+    try extractList(env, args[3], &colors.palette, extractRgb16);
+    term.setColors(colors);
+    return emacs.nilv(env);
+}
+
 /// 二重解放safe: 既に解放済み (get_user_ptr が null) なら何もしない。
 /// finalizer と共存できるよう、解放後は set_user_ptr で null にしておき
 /// GC 時の finalizer 呼び出しが no-op になるようにする。
@@ -627,6 +680,11 @@ fn setColorSchemeFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: 
     return finish(env, setColorSchemeImpl(env, args[0..@intCast(nargs)]));
 }
 
+fn setColorsFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
+    _ = data;
+    return finish(env, setColorsImpl(env, args[0..@intCast(nargs)]));
+}
+
 fn releaseFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
     _ = data;
     return finish(env, releaseImpl(env, args[0..@intCast(nargs)]));
@@ -667,5 +725,6 @@ pub fn registerAll(env: *emacs.Env) void {
     defalias(env, "spectreshell--encode-paste", 2, 2, encodePasteFn, "Encode TEXT as a paste for TERM into PTY bytes.");
     defalias(env, "spectreshell--encode-mouse", 6, 6, encodeMouseFn, "Encode a mouse BUTTON/ACTION at ROW/COL with MODIFIERS for TERM.");
     defalias(env, "spectreshell--set-color-scheme", 2, 2, setColorSchemeFn, "Set TERM's color SCHEME (dark or light); return the report due to the child, or nil.");
+    defalias(env, "spectreshell--set-colors", 4, 4, setColorsFn, "Set the colors TERM answers the child's queries with: FG, BG and PALETTE (16 colors).");
     defalias(env, "spectreshell--release", 1, 1, releaseFn, "Explicitly release TERM. Safe to call more than once.");
 }

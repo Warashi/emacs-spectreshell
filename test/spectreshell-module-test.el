@@ -177,7 +177,6 @@ mode 2026 の中で終わった feed も返す。"
 (ert-deftest spectreshell-module-test-color-queries-are-answered ()
   "OSC 10 / 11 / 4 の 0〜15 には --set-colors で渡した色で、Ghostty と同じ
 16bit の形と問い合わせの終端で答える。渡していない色には答えない。"
-  :expected-result :failed
   (let ((term (spectreshell--create 5 10))
         (palette (make-list 16 nil)))
     (should-not (plist-member (spectreshell--feed term "\x1b]11;?\x1b\\")
@@ -194,7 +193,6 @@ mode 2026 の中で終わった feed も返す。"
 
 (ert-deftest spectreshell-module-test-set-colors-rejects-bad-colors ()
   "--set-colors は 16bit の 3 つ組と nil 以外、16 個でないパレットを受け付けない。"
-  :expected-result :failed
   (let ((term (spectreshell--create 5 10))
         (palette (make-list 16 nil)))
     (should-error (spectreshell--set-colors term '(0 0 65536) nil palette)
