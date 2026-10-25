@@ -102,6 +102,15 @@
     (should (equal (plist-get update :responses) "\x1b[?1016;0$y\x1b[?1016;0$y"))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-xtversion-reports-ghostty ()
+  "XTVERSION (CSI > q) には、同梱する ghostty の版で Ghostty と同じ形で答える。"
+  :expected-result :failed
+  (let* ((term (spectreshell--create 5 10))
+         (update (spectreshell--feed term "\x1b[>q\x1b[>0q")))
+    (should (equal (plist-get update :responses)
+                   "\x1bP>|ghostty 1.3.1\x1b\\\x1bP>|ghostty 1.3.1\x1b\\"))
+    (spectreshell--release term)))
+
 (ert-deftest spectreshell-module-test-desktop-notification-produces-relay ()
   "OSC 777 の通知と、9;4 などの ConEmu 拡張でない OSC 9 の通知は :relay に
 \(notification TITLE BODY) を積む。OSC 9 には TITLE が無いので空になる。"
