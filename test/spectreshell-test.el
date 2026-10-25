@@ -486,7 +486,7 @@ rows / cols も更新されないままであるべき。"
 WIDTHS は (CHAR . FN) の alist で、FN は `display' の height 倍率を受けて
 描いた幅を返す。WIDTHS に無い文字は `char-width' × 10px。"
   (declare (indent 1))
-  `(let ((spectreshell--glyph-fit-cache (make-hash-table)))
+  `(let ((spectreshell--glyph-fit-cache (make-hash-table :test 'equal)))
      (cl-letf (((symbol-function 'frame-char-width) (lambda (&rest _) 10))
                ((symbol-function 'spectreshell--pixel-width)
                 (lambda (string)
@@ -575,6 +575,34 @@ WIDTHS は (CHAR . FN) の alist で、FN は `display' の height 倍率を受�
       (should-not (eq (cadr (get-text-property (point-min) 'display))
                       (cadr (get-text-property (1+ (point-min)) 'display)))))))
 
+(ert-deftest spectreshell-test-glyph-fit-targets-module-cells ()
+  "幅をそろえる目標は `char-width' ではなく、モジュールが返す書記素のセル数。
+単独の regional indicator は `char-width' 1 だが 2 セル。"
+  (spectreshell-test--with-glyph-widths
+      `((#x1F1EF . ,(lambda (h) (floor (* 11 h)))))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term (encode-coding-string "\N{U+1F1EF}" 'utf-8))
+      (let ((display (spectreshell-test--display-at #x1F1EF)))
+        (should-not (spectreshell-test--display-height display))
+        (should (equal (spectreshell-test--display-min-width display) 20))))))
+
+(ert-deftest spectreshell-test-grapheme-shares-one-display ()
+  "書記素の全文字が 1 つの display 値を共有し、隣の書記素とは共有しない。
+共有した範囲は 1 つの塊として幅をそろえられ、合成も保たれる。"
+  (spectreshell-test--with-glyph-widths
+      `((#x1F1EF . ,(lambda (h) (floor (* 21 h)))))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-feed term (encode-coding-string
+                               "\N{U+1F1EF}\N{U+1F1F5}\N{U+1F1EF}\N{U+1F1F5}x"
+                               'utf-8))
+      (let ((first (get-text-property (point-min) 'display))
+            (second (get-text-property (+ (point-min) 2) 'display)))
+        (should (spectreshell-test--display-height first))
+        (should (eq first (get-text-property (1+ (point-min)) 'display)))
+        (should (eq second (get-text-property (+ (point-min) 3) 'display)))
+        (should-not (eq first second))
+        (should-not (get-text-property (+ (point-min) 4) 'display))))))
+
 (ert-deftest spectreshell-test-overwide-glyph-skips-zero-width ()
   "char-width 0 の文字は、描いた幅が 0 でなくても縮めない。"
   (spectreshell-test--with-glyph-widths
@@ -586,7 +614,7 @@ WIDTHS は (CHAR . FN) の alist で、FN は `display' の height 倍率を受�
 
 (ert-deftest spectreshell-test-overwide-glyph-untouched-without-gui ()
   "GUI でないフレームでは、どの文字にも縮小の display を付けない。"
-  (let ((spectreshell--glyph-fit-cache (make-hash-table)))
+  (let ((spectreshell--glyph-fit-cache (make-hash-table :test 'equal)))
     (spectreshell-test--with-terminal (term 1 10)
       (spectreshell-feed term "⏱❌")
       (should-not (text-property-not-all (point-min) (line-end-position)
