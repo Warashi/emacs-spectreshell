@@ -383,7 +383,7 @@ L-32 との関係: L-32 は追従先を =spectreshell-eshell--window= に一本
 - ERT: 実プロセスと 2 ウィンドウで =window-configuration-change-hook=
   を走らせ、pty のサイズが端末と一致することを確かめる。
 
-** TODO M-25: kitty keyboard 有効時に Shift で打つ英大文字が CSI u になり、Copilot CLI では小文字で入る
+** DONE M-25: kitty keyboard 有効時に Shift で打つ英大文字が CSI u になり、Copilot CLI では小文字で入る
 対象: =src/keymap.zig= (=charEvent=)
 
 Copilot CLI (kitty keyboard flags 1) で =A= を打つと、子には
@@ -430,6 +430,16 @@ L-19 と =src/keymap.zig= の =charEvent= のコメントとの関係:
 =\e[97;6u= は変わらない。=src/keymap.zig= のテストと
 =test/spectreshell-key-table-test.el= に、flags 1 / 5 で =A= が =A= に
 なり =C-S-a= が =\e[97;6u= のままであることを足す。
+
+対応 (2026-10-25, 56584a0): =charEvent= が =.consumed_mods.shift= を
+=mods.shift and cp != unshifted= で立てる。=src/core.zig= の
+=encodeKey= のテストで、flags 5 のもとで =("A" shift)= が =A= 、
+=("a" ctrl shift)= が =\e[97;6u= になることを確かめた。key-table には
+flags 1 / 5 の =A= 行を足した (どちらも =A= )。L-19 のレガシーモードの
+=A= 行と =[?\C-\S-a]= 行はそのまま通る。キーマップ経由の =C-S-a= は
+flags 5 で shift が落ちて =\e[97;5u= になる (shift-translation による
+別の穴。M-27 で扱う)。Copilot CLI / Claude Code での実環境の確認は
+未実施。
 
 ** TODO M-24: 子の OSC 52 (クリップボードへの書き込み) が外側の Ghostty に届かない
 対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el= (M-23 の中継)
