@@ -207,6 +207,7 @@ fn buildUpdatePlist(env: *emacs.Env, arena: std.mem.Allocator, update: *const co
         try items.append(arena, emacs.intern(env, ":synchronized"));
         try items.append(arena, emacs.t(env));
         try appendResponses(env, arena, &items, update);
+        try appendRelay(env, arena, &items, update);
         return emacs.list(env, items.items);
     }
 
@@ -253,6 +254,7 @@ fn buildUpdatePlist(env: *emacs.Env, arena: std.mem.Allocator, update: *const co
     try items.append(arena, if (update.cursor.visible) emacs.t(env) else emacs.nilv(env));
 
     try appendResponses(env, arena, &items, update);
+    try appendRelay(env, arena, &items, update);
 
     switch (update.alt_screen) {
         .unchanged => {},
@@ -278,6 +280,23 @@ fn appendResponses(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayL
     if (update.responses.len == 0) return;
     try items.append(arena, emacs.intern(env, ":responses"));
     try items.append(arena, emacs.makeUnibyteString(env, update.responses));
+}
+
+/// :relay の各要素は (SYMBOL ARGS...)。要素の順は子が出した順。
+fn appendRelay(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayList(*emacs.Value), update: *const core.Update) !void {
+    if (update.relay.len == 0) return;
+    var events: std.ArrayList(*emacs.Value) = .empty;
+    for (update.relay) |e| {
+        try events.append(arena, switch (e) {
+            .clipboard => |c| emacs.list(env, &.{
+                emacs.intern(env, "clipboard"),
+                emacs.makeUnibyteString(env, &.{c.kind}),
+                emacs.makeUnibyteString(env, c.data),
+            }),
+        });
+    }
+    try items.append(arena, emacs.intern(env, ":relay"));
+    try items.append(arena, emacs.list(env, events.items));
 }
 
 // ---------------------------------------------------------------------

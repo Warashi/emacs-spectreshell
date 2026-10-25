@@ -750,7 +750,6 @@ SENT には `send-string-to-terminal' に渡った (STRING . TERMINAL) が
 (ert-deftest spectreshell-test-osc52-write-reaches-selection-terminals ()
   "子の OSC 52 の書き込みは、xterm.el が OSC 52 を使うと判定した外側の
 端末にだけ同じ形で届く。外側の書き込みの可否は外側の設定に従う。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10)
     (spectreshell-test--with-relay-terminals '(t1 t2) '(t1) sent
       (spectreshell-feed term "\x1b]52;c;aGk=\x07")
@@ -758,7 +757,6 @@ SENT には `send-string-to-terminal' に渡った (STRING . TERMINAL) が
 
 (ert-deftest spectreshell-test-osc52-write-reaches-terminal-while-synchronized ()
   "mode 2026 の中でも OSC 52 の書き込みは待たずに届く。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10)
     (spectreshell-test--with-relay-terminals '(t1) '(t1) sent
       (spectreshell-feed term "\x1b[?2026h\x1b]52;c;aGk=\x07")

@@ -315,7 +315,7 @@ The same limit as ghostty's own (`sync_reset_ms' in termio/Thread.zig).")
 (defun spectreshell--hold-synchronized (obj update)
   "Leave OBJ's buffer as it is while the child is inside a synchronized frame.
 UPDATE is the `(:synchronized t ...)' plist from `spectreshell--feed';
-only its responses are acted on.  The timer is armed once per hold and
+only its responses and relayed events are acted on.  The timer is armed once per hold and
 not pushed back by later held feeds: when every read ends inside some
 frame, no feed ever closes one, and drawing would otherwise stall for as
 long as the output keeps coming."
@@ -325,6 +325,7 @@ long as the output keeps coming."
                        #'spectreshell--flush-synchronized obj)))
   (when-let* ((response (plist-get update :responses)))
     (funcall (spectreshell-send-fn obj) response))
+  (spectreshell--apply-relay obj update)
   update)
 
 (defun spectreshell--cancel-sync-timer (obj)
@@ -505,6 +506,7 @@ Return UPDATE unchanged, for callers that want to inspect it further."
           (run-hook-with-args 'spectreshell-title-functions obj title)))))
   (when-let* ((response (plist-get update :responses)))
     (funcall (spectreshell-send-fn obj) response))
+  (spectreshell--apply-relay obj update)
   update)
 
 ;; ---------------------------------------------------------------------
@@ -537,6 +539,17 @@ and with nobody looking there is no one to tell."
     (when (or (null predicate) (funcall predicate terminal))
       (send-string-to-terminal string terminal))))
 
+(defvar spectreshell--relay-handlers nil
+  "Alist of (SYMBOL . FUNCTION) handling the module's `:relay' events.
+FUNCTION is called with the `spectreshell' object followed by the
+event's arguments.  Events without a handler are dropped.")
+
+(defun spectreshell--apply-relay (obj update)
+  "Hand each `:relay' event of the module UPDATE plist for OBJ to its handler."
+  (pcase-dolist (`(,kind . ,args) (plist-get update :relay))
+    (when-let* ((handler (alist-get kind spectreshell--relay-handlers)))
+      (apply handler obj args))))
+
 (defvar-local spectreshell--relay-kept nil
   "Alist of (KEY . STRING) relayed again whenever this buffer is displayed.
 See `spectreshell--relay-keep'.")
@@ -564,6 +577,33 @@ Buffer-local member of `window-buffer-change-functions', added by
                    (buffer-local-value 'spectreshell--relay-kept
                                        (window-buffer window)))
       (send-string-to-terminal string terminal))))
+
+;; ---------------------------------------------------------------------
+;; Clipboard writes (OSC 52)
+;; ---------------------------------------------------------------------
+
+(defvar xterm-max-cut-length)
+
+(defun spectreshell--relay-clipboard (obj kind data)
+  "Relay the child's OSC 52 write of base64 DATA to selection KIND for OBJ.
+Sent only to the terminals xterm.el itself writes selections to with
+OSC 52 (`xterm--set-selection'), which it decides from the outer
+terminal's DA1, so whether the write lands is still up to the outer
+terminal's own setting.  KIND and DATA go out verbatim, so anything
+but a selection letter and base64 is dropped rather than written to the
+outer terminal; so is DATA longer than `xterm-max-cut-length', which
+xterm.el refuses for its own writes too."
+  (when (and (string-match-p "\\`[a-z0-9]\\'" kind)
+             (string-match-p "\\`[A-Za-z0-9+/=]*\\'" data)
+             (not (and (boundp 'xterm-max-cut-length)
+                       (> (length data) xterm-max-cut-length))))
+    (spectreshell--relay
+     obj (concat "\e]52;" kind ";" data "\a")
+     (lambda (terminal)
+       (eq (terminal-parameter terminal 'xterm--set-selection) t)))))
+
+(setf (alist-get 'clipboard spectreshell--relay-handlers)
+      #'spectreshell--relay-clipboard)
 
 ;; ---------------------------------------------------------------------
 ;; Style table

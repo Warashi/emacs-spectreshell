@@ -65,7 +65,6 @@
 (ert-deftest spectreshell-module-test-osc52-write-produces-relay ()
   "OSC 52 の書き込みは :relay に (clipboard KIND BASE64) を積む。
 種別を省いた書き込みは c になる。"
-  :expected-result :failed
   (let* ((term (spectreshell--create 5 10))
          (update (spectreshell--feed term "\x1b]52;p;aGk=\x07\x1b]52;;eW8=\x07")))
     (should (equal (plist-get update :relay)
@@ -83,7 +82,6 @@
 (ert-deftest spectreshell-module-test-synchronized-feed-keeps-relay ()
   "mode 2026 の中で終わった feed も :relay を返す。描画ではないので
 保留しない。"
-  :expected-result :failed
   (let* ((term (spectreshell--create 5 10))
          (update (spectreshell--feed term "\x1b[?2026h\x1b]52;c;aGk=\x07")))
     (should (equal update '(:synchronized t :relay ((clipboard "c" "aGk=")))))
@@ -91,7 +89,6 @@
 
 (ert-deftest spectreshell-module-test-primary-device-attributes-report-clipboard ()
   "DA1 には Ghostty と同じく 52 (クリップボード) を含めて答える。"
-  :expected-result :failed
   (let* ((term (spectreshell--create 5 10))
          (update (spectreshell--feed term "\x1b[c")))
     (should (equal (plist-get update :responses) "\x1b[?62;22;52c"))

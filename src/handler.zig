@@ -1,6 +1,7 @@
 const std = @import("std");
 const ghostty_vt = @import("ghostty-vt");
 const ghostty_terminfo = @import("ghostty-terminfo");
+const relay = @import("relay.zig");
 
 /// ReadonlyHandler は DSR/DA など応答が必要なアクションを無視する
 /// (ghostty のドキュメント通り、応答不要な再生専用ユースケース向けのため)。
@@ -11,6 +12,7 @@ pub const Handler = struct {
     alloc: std.mem.Allocator,
     responses: *std.ArrayList(u8),
     title: *?[]u8,
+    relay: *std.ArrayList(relay.Event),
     /// DCS 系アクションは ghostty_vt.Stream が状態を持たず生バイトで
     /// 渡してくるので、組み立ては ghostty 本体と同じこのハンドラに任せる。
     dcs: ghostty_vt.dcs.Handler = .{},
@@ -20,12 +22,14 @@ pub const Handler = struct {
         alloc: std.mem.Allocator,
         responses: *std.ArrayList(u8),
         title: *?[]u8,
+        relay_events: *std.ArrayList(relay.Event),
     ) Handler {
         return .{
             .inner = terminal.vtHandler(),
             .alloc = alloc,
             .responses = responses,
             .title = title,
+            .relay = relay_events,
         };
     }
 
@@ -51,6 +55,7 @@ pub const Handler = struct {
             .dcs_put => try self.dcsPut(value),
             .dcs_unhook => try self.dcsUnhook(),
             .window_title => try self.setTitle(value.title),
+            .clipboard_contents => try self.clipboardContents(value.kind, value.data),
             else => try self.inner.vt(action, value),
         }
     }
@@ -85,7 +90,7 @@ pub const Handler = struct {
 
     fn deviceAttributes(self: *Handler, req: ghostty_vt.DeviceAttributeReq) !void {
         switch (req) {
-            .primary => try self.responses.appendSlice(self.alloc, "\x1b[?62;22c"),
+            .primary => try self.responses.appendSlice(self.alloc, "\x1b[?62;22;52c"),
             .secondary => try self.responses.appendSlice(self.alloc, "\x1b[>1;10;0c"),
             .tertiary => {},
         }
@@ -165,6 +170,14 @@ pub const Handler = struct {
         }
     }
 
+    fn clipboardContents(self: *Handler, kind: u8, data: []const u8) !void {
+        // 読み取り (?) は扱わない (docs/design.org の端末機能の範囲)。
+        if (std.mem.eql(u8, data, "?")) return;
+        const owned = try self.alloc.dupe(u8, data);
+        errdefer self.alloc.free(owned);
+        try self.relay.append(self.alloc, .{ .clipboard = .{ .kind = kind, .data = owned } });
+    }
+
     fn setTitle(self: *Handler, title: []const u8) !void {
         // 先に null を入れてから free する: dupe が失敗したとき title.* が
         // 解放済み領域を指したままだと、後続の buildUpdate / Term.deinit が
@@ -189,6 +202,7 @@ test "setTitle は dupe 失敗時に旧タイトルを dangling にしない" {
         .alloc = failing.allocator(),
         .responses = undefined,
         .title = &title,
+        .relay = undefined,
     };
 
     try h.setTitle("first");

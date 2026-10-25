@@ -79,4 +79,5 @@ test {
     _ = @import("keymap.zig");
     _ = @import("emacs.zig");
     _ = @import("module.zig");
+    _ = @import("relay.zig");
 }
