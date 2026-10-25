@@ -57,6 +57,7 @@ pub const Handler = struct {
             .window_title => try self.setTitle(value.title),
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
             .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
+            .progress_report => try self.progressReport(value),
             else => try self.inner.vt(action, value),
         }
     }
@@ -183,6 +184,13 @@ pub const Handler = struct {
         const n = try relay.Notification.init(self.alloc, title, body);
         errdefer n.deinit(self.alloc);
         try self.relay.append(self.alloc, .{ .notification = n });
+    }
+
+    fn progressReport(self: *Handler, report: ghostty_vt.osc.Command.ProgressReport) !void {
+        try self.relay.append(self.alloc, .{ .progress = .{
+            .state = @intCast(@intFromEnum(report.state)),
+            .value = report.progress,
+        } });
     }
 
     fn setTitle(self: *Handler, title: []const u8) !void {

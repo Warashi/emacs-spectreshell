@@ -298,6 +298,11 @@ fn appendRelay(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayList(
                 emacs.makeUnibyteString(env, n.title),
                 emacs.makeUnibyteString(env, n.body),
             }),
+            .progress => |p| emacs.list(env, &.{
+                emacs.intern(env, "progress"),
+                emacs.makeInteger(env, p.state),
+                if (p.value) |v| emacs.makeInteger(env, v) else emacs.nilv(env),
+            }),
         });
     }
     try items.append(arena, emacs.intern(env, ":relay"));

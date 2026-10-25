@@ -107,7 +107,6 @@
 (ert-deftest spectreshell-module-test-progress-report-produces-relay ()
   "OSC 9;4 の進捗は :relay に (progress STATE VALUE) を積む。値を持たない
 状態 (0 消去・3 不定) の VALUE は nil で、値を省いた 1 (設定) は 0 になる。"
-  :expected-result :failed
   (let* ((term (spectreshell--create 5 10))
          (update (spectreshell--feed
                   term "\x1b]9;4;1;50\x07\x1b]9;4;1\x07\x1b]9;4;3;0\x07\x1b]9;4;0;0\x07")))

@@ -380,7 +380,10 @@ restored just as leaving the alt screen would have, so the user's
 pre-TUI screen content is not silently lost.
 
 A frame still held back for synchronized output is drawn first: it may
-already have pushed lines into the scrollback."
+already have pushed lines into the scrollback.
+
+State OBJ left on the outer terminal (a progress bar) is cleared
+\(`spectreshell--relay-release')."
   (when (spectreshell-sync-timer obj)
     (spectreshell--cancel-sync-timer obj)
     (spectreshell--flush-synchronized obj))
@@ -401,6 +404,7 @@ already have pushed lines into the scrollback."
           (set-marker saved-point nil))))
     (set-marker (spectreshell-marker obj) nil)
     (set-marker (spectreshell-end-marker obj) nil)
+    (spectreshell--relay-release obj)
     (spectreshell--release (spectreshell-term obj))
     end))
 
@@ -551,20 +555,27 @@ event's arguments.  Events without a handler are dropped.")
       (apply handler obj args))))
 
 (defvar-local spectreshell--relay-kept nil
-  "Alist of (KEY . STRING) relayed again whenever this buffer is displayed.
+  "Alist of (KEY STRING OBJ CLEAR) relayed again when this buffer is shown.
 See `spectreshell--relay-keep'.")
 
-(defun spectreshell--relay-keep (obj key string)
+(defun spectreshell--relay-keep (obj key string &optional clear)
   "Relay STRING for OBJ and keep it as the latest state under KEY.
 The kept string is sent again to the terminal of every window that
 starts showing OBJ's buffer, for state the outer terminal should keep
 showing (a progress bar) rather than a one-off event.  Keeping is per
 buffer, so a later call with the same KEY replaces the earlier string
 whichever terminal it came from.  STRING nil stops keeping KEY and
-sends nothing."
+sends nothing.
+
+With CLEAR, KEY stays OBJ's to undo: if OBJ is finalized
+\(`spectreshell--relay-release') or its buffer killed while KEY is still
+kept from this call, CLEAR is relayed and keeping stops, so the outer
+terminal is not left showing state no one will update any more."
   (with-current-buffer (spectreshell-buffer obj)
-    (setf (alist-get key spectreshell--relay-kept nil t) string)
-    (add-hook 'window-buffer-change-functions #'spectreshell--relay-resend nil t))
+    (setf (alist-get key spectreshell--relay-kept nil t)
+          (and string (list string obj clear)))
+    (add-hook 'window-buffer-change-functions #'spectreshell--relay-resend nil t)
+    (add-hook 'kill-buffer-hook #'spectreshell--relay-kill-buffer nil t))
   (when string
     (spectreshell--relay obj string)))
 
@@ -573,10 +584,28 @@ sends nothing."
 Buffer-local member of `window-buffer-change-functions', added by
 `spectreshell--relay-keep'."
   (when-let* ((terminal (spectreshell--relay-terminal (window-frame window))))
-    (pcase-dolist (`(,_ . ,string)
+    (pcase-dolist (`(,_ ,string . ,_)
                    (buffer-local-value 'spectreshell--relay-kept
                                        (window-buffer window)))
       (send-string-to-terminal string terminal))))
+
+(defun spectreshell--relay-release (obj)
+  "Stop keeping what OBJ kept with a CLEAR string, relaying each CLEAR.
+See `spectreshell--relay-keep'."
+  (with-current-buffer (spectreshell-buffer obj)
+    (pcase-dolist (`(,key ,_ ,owner ,clear) (copy-sequence spectreshell--relay-kept))
+      (when (and clear (eq owner obj))
+        (setf (alist-get key spectreshell--relay-kept nil t) nil)
+        (spectreshell--relay obj clear)))))
+
+(defun spectreshell--relay-kill-buffer ()
+  "Relay the CLEAR string of everything kept for the buffer being killed.
+Buffer-local member of `kill-buffer-hook', added by
+`spectreshell--relay-keep'.  The windows still show the buffer at this
+point, so the terminals to clear are still found."
+  (pcase-dolist (`(,_ ,_ ,owner ,clear) spectreshell--relay-kept)
+    (when clear
+      (spectreshell--relay owner clear))))
 
 ;; ---------------------------------------------------------------------
 ;; Clipboard writes (OSC 52)
@@ -625,6 +654,25 @@ would otherwise end it early."
 
 (setf (alist-get 'notification spectreshell--relay-handlers)
       #'spectreshell--relay-notification)
+
+;; ---------------------------------------------------------------------
+;; Progress (OSC 9;4)
+;; ---------------------------------------------------------------------
+
+(defun spectreshell--relay-progress (obj state value)
+  "Relay the child's OSC 9;4 progress STATE, with VALUE if non-nil, for OBJ.
+The latest progress is kept (`spectreshell--relay-keep') and cleared
+once OBJ's job ends.  STATE 0 is that clearing itself, so it is sent
+once and stops the keeping instead."
+  (let ((string (format "\e]9;4;%d%s\a" state (if value (format ";%d" value) ""))))
+    (if (eq state 0)
+        (progn
+          (spectreshell--relay-keep obj 'progress nil)
+          (spectreshell--relay obj string))
+      (spectreshell--relay-keep obj 'progress string "\e]9;4;0\a"))))
+
+(setf (alist-get 'progress spectreshell--relay-handlers)
+      #'spectreshell--relay-progress)
 
 ;; ---------------------------------------------------------------------
 ;; Style table

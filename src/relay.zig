@@ -5,11 +5,13 @@ const std = @import("std");
 pub const Event = union(enum) {
     clipboard: Clipboard,
     notification: Notification,
+    progress: Progress,
 
     pub fn deinit(self: *Event, alloc: std.mem.Allocator) void {
         switch (self.*) {
             .clipboard => |c| alloc.free(c.data),
             .notification => |n| n.deinit(alloc),
+            .progress => {},
         }
         self.* = undefined;
     }
@@ -18,6 +20,7 @@ pub const Event = union(enum) {
         return switch (self) {
             .clipboard => |c| .{ .clipboard = .{ .kind = c.kind, .data = try alloc.dupe(u8, c.data) } },
             .notification => |n| .{ .notification = try Notification.init(alloc, n.title, n.body) },
+            .progress => self,
         };
     }
 };
@@ -43,6 +46,13 @@ pub const Notification = struct {
         alloc.free(self.title);
         alloc.free(self.body);
     }
+};
+
+/// OSC 9;4 の進捗。STATE は OSC 9;4 の番号 (0 消去・1 設定・2 エラー・
+/// 3 不定・4 一時停止)。
+pub const Progress = struct {
+    state: u8,
+    value: ?u8,
 };
 
 pub fn deinitAll(alloc: std.mem.Allocator, events: []Event) void {

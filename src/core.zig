@@ -1004,6 +1004,18 @@ test "OSC 777 と OSC 9 の通知は中継にタイトルと本文を積む" {
     try testing.expectEqualStrings("done", update.relay[1].notification.body);
 }
 
+test "OSC 9;4 の進捗は中継に状態と値を積む" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b]9;4;1;50\x07\x1b]9;4;3;0\x07");
+    defer update.deinit();
+    try testing.expectEqual(@as(usize, 2), update.relay.len);
+    try testing.expectEqual(relay.Progress{ .state = 1, .value = 50 }, update.relay[0].progress);
+    try testing.expectEqual(relay.Progress{ .state = 3, .value = null }, update.relay[1].progress);
+}
+
 test "mode 2026 の中でも中継するものは保留しない" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);

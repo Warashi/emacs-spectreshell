@@ -806,33 +806,29 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
 (ert-deftest spectreshell-test-progress-reaches-terminals-and-resends ()
   "子の進捗は外側の端末へ OSC 9;4 で届き、バッファを新たに表示した
 ウィンドウの端末へ最新の状態を送り直す。消去の後は送り直さない。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10)
-    (spectreshell-test--with-frames '((w1 f1 t1 tty)) sent
+    (spectreshell-test--with-relay-terminals '(t1) nil sent
       (spectreshell-feed term "\x1b]9;4;1;50\x07\x1b]9;4;3;0\x07")
-      (should (equal sent '(("\e]9;4;1;50\a" . t1) ("\e]9;4;3\a" . t1))))
-      (setq sent nil
-            frames '((w1 f1 t1 tty) (w2 f2 t2 tty)))
+      (should (equal sent '(("\e]9;4;1;50\a" . t1) ("\e]9;4;3\a" . t1)))))
+    (spectreshell-test--with-frames '((w2 f2 t2 tty)) sent
       (run-hook-with-args 'window-buffer-change-functions 'w2)
-      (should (equal sent '(("\e]9;4;3\a" . t2))))
-      (setq sent nil)
+      (should (equal sent '(("\e]9;4;3\a" . t2)))))
+    (spectreshell-test--with-relay-terminals '(t1) nil sent
       (spectreshell-feed term "\x1b]9;4;0;0\x07")
-      (should (equal sent '(("\e]9;4;0\a" . t1) ("\e]9;4;0\a" . t2))))
-      (setq sent nil)
+      (should (equal sent '(("\e]9;4;0\a" . t1)))))
+    (spectreshell-test--with-frames '((w2 f2 t2 tty)) sent
       (run-hook-with-args 'window-buffer-change-functions 'w2)
       (should (null sent)))))
 
 (ert-deftest spectreshell-test-progress-is-cleared-when-job-ends ()
   "進捗を出したままジョブが終わると (finalize) 外側の進捗を消し、送り直し
 もやめる。進捗を出していない同じバッファの別の端末の終了では消さない。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10)
     (goto-char (point-max))
     (insert "\n")
     (let ((other (spectreshell-start (current-buffer) 1 10 #'ignore)))
+      (spectreshell-feed term "\x1b]9;4;3\x07")
       (spectreshell-test--with-frames '((w1 f1 t1 tty)) sent
-        (spectreshell-feed term "\x1b]9;4;3\x07")
-        (setq sent nil)
         (spectreshell-finalize other)
         (should (null sent))
         (spectreshell-finalize term)
@@ -843,13 +839,18 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
 
 (ert-deftest spectreshell-test-progress-is-cleared-when-buffer-is-killed ()
   "進捗を出したままバッファを kill すると外側の進捗を消す。"
-  :expected-result :failed
-  (spectreshell-test--with-terminal (term 1 10)
-    (spectreshell-test--with-frames '((w1 f1 t1 tty)) sent
-      (spectreshell-feed term "\x1b]9;4;3\x07")
-      (setq sent nil)
-      (kill-buffer (current-buffer))
-      (should (equal sent '(("\e]9;4;0\a" . t1)))))))
+  ;; `with-temp-buffer' のバッファは `kill-buffer-hook' を走らせないので、
+  ;; 普通のバッファで確かめる。
+  (let ((buffer (generate-new-buffer " *spectreshell-test-progress*")))
+    (unwind-protect
+        (with-current-buffer buffer
+          (let ((term (spectreshell-start buffer 1 10 #'ignore)))
+            (spectreshell-feed term "\x1b]9;4;3\x07")
+            (spectreshell-test--with-frames '((w1 f1 t1 tty)) sent
+              (kill-buffer buffer)
+              (should (equal sent '(("\e]9;4;0\a" . t1)))))))
+      (when (buffer-live-p buffer)
+        (kill-buffer buffer)))))
 
 (ert-deftest spectreshell-test-finalize-releases-terminal ()
   "finalize 後は端末が release され、追加の feed が signal される。"
