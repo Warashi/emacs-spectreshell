@@ -2395,10 +2395,8 @@ spectreshell はどれにも応答しない。=color_operation= を
   DA2 の version が 242 以上のときだけ外側の背景色を問い合わせ、Ghostty
   の DA2 (=\e[>1;10;0c=) では問い合わせない。
 
-対応方針: 当初は応答しないままにしてマニュアル (c736787) に書いた (記録
-した実行でも、両アプリは応答が無いまま起動した) が、色の基準を Emacs の
-テーマとし、spectreshell が描く色で答える方針に改めた。外側の端末には
-問い合わせず、子による色の設定・リセットは今までどおり捨てる。
+対応方針: 色の基準は Emacs のテーマとし、spectreshell が描く face の色で
+答える。外側の端末には問い合わせず、子による色の設定・リセットは捨てる。
 
 対応 (2026-10-26, 1869c0e, 439f72e): 新しいモジュール関数
 =spectreshell--set-colors= で既定の前景・背景と 16 色を =color-values=
@@ -2407,7 +2405,7 @@ spectreshell はどれにも応答しない。=color_operation= を
 =16-bit=) と同じく、問い合わせ 1 件ごとに =\e]N;rgb:RRRR/GGGG/BBBB=
 (OSC 4 は =\e]4;I;rgb:...=) を問い合わせと同じ終端で返す。DA1 などと
 同じ feed の中で順を崩さないため、応答はモジュールが組み立てる。OSC 10 /
-11 は =default= face の前景・背景、OSC 4 の 0〜15 は描画と同じ
+11 は =default= face の前景・背景、OSC 4 の 0〜15 は描画に使う
 =spectreshell-color-N= の前景、16〜255 はモジュールが xterm の 256 色の
 値で答える。=spectreshell.el= は L-50 と同じフレームで色を求め、tty の
 =unspecified-fg= / =-bg= は渡さない (その問い合わせには答えない)。face
@@ -2445,7 +2443,11 @@ modus-operandi   0000/0000/0000  ffff/ffff/ffff  a6a6/0000/0000  0000/6868/0000
 spectreshell はどちらもしない。テーマ以外 (=set-face-attribute= など) で
 face を変えたときは、次にフックが走るまで前の色で答える。256 色の tty
 フレームでは子の 16 色が外側のテーマの色で見えるが、答えは Emacs の色に
-なる。
+なる。答えと描画は同じ face から取るが、答えはバッファを表示している
+フレーム、描画は feed のときに選択中のフレームで解決するので、tty と GUI
+のフレームが混在し、テーマが表示の種類で face を分けていると食い違いうる。
+バッファローカルの face の remap (=face-remap-add-relative= ・
+solaire-mode など) は答えに入らない (SGR 8 の隠し文字の色も同じ)。
 
 未確認: Copilot CLI / Claude Code が答えをもとに表示を変えるか、外側を
 Ghostty 1.3 にした実環境での振る舞い。実環境の確認は未実施。
