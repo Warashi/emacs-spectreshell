@@ -2100,7 +2100,7 @@ ConEmu 拡張として読まれるため)。=:relay= の形は =docs/module-api.
 未確認: Ghostty で OS の通知が出ること、Claude Code / Copilot CLI が
 通知を出す条件。実環境の確認は未実施。
 
-** TODO L-42: 子の進捗表示 (OSC 9;4) が外側の Ghostty に届かない
+** DONE L-42: 子の進捗表示 (OSC 9;4) が外側の Ghostty に届かない
 対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el= (M-23 の中継)
 
 直結では、Copilot CLI の作業中に Ghostty が進捗 (indeterminate) を
@@ -2119,6 +2119,42 @@ ConEmu 拡張として読まれるため)。=:relay= の形は =docs/module-api.
 出す。Elisp は最新の状態をバッファごとに保持して M-23 の中継で
 =\e]9;4;STATE;VALUE\a= を送り、バッファが再び表示されたら送り直す。
 ジョブの終了時とバッファの kill 時は消去 (=\e]9;4;0\a=) を送る。
+
+対応 (2026-10-26, 7befd72): Handler が =progress_report= を横取りし、
+=:relay= に =(progress STATE VALUE)= を出す。ghostty-vt の解釈を通す
+ので、0 と 3 の値は捨て (Copilot CLI の =\e]9;4;3;0\a= は
+=\e]9;4;3\a= で送る)、1 の値の省略は 0 になる。Ghostty の解釈は同じ。
+=spectreshell--relay-progress= が =\e]9;4;STATE[;VALUE]\a= を
+=spectreshell--relay-keep= で送って保持する。STATE 0 は 1 回送って保持を
+やめる。
+
+ジョブ終了時の消去のため、M-23 の =spectreshell--relay-keep= に省略可能
+な CLEAR を足した。CLEAR 付きの保持は保持した端末が持ち主になり、
+=spectreshell-finalize= (=spectreshell--relay-release=) とバッファの
+kill (バッファローカルの =kill-buffer-hook=) で、まだ保持していれば
+CLEAR を送って保持をやめる。finalize では持ち主の端末のものだけを消す
+ので、進捗を出していない別のジョブの終了では消えない。=:relay= の形は
+=docs/module-api.org= (aecdfa5) に、送り直しと消去はマニュアル
+(5b8d9e0) に書いた。
+
+確認:
+
+- batch: Zig と ERT で値の扱いを固定した。ERT で、OSC 9;4 が各端末に
+  届くこと、新たに表示したウィンドウの端末へ最新の状態を送り直し消去の
+  後は送り直さないこと、進捗を残した端末の finalize で消去を送り同じ
+  バッファの別の端末の finalize では送らないこと、バッファの kill で
+  消去を送ることを固定した。
+- pty (=/tmp/parity-scripts/relay-e2e.py=):
+  =printf '\e]9;4;1;40\a'= の実行で pty に =\e]9;4;1;40\a= が出て、
+  ジョブの終了で =\e]9;4;0\a= が出た。=printf= のあと =sleep 30= する
+  ジョブでは、=\e]9;4;3\a= が出て、=*scratch*= に切り替えて戻すと
+  =\e]9;4;3\a= がもう 1 回出て、ジョブが動いたままバッファを kill
+  すると =\e]9;4;0\a= が出た。
+
+未確認: Ghostty で進捗が表示され、消去で消えること。Ghostty が進捗を
+一定時間で自動で消すかと、そのとき送り直しが要るかは見ていない。
+2 つの =emacsclient -t= からの表示。Copilot CLI が実際に OSC 9;4 を
+出すこと。実環境の確認は未実施。
 
 ** TODO L-43: 子のタイトル (OSC 0/2) が外側の Ghostty のタブ名に出ない
 対象: =spectreshell.el= (=spectreshell-title-functions=、M-23 の中継)
