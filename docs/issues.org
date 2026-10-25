@@ -1797,6 +1797,26 @@ PATH の =stty= が GNU なら darwin では失敗させる (=stty --version= �
 =\e]777;notify;TITLE;BODY\a= を送る。TITLE / BODY からは制御文字を
 除き、TITLE の =;= も除く (区切りと区別できないため)。
 
+** TODO L-42: 子の進捗表示 (OSC 9;4) が外側の Ghostty に届かない
+対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el= (M-23 の中継)
+
+直結では、Copilot CLI の作業中に Ghostty が進捗 (indeterminate) を
+表示する。spectreshell 経由では出ない。
+
+- Copilot CLI は =TERM= が =xterm-ghostty= なら端末を Ghostty と判定し
+  (spectreshell の既定の =TERM= でも同じ判定になる)、作業中は 5 秒
+  ごとに indeterminate を送り、終わると消す (=cli-main.pretty.js= の
+  =setProgress= / =clearProgress= の読解)。記録した実行は作業をさせて
+  おらず、OSC 9;4 の送出は未実測。
+- Claude Code は =TERM_PROGRAM= が無いと直結でも出さない (調査時の
+  バンドルの読解)。
+- モジュールは =progress_report= を捨てる (M-23)。
+
+対応方針: Handler で =progress_report= を横取りし、状態と値を plist に
+出す。Elisp は最新の状態をバッファごとに保持して M-23 の中継で
+=\e]9;4;STATE;VALUE\a= を送り、バッファが再び表示されたら送り直す。
+ジョブの終了時とバッファの kill 時は消去 (=\e]9;4;0\a=) を送る。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
