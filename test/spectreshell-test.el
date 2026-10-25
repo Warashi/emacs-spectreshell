@@ -719,6 +719,62 @@ initial (daemon の初期フレーム)。batch では tty フレームを作れ�
       (run-hook-with-args 'window-buffer-change-functions 'w1)
       (should (equal sent '(("busy" . t1)))))))
 
+;; ---------------------------------------------------------------------
+;; OSC 52 の書き込みの中継 (M-24)
+;; ---------------------------------------------------------------------
+
+(defvar xterm-max-cut-length)
+
+(defmacro spectreshell-test--with-relay-terminals (terminals selection sent &rest body)
+  "外側の端末を TERMINALS として BODY を実行する.
+`spectreshell--relay-terminals' の送り先の判定は M-23 のテストで固定
+してあるので、ここでは描画を巻き込まないようにその結果だけを差し替える。
+SELECTION の端末だけ xterm.el の `xterm--set-selection' が立っている。
+SENT には `send-string-to-terminal' に渡った (STRING . TERMINAL) が
+送った順に溜まる。"
+  (declare (indent 3))
+  `(let ((,sent nil)
+         (orig (symbol-function 'terminal-parameter)))
+     (cl-letf (((symbol-function 'spectreshell--relay-terminals)
+                (lambda (_) ,terminals))
+               ((symbol-function 'terminal-parameter)
+                (lambda (terminal parameter)
+                  (if (eq parameter 'xterm--set-selection)
+                      (and (memq terminal ,selection) t)
+                    (funcall orig terminal parameter))))
+               ((symbol-function 'send-string-to-terminal)
+                (lambda (string terminal)
+                  (setq ,sent (append ,sent (list (cons string terminal)))))))
+       ,@body)))
+
+(ert-deftest spectreshell-test-osc52-write-reaches-selection-terminals ()
+  "子の OSC 52 の書き込みは、xterm.el が OSC 52 を使うと判定した外側の
+端末にだけ同じ形で届く。外側の書き込みの可否は外側の設定に従う。"
+  :expected-result :failed
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-relay-terminals '(t1 t2) '(t1) sent
+      (spectreshell-feed term "\x1b]52;c;aGk=\x07")
+      (should (equal sent '(("\e]52;c;aGk=\a" . t1)))))))
+
+(ert-deftest spectreshell-test-osc52-write-reaches-terminal-while-synchronized ()
+  "mode 2026 の中でも OSC 52 の書き込みは待たずに届く。"
+  :expected-result :failed
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-relay-terminals '(t1) '(t1) sent
+      (spectreshell-feed term "\x1b[?2026h\x1b]52;c;aGk=\x07")
+      (should (equal sent '(("\e]52;c;aGk=\a" . t1)))))))
+
+(ert-deftest spectreshell-test-osc52-write-drops-unsafe-or-long-data ()
+  "base64 以外の文字を含む書き込みと、`xterm-max-cut-length' を超える
+書き込みは外側へ送らない。前者は子に外側の端末へ任意の文字列を書かせないため、
+後者は xterm.el 自身の書き込みと同じ上限に揃えるため。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-relay-terminals '(t1) '(t1) sent
+      (let ((xterm-max-cut-length 4))
+        (spectreshell-feed term "\x1b]52;c;aG;k=\x07")
+        (spectreshell-feed term "\x1b]52;c;aGk=aGk=\x07")
+        (should (null sent))))))
+
 (ert-deftest spectreshell-test-finalize-releases-terminal ()
   "finalize 後は端末が release され、追加の feed が signal される。"
   (spectreshell-test--with-terminal (term 1 10)
