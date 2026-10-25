@@ -104,6 +104,9 @@ pub const Handler = struct {
     /// 既知モードは現在値の 1 / 2 のみで答える。
     fn requestMode(self: *Handler, mode: ghostty_vt.Mode) !void {
         const tag: ghostty_vt.modes.ModeTag = @bitCast(@intFromEnum(mode));
+        // マウス報告はピクセル座標を出せず ?1016 でもセル座標を送るので、
+        // 子がピクセル座標を前提にしないよう未対応として答える。
+        if (mode == .mouse_format_sgr_pixels) return self.requestModeUnknown(tag.value, tag.ansi);
         const code: u8 = if (self.inner.terminal.modes.get(mode)) 1 else 2;
         var buf: [32]u8 = undefined;
         const resp = try std.fmt.bufPrint(&buf, "\x1b[{s}{d};{d}$y", .{

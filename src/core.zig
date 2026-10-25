@@ -886,6 +886,16 @@ test "DECRQM は未知のモードに 0 (認識せず) で応答する" {
     try testing.expectEqualStrings("\x1b[?9999;0$y", update.responses);
 }
 
+test "DECRQM は SGR pixel 座標 (?1016) に設定の前後とも 0 (未対応) で応答する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[?1016$p\x1b[?1016h\x1b[?1016$p");
+    defer update.deinit();
+    try testing.expectEqualStrings("\x1b[?1016;0$y\x1b[?1016;0$y", update.responses);
+}
+
 test "kitty keyboard query (CSI ? u) は現在の flags で応答する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);
