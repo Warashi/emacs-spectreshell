@@ -322,6 +322,8 @@ less や vim などの alternate screen アプリの画面は確定化されず�
   カーソルは point (semi-char モードでは端末のカーソル位置) に出たまま
   になる。カーソルを自分で描くプログラム (Claude Code ・ Copilot CLI
   など) では、カーソルが 2 つ見えることがある
+- 子の色の問い合わせ (OSC 10 / 11 / 4) には答えない。明暗の問い合わせ
+  ( ~\e[?996n~ ) には答える (機能一覧)
 - OSC 52 クリップボードの読み取り・画像 (kitty graphics/sixel) は未実装
 - TRAMP / リモート ~default-directory~ は対象外: リモートでは常に
   eshell 本来の (非端末) 経路にフォールバックする

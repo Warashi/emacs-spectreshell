@@ -446,6 +446,9 @@ tty フレームでは、子がカーソルを隠しても ( @code{\e[?25l} ) Em
 になる。カーソルを自分で描くプログラム (Claude Code ・ Copilot CLI
 など) では、カーソルが 2 つ見えることがある
 @item
+子の色の問い合わせ (OSC 10 / 11 / 4) には答えない。明暗の問い合わせ
+( @code{\e[?996n} ) には答える (機能一覧)
+@item
 OSC 52 クリップボードの読み取り・画像 (kitty graphics/sixel) は未実装
 @item
 TRAMP / リモート @code{default-directory} は対象外: リモートでは常に
