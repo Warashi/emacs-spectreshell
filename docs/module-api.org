@@ -83,6 +83,7 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
     (0 消去・1 設定・2 エラー・3 不定・4 一時停止) の整数、VALUE は
     0〜100 の整数か ~nil~ 。ghostty-vt の解釈どおり、0 と 3 の VALUE は
     常に ~nil~ で、1 の VALUE を省くと 0 になる。
+  - ~(bell)~: BEL。OSC などの終端の BEL は含まない。
 - *~:alt-screen~*: このバッチで alternate screen への出入りが
   あった場合のみ ~entered~ / ~left~ シンボルを持つ。変化なしならキー
   ごと省略される。
