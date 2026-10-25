@@ -58,6 +58,7 @@ pub const Handler = struct {
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
             .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
             .progress_report => try self.progressReport(value),
+            .bell => try self.relay.append(self.alloc, .bell),
             else => try self.inner.vt(action, value),
         }
     }

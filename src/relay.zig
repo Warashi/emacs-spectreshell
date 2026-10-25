@@ -6,12 +6,13 @@ pub const Event = union(enum) {
     clipboard: Clipboard,
     notification: Notification,
     progress: Progress,
+    bell,
 
     pub fn deinit(self: *Event, alloc: std.mem.Allocator) void {
         switch (self.*) {
             .clipboard => |c| alloc.free(c.data),
             .notification => |n| n.deinit(alloc),
-            .progress => {},
+            .progress, .bell => {},
         }
         self.* = undefined;
     }
@@ -20,7 +21,7 @@ pub const Event = union(enum) {
         return switch (self) {
             .clipboard => |c| .{ .clipboard = .{ .kind = c.kind, .data = try alloc.dupe(u8, c.data) } },
             .notification => |n| .{ .notification = try Notification.init(alloc, n.title, n.body) },
-            .progress => self,
+            .progress, .bell => self,
         };
     }
 };

@@ -303,6 +303,7 @@ fn appendRelay(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayList(
                 emacs.makeInteger(env, p.state),
                 if (p.value) |v| emacs.makeInteger(env, v) else emacs.nilv(env),
             }),
+            .bell => emacs.list(env, &.{emacs.intern(env, "bell")}),
         });
     }
     try items.append(arena, emacs.intern(env, ":relay"));

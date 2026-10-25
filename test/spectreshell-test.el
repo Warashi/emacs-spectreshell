@@ -858,7 +858,6 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
 
 (ert-deftest spectreshell-test-bell-reaches-terminals ()
   "子の BEL は外側の端末へ BEL で届く。"
-  :expected-result :failed
   (spectreshell-test--with-terminal (term 1 10)
     (spectreshell-test--with-relay-terminals '(t1 t2) nil sent
       (spectreshell-feed term "\x07")

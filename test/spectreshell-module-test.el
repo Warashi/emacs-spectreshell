@@ -116,9 +116,8 @@
 
 (ert-deftest spectreshell-module-test-bell-produces-relay ()
   "BEL は :relay に (bell) を積む。OSC の終端の BEL は積まない。"
-  :expected-result :failed
   (let* ((term (spectreshell--create 5 10))
-         (update (spectreshell--feed term "a\x07\x1b]2;t\x07b\x07")))
+         (update (spectreshell--feed term "a\x07\x1b]2;t\x07z\x07")))
     (should (equal (plist-get update :relay) '((bell) (bell))))
     (spectreshell--release term)))
 

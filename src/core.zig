@@ -1016,6 +1016,17 @@ test "OSC 9;4 の進捗は中継に状態と値を積む" {
     try testing.expectEqual(relay.Progress{ .state = 3, .value = null }, update.relay[1].progress);
 }
 
+test "BEL は中継にベルを積み、OSC の終端の BEL は積まない" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "a\x07\x1b]2;t\x07");
+    defer update.deinit();
+    try testing.expectEqual(@as(usize, 1), update.relay.len);
+    try testing.expect(update.relay[0] == .bell);
+}
+
 test "mode 2026 の中でも中継するものは保留しない" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);

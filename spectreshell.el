@@ -675,6 +675,20 @@ once and stops the keeping instead."
       #'spectreshell--relay-progress)
 
 ;; ---------------------------------------------------------------------
+;; Bell
+;; ---------------------------------------------------------------------
+
+(defun spectreshell--relay-bell (obj)
+  "Relay the child's BEL for OBJ.
+Not `ding': that rings only on the selected frame, and goes through
+`ring-bell-function' and `visible-bell' rather than letting the outer
+terminal show the bell its own way."
+  (spectreshell--relay obj "\a"))
+
+(setf (alist-get 'bell spectreshell--relay-handlers)
+      #'spectreshell--relay-bell)
+
+;; ---------------------------------------------------------------------
 ;; Style table
 ;; ---------------------------------------------------------------------
 
