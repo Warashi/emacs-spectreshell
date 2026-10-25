@@ -2378,7 +2378,7 @@ XTVERSION への応答で Claude Code の振る舞い (同期出力、リンク�
 カーソルが二重に見える度合い。実環境の確認は未実施。
 
 ** DONE L-47: 色の問い合わせ (OSC 10 / 11 / 4) に応答しない
-対象: =src/handler.zig=
+対象: =src/handler.zig= / =spectreshell.el=
 
 Copilot CLI は起動時に OSC 10 / 11 と OSC 4 の 0〜15 (計 17 件) を問い
 合わせ、Claude Code は OSC 11 を問い合わせる (記録した実行)。
@@ -2395,19 +2395,60 @@ spectreshell はどれにも応答しない。=color_operation= を
   DA2 の version が 242 以上のときだけ外側の背景色を問い合わせ、Ghostty
   の DA2 (=\e[>1;10;0c=) では問い合わせない。
 
-対応方針: 応答しないままにし、マニュアルに書く (記録した実行でも、両
-アプリは応答が無いまま起動した)。代案: Elisp から既定の
-fg / bg を module に渡して =rgb:RRRR/GGGG/BBBB= で答え、OSC 10 / 11 の
-設定とリセットは =face-remap= で端末領域の背景に反映する。
+対応方針: 当初は応答しないままにしてマニュアル (c736787) に書いた (記録
+した実行でも、両アプリは応答が無いまま起動した) が、色の基準を Emacs の
+テーマとし、spectreshell が描く色で答える方針に改めた。外側の端末には
+問い合わせず、子による色の設定・リセットは今までどおり捨てる。
 
-対応 (2026-10-26): 応答しないままにし、マニュアル (c736787) の既知の
-制限に書いた。代案は実装していない。
+対応 (2026-10-26, 1869c0e, 439f72e): 新しいモジュール関数
+=spectreshell--set-colors= で既定の前景・背景と 16 色を =color-values=
+の 16bit で渡し、モジュールが Ghostty の =colorOperation=
+(=src/termio/stream_handler.zig=、既定の =osc-color-report-format= は
+=16-bit=) と同じく、問い合わせ 1 件ごとに =\e]N;rgb:RRRR/GGGG/BBBB=
+(OSC 4 は =\e]4;I;rgb:...=) を問い合わせと同じ終端で返す。DA1 などと
+同じ feed の中で順を崩さないため、応答はモジュールが組み立てる。OSC 10 /
+11 は =default= face の前景・背景、OSC 4 の 0〜15 は描画と同じ
+=spectreshell-color-N= の前景、16〜255 はモジュールが xterm の 256 色の
+値で答える。=spectreshell.el= は L-50 と同じフレームで色を求め、tty の
+=unspecified-fg= / =-bg= は渡さない (その問い合わせには答えない)。face
+は初回の feed と、L-50 と同じフック (テーマの有効化・無効化、ウィンドウ
+のバッファ・選択の変化) のときだけ引き、前回と違うときだけ渡す。関数は
+=docs/module-api.org= (0483a53) に、答える内容はマニュアル (22196bf) に
+書いた。
 
-確認: batch で =\e]10;?\e\\= ・ =\e]11;?\a= ・ =\e]4;1;?\e\\= を feed
-しても子へ送るものは無く、続けて送った DA1 には答えた。
+確認:
 
-未確認: 直結で Copilot CLI / Claude Code が応答をもとに表示を変えるか
-(変えるなら spectreshell 経由との差になる)。実環境の確認は未実施。
+- batch: Zig と ERT で、終端 (BEL / ST) に合わせること、
+  =\e]4;1;?;2;?\e\\= と =\e]10;?;?\e\\= に 1 件ずつ順に答えること、
+  渡していない色と OSC 12 には答えず続く DA1 には答えること、子が色を
+  設定しても答えが変わらないこと、16〜255 の 240 色が
+  =spectreshell--256-color-hex= と一致すること、feed のたびに face を
+  引かずテーマの切り替えで引き直すこと、引数の検査を固定した。
+- pty (=/tmp/l47-scripts/e2e.py= と =daemon.el= ・ =child.py=): daemon
+  に =emacsclient -t= (=TERM=xterm-256color= 、 =COLORTERM=truecolor=)
+  でつなぎ、eshell の子が
+  =\e]10;?\e\\\e]11;?\a\e]4;1;?;2;?\e\\\e]4;196;?\e\\\e[c= を送った。
+
+#+begin_example
+テーマ           OSC 10          OSC 11 (BEL)    OSC 4;1         OSC 4;2
+なし (-Q)        答えない        答えない        cdcd/0000/0000  0000/cdcd/0000
+modus-vivendi    ffff/ffff/ffff  0000/0000/0000  ffff/5f5f/5959  4444/bcbc/4444
+modus-operandi   0000/0000/0000  ffff/ffff/ffff  a6a6/0000/0000  0000/6868/0000
+#+end_example
+
+  どれも終端は問い合わせと同じで、OSC 4;196 は =ffff/0000/0000= 、最後
+  に DA1 が返った。 =COLORTERM= を外した 256 色のフレームでは、
+  modus-operandi の 4;1 / 4;2 が Emacs の寄せた色 (=afaf/0000/0000= /
+  =0000/5f5f/0000=) になった。
+
+違い: Ghostty は OSC 12 (カーソル色) にも答え、子が設定した色で答える。
+spectreshell はどちらもしない。テーマ以外 (=set-face-attribute= など) で
+face を変えたときは、次にフックが走るまで前の色で答える。256 色の tty
+フレームでは子の 16 色が外側のテーマの色で見えるが、答えは Emacs の色に
+なる。
+
+未確認: Copilot CLI / Claude Code が答えをもとに表示を変えるか、外側を
+Ghostty 1.3 にした実環境での振る舞い。実環境の確認は未実施。
 
 ** DONE L-48: フォーカス報告 (mode 1004) の =\e[I= / =\e[O= を子へ送らない
 対象: =spectreshell.el= / =src/module.zig=
