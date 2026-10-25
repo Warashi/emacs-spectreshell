@@ -2151,10 +2151,17 @@ CLEAR を送って保持をやめる。finalize では持ち主の端末のも�
   =\e]9;4;3\a= がもう 1 回出て、ジョブが動いたままバッファを kill
   すると =\e]9;4;0\a= が出た。
 
-未確認: Ghostty で進捗が表示され、消去で消えること。Ghostty が進捗を
-一定時間で自動で消すかと、そのとき送り直しが要るかは見ていない。
-2 つの =emacsclient -t= からの表示。Copilot CLI が実際に OSC 9;4 を
-出すこと。実環境の確認は未実施。
+残る差: バッファを表示していない間に出た消去 (子の =\e]9;4;0\a=、
+ジョブの終了、バッファの kill) は、他の中継と同じく捨て、保持も消す
+ので、表示し直しても送らない。進捗を表示した後に別のバッファへ切り
+替え、その間に消えた場合、外側の進捗は残る。Ghostty は最後の進捗から
+15 秒で進捗を消す (=src/apprt/gtk/class/surface.zig= の
+=progress_bar_timeout_seconds=、macOS の =SurfaceView_AppKit.swift= の
+=progressReportTimer=。ソースの読解) ので、残るのはその間だけになる。
+
+未確認: Ghostty で進捗が表示され、消去で消えること、上の 15 秒での
+消去。2 つの =emacsclient -t= からの表示。Copilot CLI が実際に OSC 9;4
+を出すこと。実環境の確認は未実施。
 
 ** DONE L-43: 子のタイトル (OSC 0/2) が外側の Ghostty のタブ名に出ない
 対象: =spectreshell.el= (=spectreshell-title-functions=、M-23 の中継)
