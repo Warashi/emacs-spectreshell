@@ -2073,6 +2073,25 @@ RGB で出すので、外側のテーマと色が合わない。既定の前景�
 オプションを足す。最小限なら、テーマの RGB に合わせて face を設定する
 例をマニュアルに書く。
 
+** TODO L-50: color scheme の問い合わせ (=\e[?996n=) に応答せず、mode 2031 の通知も送らない
+対象: =src/handler.zig= / =spectreshell.el=
+
+Ghostty は =\e[?996n= に =\e[?997;1n= (dark) か =\e[?997;2n= (light)
+を返し (=src/termio/Termio.zig=)、mode 2031 が有効なら明暗が変わった
+ときにも同じ形で知らせる。spectreshell は =color_scheme= を捨てる
+(=src/handler.zig= の =deviceStatus=。batch で応答が空)。DECRQM
+=?2031= には既知のモードとして 2 を返す。
+
+Copilot CLI は起動時に =\e[?996n= を送る。記録した実行で偽の応答を返
+すと =\e[?2031h= を送り、返さないと送らなかった。応答が無いときに
+OS 側の監視に切り替えるというのは調査時のバンドルの読解で、未確認。
+Claude Code は起動時に =\e[?2031h= を送る (記録した実行)。
+
+対応方針: Elisp から、バッファを表示しているフレームの
+=background-mode= (dark / light) をモジュールに渡し、=\e[?996n= に
+Ghostty と同じ形で答える。mode 2031 が有効なら、=background-mode= が
+変わったときに通知する。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
