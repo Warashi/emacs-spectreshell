@@ -114,6 +114,14 @@
                    '((progress 1 50) (progress 1 0) (progress 3 nil) (progress 0 nil))))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-bell-produces-relay ()
+  "BEL は :relay に (bell) を積む。OSC の終端の BEL は積まない。"
+  :expected-result :failed
+  (let* ((term (spectreshell--create 5 10))
+         (update (spectreshell--feed term "a\x07\x1b]2;t\x07b\x07")))
+    (should (equal (plist-get update :relay) '((bell) (bell))))
+    (spectreshell--release term)))
+
 (ert-deftest spectreshell-module-test-flush-draws-pending-frame ()
   "--flush は保留中の描画を通常の update plist で返す。"
   (let* ((term (spectreshell--create 1 10))
