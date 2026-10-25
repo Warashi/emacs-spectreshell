@@ -1817,6 +1817,30 @@ PATH の =stty= が GNU なら darwin では失敗させる (=stty --version= �
 =\e]9;4;STATE;VALUE\a= を送り、バッファが再び表示されたら送り直す。
 ジョブの終了時とバッファの kill 時は消去 (=\e]9;4;0\a=) を送る。
 
+** TODO L-43: 子のタイトル (OSC 0/2) が外側の Ghostty のタブ名に出ない
+対象: =spectreshell.el= (=spectreshell-title-functions=、M-23 の中継)
+
+直結では、タブ名が =✳ Claude Code= や =GitHub Copilot= になる (記録
+した実行で両アプリが OSC 0 で送っていた)。spectreshell 経由ではバッ
+ファの中に留まる。
+
+- タイトルは Elisp まで届いている。=:title= を受けると
+  =spectreshell-title= に保存して =spectreshell-title-functions= を
+  呼ぶが、この hook の既定は nil (=spectreshell.el=)。
+- Emacs の =xterm-set-window-title= (既定 nil) を t にすると、
+  =post-command-hook= などで =frame-title-format= を OSC 2 で外側へ送る
+  (=xterm.el= の =xterm--init-frame-title=)。キー操作のたびに送るので、
+  子のタイトルを外側へ直接送っても次の打鍵で =frame-title-format= に
+  上書きされる。逆に =frame-title-format= 経由だけだと、プロセスフィルタ
+  での更新はキーを押すまで外へ出ない。
+
+対応方針: M-23 の中継で =\e]2;TITLE\a= を送る関数を用意する (制御文字
+は除く)。=spectreshell-title-functions= の docstring は「フレームの
+タイトルはこの層が持たない」としているので、既定で hook に入れるのは
+=spectreshell-eshell.el= 側にするか、利用者が足す形にしてマニュアルに
+書く。=xterm-set-window-title= を t にしている利用者には、
+=frame-title-format= で =spectreshell-title= を表示する例を示す。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
