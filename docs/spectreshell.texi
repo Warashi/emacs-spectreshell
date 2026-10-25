@@ -441,6 +441,11 @@ GUI フレームでは、選ばれたグリフが端末のセル幅を超える�
 ボタンを押さないマウスの移動 (mode 1003 のホバー) は子へ送らない。
 ドラッグ中の移動・クリック・ホイールは送る
 @item
+tty フレームでは、子がカーソルを隠しても ( @code{\e[?25l} ) Emacs の
+カーソルは point (semi-char モードでは端末のカーソル位置) に出たまま
+になる。カーソルを自分で描くプログラム (Claude Code ・ Copilot CLI
+など) では、カーソルが 2 つ見えることがある
+@item
 OSC 52 クリップボードの読み取り・画像 (kitty graphics/sixel) は未実装
 @item
 TRAMP / リモート @code{default-directory} は対象外: リモートでは常に
