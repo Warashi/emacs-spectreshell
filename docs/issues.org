@@ -554,7 +554,7 @@ flags 5 で shift が落ちて =\e[97;5u= になる (shift-translation による
 別の穴。M-27 で扱う)。Copilot CLI / Claude Code での実環境の確認は
 未実施。
 
-** TODO M-24: 子の OSC 52 (クリップボードへの書き込み) が外側の Ghostty に届かない
+** DONE M-24: 子の OSC 52 (クリップボードへの書き込み) が外側の Ghostty に届かない
 対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el= (M-23 の中継)
 
 直結では、Claude Code の fullscreen での選択コピーや Copilot CLI の
@@ -589,6 +589,37 @@ flags 5 で shift が落ちて =\e[97;5u= になる (shift-translation による
   を呼ぶ形は、端末ごとにフレームを選択し直す必要があり、TERMINAL を
   指定して送る他の項目と形が揃わないので採らない。
 - 転送を実装したら、DA1 の応答に =52= を足す (Ghostty と同じ)。
+
+対応 (2026-10-25, 11f45a0): Handler が =clipboard_contents= を横取りし、
+=:relay= に =(clipboard KIND DATA)= を出す。DATA が =?= の読み取りは
+捨てる。=spectreshell--relay-clipboard= が
+=(eq (terminal-parameter TERM 'xterm--set-selection) t)= の端末にだけ
+=\e]52;KIND;DATA\a= を送る。KIND が英数字 1 文字でないものと、DATA が
+base64 の文字以外を含むものは外側へ書かずに捨てる。
+=xterm-max-cut-length= を超える DATA も捨てる (xterm.el は =warn= と
+=sit-for= で知らせるが、プロセスフィルタから待たせないため捨てるだけに
+した)。screen 向けの DCS 包みはしない。DA1 は =\e[?62;22;52c= にした。
+=:relay= の形は =docs/module-api.org= (be4aa18) に、届く条件は
+マニュアル (2decfae) に書いた。
+
+確認:
+
+- batch: Zig で =\e]52;p;aGk=\a= と =\e]52;;eW8=\a= が種別 p / c の
+  2 件になり、=\e]52;c;?\a= は何も積まず、mode 2026 の中でも保留
+  しないこと、DA1 を固定した。ERT で plist の形と、
+  =xterm--set-selection= の立った端末にだけ届くこと、mode 2026 の中でも
+  届くこと、base64 以外と長すぎるものを捨てることを固定した。
+- pty (=/tmp/parity-scripts/m24-e2e.py=): =emacs -Q --daemon= に
+  =emacsclient -t= を pty でつなぎ、外側の端末役として =\e[c= に答えた。
+  =\e[?62;22;52c= で答えると =TERM= が =xterm-256color= /
+  =xterm-ghostty= のどちらでも =xterm--set-selection= が =t= になり、
+  spectreshell の eshell で =printf '\e]52;c;aGk=\a'= を実行すると pty
+  に =\e]52;c;aGk=\a= が出た。=\e[?62;22c= で答えると立たず、何も
+  出なかった。
+
+未確認: Ghostty (=clipboard-write= の既定 =allow= と =deny=) で手元の
+クリップボードに入ること、Claude Code / Copilot CLI がコピー操作で
+OSC 52 を出すこと。実環境の確認は未実施。
 
 ** DONE M-23: 子が外側の端末へ向けて出す OSC 52 / 777 / 9;4 / タイトル / BEL を中継する経路が無い
 対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el=
