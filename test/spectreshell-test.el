@@ -105,23 +105,24 @@ PTY の read はエスケープシーケンスや多バイト文字を任意の�
 
 (ert-deftest spectreshell-test-synchronized-output-times-out ()
   "mode 2026 を閉じないまま出力が止まっても、タイムアウト後には描く。"
-  (let ((spectreshell-synchronized-timeout 0.05))
-    (spectreshell-test--with-terminal (term 1 10)
-      (spectreshell-feed term "\x1b[?2026hab")
-      (should-not (string-prefix-p "ab" (buffer-string)))
-      (sleep-for 0.2)
-      (should (string-prefix-p "ab" (buffer-string))))))
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-feed term "\x1b[?2026hab")
+    (should-not (string-prefix-p "ab" (buffer-string)))
+    (let ((timer (spectreshell-sync-timer term)))
+      (should (timerp timer))
+      (timer-event-handler timer))
+    (should (string-prefix-p "ab" (buffer-string)))))
 
 (ert-deftest spectreshell-test-synchronized-timeout-is-not-extended-by-feeds ()
   "保留が続く feed が来続けても、タイムアウトは最初の保留から数える。
 フレームの継ぎ目が毎回 feed の途中に来ると、閉じた feed が来ない。"
-  (let ((spectreshell-synchronized-timeout 0.1))
-    (spectreshell-test--with-terminal (term 1 10)
-      (spectreshell-feed term "\x1b[?2026ha")
-      (sleep-for 0.06)
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-feed term "\x1b[?2026ha")
+    (let ((timer (spectreshell-sync-timer term)))
       (spectreshell-feed term "\x1b[?2026l\x1b[?2026hb")
-      (sleep-for 0.06)
-      (should (string-prefix-p "ab" (buffer-string))))))
+      (should (eq timer (spectreshell-sync-timer term)))
+      (timer-event-handler timer))
+    (should (string-prefix-p "ab" (buffer-string)))))
 
 (ert-deftest spectreshell-test-finalize-draws-pending-frame ()
   "保留中に確定化すると、保留していた描画を反映してから確定する。"
