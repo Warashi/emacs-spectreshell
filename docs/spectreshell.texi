@@ -374,9 +374,8 @@ alternate screen (less・vim 等)、bracketed paste
 @item
 XTVERSION ( @code{\e[>q} ) には Ghostty と同じく、同梱する ghostty の版で
 @code{ghostty 1.4.0} のように答える。マウスはセル座標でしか送れないので、
-DECRQM @code{?1016} (SGR pixel 座標) には未対応 (0) と答える。報告や
-イベントを送らない @code{?2033} (可視性の報告) と @code{?5522} (kitty の paste
-イベント) にも 0 と答える
+DECRQM @code{?1016} (SGR pixel 座標) には未対応 (0) と答える。イベントを
+送らない @code{?5522} (kitty の paste イベント) にも 0 と答える
 @item
 カーソル位置の問い合わせ ( @code{\e[6n} ) には @code{\e[行;桁R} で、DECXCPR
 ( @code{\e[?6n} ) には Ghostty と同じくページ番号 1 を添えた
@@ -420,6 +419,17 @@ tty フレームのフォーカスは外側の端末の報告に従い、報告�
 子の明暗の問い合わせ ( @code{\e[?996n} ) には、バッファを表示している
 フレームの @code{background-mode} で Ghostty と同じく答える。子が mode 2031
 を有効にしている間は、テーマの切り替えなどで明暗が変わると子へ知らせる
+@item
+子の可視性の問い合わせ ( @code{\e[?998n} ) には、Ghostty と同じく
+@code{\e[?999;1n} (見えている) か @code{\e[?999;2n} (見えていない) で答える。
+子が mode 2033 を有効にした時点と、その間に可視性が変わったときも
+同じ報告を送る。見えているとは、daemon の初期フレームを除く、見えて
+いるフレームのどれかのウィンドウ (選択中でなくてよい) がバッファを
+表示していること。tty フレームが外側の端末で別のタブに隠れていても
+Emacs には分からないので、見えているとみなす。フレームの可視性の変化は
+hook が無いので、ウィンドウマネージャによるアイコン化・復帰と、
+@code{make-frame-visible} ・ @code{make-frame-invisible} ・ @code{iconify-frame} の
+呼び出しで引き直す
 @item
 子の色の問い合わせ (OSC 10 / 11 / 4) には、spectreshell が描く色で
 Ghostty と同じ形 ( @code{\e]11;rgb:RRRR/GGGG/BBBB} 、終端は問い合わせと

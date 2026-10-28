@@ -574,6 +574,13 @@ fn setColorSchemeImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value
     return emacs.nilv(env);
 }
 
+/// VISIBLE は nil か、それ以外 (見えている)。
+fn setVisibilityImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
+    const term = try getTerm(env, args[0]);
+    if (term.setVisibility(emacs.isNotNil(env, args[1]))) |report| return emacs.makeUnibyteString(env, report);
+    return emacs.nilv(env);
+}
+
 /// 色は nil か、Emacs の color-values と同じ (R G B) (各 0〜65535)。
 fn extractRgb16(env: *emacs.Env, value: *emacs.Value) !?handler.Colors.Rgb16 {
     if (!emacs.isNotNil(env, value)) return null;
@@ -684,6 +691,11 @@ fn setColorSchemeFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: 
     return finish(env, setColorSchemeImpl(env, args[0..@intCast(nargs)]));
 }
 
+fn setVisibilityFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
+    _ = data;
+    return finish(env, setVisibilityImpl(env, args[0..@intCast(nargs)]));
+}
+
 fn setColorsFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
     _ = data;
     return finish(env, setColorsImpl(env, args[0..@intCast(nargs)]));
@@ -729,6 +741,7 @@ pub fn registerAll(env: *emacs.Env) void {
     defalias(env, "spectreshell--encode-paste", 2, 2, encodePasteFn, "Encode TEXT as a paste for TERM into PTY bytes.");
     defalias(env, "spectreshell--encode-mouse", 6, 6, encodeMouseFn, "Encode a mouse BUTTON/ACTION at ROW/COL with MODIFIERS for TERM.");
     defalias(env, "spectreshell--set-color-scheme", 2, 2, setColorSchemeFn, "Set TERM's color SCHEME (dark or light); return the report due to the child, or nil.");
+    defalias(env, "spectreshell--set-visibility", 2, 2, setVisibilityFn, "Set whether TERM is VISIBLE; return the report due to the child, or nil.");
     defalias(env, "spectreshell--set-colors", 4, 4, setColorsFn, "Set the colors TERM answers the child's queries with: FG, BG and PALETTE (16 colors).");
     defalias(env, "spectreshell--release", 1, 1, releaseFn, "Explicitly release TERM. Safe to call more than once.");
 }

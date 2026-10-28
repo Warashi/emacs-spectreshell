@@ -278,6 +278,16 @@ pub const Term = struct {
         return scheme.report();
     }
 
+    /// 子が可視性の変化の通知 (mode 2033) を求めていて、可視性が変わった
+    /// ときは子へ送る通知を返す。渡す前は、Ghostty と同じく見えている
+    /// として扱う。
+    pub fn setVisibility(self: *Term, visible: bool) ?[]const u8 {
+        const changed = self.terminal.flags.visible != visible;
+        self.terminal.flags.visible = visible;
+        if (!changed or !self.terminal.modes.get(.report_visibility)) return null;
+        return handler.visibilityReport(visible);
+    }
+
     pub fn setColors(self: *Term, colors: handler.Colors) void {
         self.colors = colors;
     }
@@ -939,14 +949,27 @@ test "DECRQM は SGR pixel 座標 (?1016) に設定の前後とも 0 (未対応)
     try testing.expectEqualStrings("\x1b[?1016;0$y\x1b[?1016;0$y", update.responses);
 }
 
-test "DECRQM は可視性の報告 (?2033) と kitty の paste イベント (?5522) に 0 (未対応) で応答する" {
+test "DECRQM は kitty の paste イベント (?5522) に設定の前後とも 0 (未対応) で応答する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);
     defer t.deinit();
 
-    var update = try t.feed(alloc, "\x1b[?2033h\x1b[?2033$p\x1b[?5522h\x1b[?5522$p");
+    var update = try t.feed(alloc, "\x1b[?5522h\x1b[?5522$p");
     defer update.deinit();
-    try testing.expectEqualStrings("\x1b[?2033;0$y\x1b[?5522;0$y", update.responses);
+    try testing.expectEqualStrings("\x1b[?5522;0$y", update.responses);
+}
+
+test "DECRQM は可視性の報告 (?2033) の現在値を 1 / 2 で応答する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var before = try t.feed(alloc, "\x1b[?2033$p");
+    defer before.deinit();
+    try testing.expectEqualStrings("\x1b[?2033;2$y", before.responses);
+    var after = try t.feed(alloc, "\x1b[?2033h\x1b[?2033$p");
+    defer after.deinit();
+    try testing.expectEqualStrings("\x1b[?999;1n\x1b[?2033;1$y", after.responses);
 }
 
 test "DECXCPR (CSI ? 6 n) はページ番号 1 を添えた位置で応答する" {
@@ -969,14 +992,48 @@ test "DECXCPR (CSI ? 6 n) は origin mode でスクロール領域からの相�
     try testing.expectEqualStrings("\x1b[?2;3;1R", update.responses);
 }
 
-test "可視性の問い合わせ (CSI ? 998 n) には応答しない" {
+test "CSI ? 998 n は渡された可視性で応答し、渡す前は見えているとして答える" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);
     defer t.deinit();
 
-    var update = try t.feed(alloc, "\x1b[?998n");
+    var before = try t.feed(alloc, "\x1b[?998n");
+    defer before.deinit();
+    try testing.expectEqualStrings("\x1b[?999;1n", before.responses);
+    _ = t.setVisibility(false);
+    var hidden = try t.feed(alloc, "\x1b[?998n");
+    defer hidden.deinit();
+    try testing.expectEqualStrings("\x1b[?999;2n", hidden.responses);
+    _ = t.setVisibility(true);
+    var shown = try t.feed(alloc, "\x1b[?998n");
+    defer shown.deinit();
+    try testing.expectEqualStrings("\x1b[?999;1n", shown.responses);
+}
+
+test "mode 2033 を立てた時点で今の可視性を送る" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    _ = t.setVisibility(false);
+    var update = try t.feed(alloc, "\x1b[?2033h\x1b[?2033h\x1b[?2033l\x1b[?2033l");
     defer update.deinit();
-    try testing.expectEqualStrings("", update.responses);
+    try testing.expectEqualStrings("\x1b[?999;2n\x1b[?999;2n", update.responses);
+}
+
+test "setVisibility は mode 2033 の間に可視性が変わったときだけ通知を返す" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    try testing.expectEqual(@as(?[]const u8, null), t.setVisibility(false));
+    try testing.expectEqual(@as(?[]const u8, null), t.setVisibility(true));
+    var update = try t.feed(alloc, "\x1b[?2033h");
+    defer update.deinit();
+    try testing.expectEqual(@as(?[]const u8, null), t.setVisibility(true));
+    try testing.expectEqualStrings("\x1b[?999;2n", t.setVisibility(false).?);
+    try testing.expectEqual(@as(?[]const u8, null), t.setVisibility(false));
+    try testing.expectEqualStrings("\x1b[?999;1n", t.setVisibility(true).?);
 }
 
 test "APC の kitty graphics と glyph protocol は読み捨て、続く文字は描く" {

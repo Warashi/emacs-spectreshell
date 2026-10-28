@@ -1096,6 +1096,98 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
       (should (null responses)))))
 
 ;; ---------------------------------------------------------------------
+;; 可視性の報告 (?998n / mode 2033)
+;; ---------------------------------------------------------------------
+
+(defmacro spectreshell-test--with-visibility (visible &rest body)
+  "可視性の判定を変数 VISIBLE の値に差し替えて BODY を実行する.
+判定そのものは `spectreshell-test-visible-when-a-visible-frame-shows-buffer'
+で固定してあるので、ここでは報告の流れだけを見る。"
+  (declare (indent 1))
+  `(let ((,visible t))
+     (cl-letf (((symbol-function 'spectreshell--visible-p)
+                (lambda (_) ,visible)))
+       ,@body)))
+
+(ert-deftest spectreshell-test-visible-when-a-visible-frame-shows-buffer ()
+  "daemon の初期フレームを除く、見えているフレームのどれかのウィンドウ
+(選択中でなくてよい) がバッファを表示していれば、見えているとみなす。
+アイコン化したフレームと不可視のフレームは数えない。"
+  (let ((buffer (current-buffer))
+        ;; (FRAME VISIBILITY INITIAL SHOWN-BUFFER)
+        (frames nil))
+    (cl-letf (((symbol-function 'frame-list) (lambda () (mapcar #'car frames)))
+              ((symbol-function 'frame-visible-p)
+               (lambda (f) (nth 1 (assq f frames))))
+              ((symbol-function 'frame-initial-p)
+               (lambda (f) (nth 2 (assq f frames))))
+              ((symbol-function 'get-buffer-window)
+               (lambda (b f) (and (eq b (nth 3 (assq f frames))) 'window))))
+      (setq frames `((f1 t nil ,buffer)))
+      (should (spectreshell--visible-p buffer))
+      (setq frames `((f1 t nil other) (f2 t nil ,buffer)))
+      (should (spectreshell--visible-p buffer))
+      (setq frames `((f1 t nil other)))
+      (should-not (spectreshell--visible-p buffer))
+      (setq frames `((f1 icon nil ,buffer) (f2 nil nil ,buffer)))
+      (should-not (spectreshell--visible-p buffer))
+      (setq frames `((f0 t t ,buffer)))
+      (should-not (spectreshell--visible-p buffer)))))
+
+(ert-deftest spectreshell-test-visibility-query-answers-current-visibility ()
+  "\\e[?998n には、バッファの今の可視性で Ghostty と同じ形で答える。"
+  (spectreshell-test--with-visibility visible
+    (spectreshell-test--with-terminal (term 1 10 responses)
+      (spectreshell-feed term "\x1b[?998n")
+      (should (equal responses '("\e[?999;1n")))
+      (setq responses nil visible nil)
+      (spectreshell-feed term "\x1b[?998n")
+      (should (equal responses '("\e[?999;2n"))))))
+
+(ert-deftest spectreshell-test-visibility-is-reported-while-mode-2033-is-on ()
+  "子が mode 2033 を有効にした時点で今の可視性を送り、以後は変わったとき
+だけ送る。ウィンドウのバッファの変化と、フレームの削除・可視性の変化の
+どれのきっかけでも再評価する。無効にした後と、ジョブが終わった後は送らない。"
+  (spectreshell-test--with-visibility visible
+    (spectreshell-test--with-terminal (term 1 10 responses)
+      (setq visible nil)
+      (spectreshell-feed term "\x1b[?2033h")
+      (should (equal responses '("\e[?999;2n")))
+      (setq responses nil visible t)
+      (run-hook-with-args 'window-buffer-change-functions (selected-frame))
+      (should (equal responses '("\e[?999;1n")))
+      (setq responses nil)
+      (run-hook-with-args 'window-buffer-change-functions (selected-frame))
+      (should (null responses))
+      (setq visible nil)
+      (run-hook-with-args 'after-delete-frame-functions (selected-frame))
+      (should (equal responses '("\e[?999;2n")))
+      (setq responses nil visible t)
+      (funcall (lookup-key special-event-map [make-frame-visible])
+               '(make-frame-visible (nil)))
+      (should (equal responses '("\e[?999;1n")))
+      (setq responses nil visible nil)
+      (funcall (lookup-key special-event-map [iconify-frame])
+               '(iconify-frame (nil)))
+      (should (equal responses '("\e[?999;2n")))
+      (setq responses nil)
+      (spectreshell-feed term "\x1b[?2033l")
+      (setq visible t)
+      (run-hook-with-args 'window-buffer-change-functions (selected-frame))
+      (should (null responses))
+      (spectreshell-feed term "\x1b[?2033h")
+      (spectreshell-finalize term)
+      (setq responses nil visible nil)
+      (run-hook-with-args 'window-buffer-change-functions (selected-frame))
+      (should (null responses)))))
+
+(ert-deftest spectreshell-test-visibility-is-reevaluated-by-frame-commands ()
+  "Lisp から呼ぶ `make-frame-visible' `make-frame-invisible' `iconify-frame'
+も、可視性を再評価するきっかけにする。"
+  (dolist (fn '(make-frame-visible make-frame-invisible iconify-frame))
+    (should (advice-member-p #'spectreshell--report-visibility fn))))
+
+;; ---------------------------------------------------------------------
 ;; 明暗の問い合わせと通知 (L-50)
 ;; ---------------------------------------------------------------------
 

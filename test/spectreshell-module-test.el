@@ -174,6 +174,33 @@ mode 2026 の中で終わった feed も返す。"
     (should-error (spectreshell--set-color-scheme term 'grey))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-visibility-query-is-answered ()
+  "\\e[?998n には --set-visibility で渡した可視性で答える。渡す前は見えている
+として答える。"
+  (let ((term (spectreshell--create 5 10)))
+    (should (equal (plist-get (spectreshell--feed term "\x1b[?998n") :responses)
+                   "\x1b[?999;1n"))
+    (spectreshell--set-visibility term nil)
+    (should (equal (plist-get (spectreshell--feed term "\x1b[?998n") :responses)
+                   "\x1b[?999;2n"))
+    (spectreshell--set-visibility term t)
+    (should (equal (plist-get (spectreshell--feed term "\x1b[?998n") :responses)
+                   "\x1b[?999;1n"))
+    (spectreshell--release term)))
+
+(ert-deftest spectreshell-module-test-set-visibility-returns-report ()
+  "--set-visibility は、子が mode 2033 を有効にしていて可視性が変わったとき
+だけ子へ送る通知を返す。"
+  (let ((term (spectreshell--create 5 10)))
+    (should-not (spectreshell--set-visibility term nil))
+    (should-not (spectreshell--set-visibility term t))
+    (should (equal (plist-get (spectreshell--feed term "\x1b[?2033h") :responses)
+                   "\x1b[?999;1n"))
+    (should-not (spectreshell--set-visibility term t))
+    (should (equal (spectreshell--set-visibility term nil) "\x1b[?999;2n"))
+    (should-not (multibyte-string-p (spectreshell--set-visibility term t)))
+    (spectreshell--release term)))
+
 (ert-deftest spectreshell-module-test-color-queries-are-answered ()
   "OSC 10 / 11 / 4 の 0〜15 には --set-colors で渡した色で、Ghostty と同じ
 16bit の形と問い合わせの終端で答える。渡していない色には答えない。"

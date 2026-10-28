@@ -842,6 +842,68 @@ forgotten instead."
 (add-hook 'window-selection-change-functions #'spectreshell--report-color-scheme)
 
 ;; ---------------------------------------------------------------------
+;; Visibility (?998n / mode 2033)
+;; ---------------------------------------------------------------------
+
+(defvar spectreshell--visibility-terminals nil
+  "Terminals whose module was told the visibility.
+They are told again whenever it may have changed.")
+
+(defun spectreshell--visible-p (buffer)
+  "Return t if a window of a visible frame shows BUFFER.
+Any window counts, not only the selected one.  A daemon's initial frame
+does not count: nobody looks at it.  A tty frame that the outer terminal
+hides behind another tab looks visible, since Emacs cannot tell."
+  (and (seq-some (lambda (frame)
+                   (and (not (frame-initial-p frame))
+                        (eq (frame-visible-p frame) t)
+                        (get-buffer-window buffer frame)))
+                 (frame-list))
+       t))
+
+(defun spectreshell--update-visibility (obj)
+  "Tell OBJ's module whether its buffer is visible.
+The module answers the child's queries with it, and returns a report
+for the child when the visibility changed while the child asks for them
+\(mode 2033); that report is sent here."
+  (when-let* ((report (spectreshell--set-visibility
+                       (spectreshell-term obj)
+                       (spectreshell--visible-p (spectreshell-buffer obj)))))
+    (funcall (spectreshell-send-fn obj) report)))
+
+(defun spectreshell--track-visibility (obj)
+  "Tell OBJ's module the current visibility and keep it told.
+Member of `spectreshell--before-feed-functions'."
+  (unless (memq obj spectreshell--visibility-terminals)
+    (push obj spectreshell--visibility-terminals))
+  (spectreshell--update-visibility obj))
+
+(add-hook 'spectreshell--before-feed-functions #'spectreshell--track-visibility)
+
+(defun spectreshell--report-visibility (&rest _)
+  "Tell every tracked terminal its visibility, which may have changed.
+Terminals that have been finalized, or whose buffer is gone, are
+forgotten instead."
+  (interactive "e")
+  (dolist (obj spectreshell--visibility-terminals)
+    (if (marker-buffer (spectreshell-marker obj))
+        (spectreshell--update-visibility obj)
+      (setq spectreshell--visibility-terminals
+            (delq obj spectreshell--visibility-terminals)))))
+
+;; Windows gaining or losing the buffer, and frames being deleted.
+;; `after-delete-frame-functions' rather than `delete-frame-functions',
+;; which runs while the frame is still in `frame-list'.
+(add-hook 'window-buffer-change-functions #'spectreshell--report-visibility)
+(add-hook 'after-delete-frame-functions #'spectreshell--report-visibility)
+;; Frame visibility changes have no hook: a window manager's iconify and
+;; deiconify arrive as these special events, and Lisp calls are advised.
+(define-key special-event-map [iconify-frame] #'spectreshell--report-visibility)
+(define-key special-event-map [make-frame-visible] #'spectreshell--report-visibility)
+(dolist (fn '(make-frame-visible make-frame-invisible iconify-frame))
+  (advice-add fn :after #'spectreshell--report-visibility))
+
+;; ---------------------------------------------------------------------
 ;; Colors (OSC 10 / 11 / 4)
 ;; ---------------------------------------------------------------------
 

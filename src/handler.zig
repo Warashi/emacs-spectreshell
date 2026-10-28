@@ -19,6 +19,12 @@ pub const ColorScheme = enum {
     }
 };
 
+/// 可視性の報告 (CSI ? 998 n への答えと mode 2033 の通知)。Ghostty の
+/// device_status.encodeVisibilityReport と同じ形。
+pub fn visibilityReport(visible: bool) []const u8 {
+    return if (visible) "\x1b[?999;1n" else "\x1b[?999;2n";
+}
+
 /// 子の色の問い合わせ (OSC 10 / 11 / 4 の 0〜15) に答える値。描く色を
 /// 知っているのは Elisp なので外から渡す。null の色には答えない。
 pub const Colors = struct {
@@ -115,6 +121,18 @@ pub const Handler = struct {
             .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
             .progress_report => try self.progressReport(value),
             .bell => try self.relay.append(self.alloc, .bell),
+            // 内側の handler は write_pty を持たないので、mode 2033 を立てた
+            // ときの報告はここで出す。Ghostty と同じく、すでに立っていても
+            // 立てるたびに送る。
+            .set_mode, .restore_mode => {
+                try self.innerVt(action, value);
+                if (value.mode == .report_visibility and self.inner.terminal.modes.get(.report_visibility)) {
+                    try self.responses.appendSlice(
+                        self.alloc,
+                        visibilityReport(self.inner.terminal.flags.visible),
+                    );
+                }
+            },
             .color_operation => {
                 try self.innerVt(action, value);
                 try self.colorReports(&value.requests, value.terminator);
@@ -151,9 +169,10 @@ pub const Handler = struct {
             .color_scheme => if (self.color_scheme.*) |scheme| {
                 try self.responses.appendSlice(self.alloc, scheme.report());
             },
-            // 可視性 (CSI ? 998 n) は Emacs 側のウィンドウの状態で、ここでは
-            // 分からないので答えない。
-            .visibility => {},
+            .visibility => try self.responses.appendSlice(
+                self.alloc,
+                visibilityReport(self.inner.terminal.flags.visible),
+            ),
         }
     }
 
@@ -231,12 +250,11 @@ pub const Handler = struct {
     fn requestMode(self: *Handler, mode: ghostty_vt.Mode) !void {
         const tag: ghostty_vt.modes.ModeTag = @bitCast(@backingInt(mode));
         // マウス報告はピクセル座標を出せず ?1016 でもセル座標を送るので、
-        // 子がピクセル座標を前提にしないよう未対応として答える。可視性の
-        // 報告 (?2033) と kitty の paste イベント (?5522) も、立てられても
-        // 報告やイベントを送らないので同じく未対応として答える。
+        // 子がピクセル座標を前提にしないよう未対応として答える。kitty の
+        // paste イベント (?5522) も、立てられてもイベントを送らないので
+        // 同じく未対応として答える。
         switch (mode) {
             .mouse_format_sgr_pixels,
-            .report_visibility,
             .kitty_paste_events,
             => return self.requestModeUnknown(tag.value, tag.ansi),
             else => {},
