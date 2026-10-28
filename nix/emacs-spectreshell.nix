@@ -83,7 +83,8 @@ stdenv.mkDerivation (finalAttrs: {
   # ディレクトリを cwd として相対パスで spawn されるため、zig-pkg が store への
   # symlink だと物理 cwd が /nix/store 側になり相対パス解決が壊れる
   postConfigure = ''
-    cp -rL --no-preserve=mode ${finalAttrs.deps} zig-pkg
+    cp -rL ${finalAttrs.deps} zig-pkg
+    chmod -R u+w zig-pkg
   ''
   # darwin stdenv の apple-sdk は xcbuild 製 xcrun を propagate しており
   # PATH 上でシムより先に来る可能性があるため、シムを先頭に固定する
