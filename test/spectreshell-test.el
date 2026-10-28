@@ -1279,6 +1279,96 @@ OSC 5522 の書き込みに EPERM で答える。ask と allow は先に DONE �
         (should (string-match-p "p\\[31mx" (car asks)))
         (should-not (string-match-p "[\e\n]" (car asks)))))))
 
+(ert-deftest spectreshell-test-kitty-ask-quotes-a-cleaned-and-shortened-name ()
+  "名前からは引用符・双方向の制御文字・制御文字を除き、40 桁までに切って、
+括りの壊れない形で出す。名前で確認の文言を偽れないようにするため。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (_cuts asks 'deny)
+      (let* ((spectreshell-clipboard-read 'ask)
+             (name (concat "a\"b\u202ec\u2066d\u200f\e[1m" (make-string 60 ?x)))
+             (encoded (base64-encode-string (encode-coding-string name 'utf-8) t)))
+        (spectreshell-feed
+         term (format "\e]5522;type=read:name=%s;dGV4dC9wbGFpbg==\a" encoded))
+        (spectreshell-test--clipboard-drain)
+        (should (= (length asks) 1))
+        (let ((prompt (car asks)))
+          (should (string-match "\\`Let \\(\"[^\"]*\"\\) in " prompt))
+          (let ((shown (read (match-string 1 prompt))))
+            (should (string-prefix-p "abcd[1mxxx" shown))
+            (should (<= (string-width shown) 40)))
+          (should-not (string-match-p "[\u200e\u200f\u202a-\u202e\u2066-\u2069\e]" prompt)))))))
+
+(defvar yes-or-no-p-history)
+
+(ert-deftest spectreshell-test-clipboard-ask-needs-a-whole-word ()
+  "確認の答えは 1 キーでは決まらず、yes・no・always の語を打たせる。短い
+答えを受けない `read-answer' で読み、マウスの直後でもダイアログにせず、
+M-p で前の答えを呼び出せないよう履歴を空にする。always は覚えられる要求
+でだけ出す。"
+  (let ((calls nil)
+        (reply nil)
+        (yes-or-no-p-history '("always")))
+    (cl-letf (((symbol-function 'read-answer)
+               (lambda (_question answers)
+                 (push (list (mapcar #'car answers) read-answer-short use-dialog-box
+                             yes-or-no-p-history)
+                       calls)
+                 reply)))
+      (setq reply "yes")
+      (should (eq (spectreshell--clipboard-ask nil '(:remember t) "Q? ") 'allow))
+      (setq reply "always")
+      (should (eq (spectreshell--clipboard-ask nil '(:remember t) "Q? ") 'always))
+      (setq reply "no")
+      (should (eq (spectreshell--clipboard-ask nil nil "Q? ") 'deny)))
+    (should (equal (reverse calls)
+                   '((("yes" "no" "always") nil nil nil)
+                     (("yes" "no" "always") nil nil nil)
+                     (("yes" "no") nil nil nil))))
+    (should (equal yes-or-no-p-history '("always")))))
+
+(ert-deftest spectreshell-test-clipboard-prompt-waits-until-input-stops ()
+  "確認の要る要求は、処理しても確認を出さず、利用者の入力が止まってから
+動く idle timer に確認を任せる。打っている途中のキーを答えに取らないため。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (_cuts asks 'deny)
+      (let ((spectreshell-clipboard-read 'ask))
+        (spectreshell-feed term "\e]52;c;?\a")
+        (spectreshell--clipboard-run)
+        (should (null asks))
+        (let ((timer spectreshell--clipboard-ask-timer))
+          (should (timer--idle-delay timer))
+          (should (memq timer timer-idle-list))
+          (should (> (float-time (timer--time timer)) 0))
+          (should (eq (timer--function timer) #'spectreshell--clipboard-ask-next)))))))
+
+(ert-deftest spectreshell-test-clipboard-prompt-discards-typed-ahead-input ()
+  "確認の直前に、先に打たれていた入力を捨てる。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (let ((events nil))
+      (spectreshell-test--with-clipboard (_cuts _asks (progn (push 'ask events) 'deny))
+        (let ((spectreshell-clipboard-read 'ask))
+          (cl-letf (((symbol-function 'discard-input)
+                     (lambda () (push 'discard events))))
+            (spectreshell-feed term "\e]52;c;?\a")
+            (spectreshell-test--clipboard-drain))
+          (should (equal events '(ask discard))))))))
+
+(ert-deftest spectreshell-test-clipboard-prompt-checks-the-buffer-is-still-shown ()
+  "確認を出す直前にバッファが見えなくなっていたら、確認せずに断る。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts asks 'allow)
+      (let ((spectreshell-clipboard-read 'ask)
+            (shown t))
+        (cl-letf (((symbol-function 'spectreshell--clipboard-can-ask-p)
+                   (lambda (_) shown)))
+          (kill-new "hi")
+          (spectreshell-feed term "\e]52;c;?\a")
+          (spectreshell--clipboard-run)
+          (setq shown nil)
+          (spectreshell-test--clipboard-drain))
+        (should (null asks))
+        (should (equal responses '("\e]52;c;\a")))))))
+
 (defun spectreshell-test--paste-event-pw (event)
   "EVENT (paste イベント) の base64 のパスワードを返す。"
   (and (string-match ":pw=\\([A-Za-z0-9+/=]+\\)" event)
