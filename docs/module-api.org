@@ -20,6 +20,7 @@ Phase 3 (spectreshell.el) 以降はこのドキュメントを参照する。
 | ~(spectreshell--set-visibility TERM VISIBLE)~ | TERM、VISIBLE: nil or それ以外 | unibyte 文字列 or nil |
 | ~(spectreshell--set-colors TERM FG BG PALETTE)~ | TERM、FG/BG: 色 or nil、PALETTE: 色 or nil の 16 要素のリスト | nil (副作用のみ) |
 | ~(spectreshell--clipboard-reply TERM ID RESULT &optional REMEMBER)~ | TERM、ID: 要求の ~:id~ 、RESULT: 文字列 or nil | unibyte 文字列 or nil |
+| ~(spectreshell--clipboard-pending-p TERM ID)~ | TERM、ID: 要求の ~:id~ | ~t~ (まだ答えを待っている) or nil |
 | ~(spectreshell--set-clipboard-write TERM POLICY)~ | TERM、POLICY: ~allow~ / ~ask~ / ~deny~ | nil (副作用のみ) |
 | ~(spectreshell--encode-paste-event TERM)~ | TERM | unibyte 文字列 or nil |
 | ~(spectreshell--release TERM)~ | TERM | nil (副作用のみ) |
@@ -28,7 +29,7 @@ TERM は ~spectreshell--create~ が返す user-ptr。他のモジュールの
 user-ptr や整数など、うちの Term でない値を渡すと
 ~wrong-type-argument~ が signal される。 ~spectreshell--release~ 済みの
 TERM に ~--feed~ / ~--resize~ / ~--flush~ / ~--encode-key~ / ~--encode-paste~ /
-~--encode-mouse~ / ~--set-color-scheme~ / ~--set-visibility~ / ~--set-colors~ / ~--clipboard-reply~ /
+~--encode-mouse~ / ~--set-color-scheme~ / ~--set-visibility~ / ~--set-colors~ / ~--clipboard-reply~ / ~--clipboard-pending-p~ /
 ~--set-clipboard-write~ / ~--encode-paste-event~ を呼ぶと ~spectreshell-terminal-released~ (~error~ の
 子コンディション) が signal される。 ~--release~ 自体は二重に呼んでも
 安全 (2回目は no-op)。
@@ -114,6 +115,8 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
     ない。
   - 同じ feed の RIS より前の要求は、読み取りを載せず、書き込みから
     ~:id~ と ~:remember~ を外す (RIS で答えていない記録を消すため)。
+    前の feed で載せた要求の ID は、RIS の後は ~--clipboard-pending-p~ が
+    nil になる。
 - *~:focus-event~*: 子がフォーカスの報告 (mode 1004) を有効にしている
   間は ~t~ 。無効ならキーごと省略される。
 - *~:alt-screen~*: このバッチで alternate screen への出入りが

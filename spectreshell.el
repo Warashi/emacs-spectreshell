@@ -44,6 +44,7 @@
 (declare-function spectreshell--encode-paste "libspectreshell" (term text))
 (declare-function spectreshell--encode-mouse "libspectreshell" (term button action row col modifiers))
 (declare-function spectreshell--clipboard-reply "libspectreshell" (term id result &optional remember))
+(declare-function spectreshell--clipboard-pending-p "libspectreshell" (term id))
 (declare-function spectreshell--set-clipboard-write "libspectreshell" (term policy))
 (declare-function spectreshell--encode-paste-event "libspectreshell" (term))
 
@@ -742,13 +743,19 @@ outer call picks up whatever was queued meanwhile."
   (setq spectreshell--clipboard-timer nil)
   (unless spectreshell--clipboard-running
     (let ((spectreshell--clipboard-running t)
+          (taken nil)
           (finished nil))
       (unwind-protect
           (progn
             (while-let ((next (spectreshell--clipboard-take-decided)))
+              (setq taken t)
               (apply #'spectreshell--clipboard-handle next))
             (setq finished t))
-        (unless finished (spectreshell--clipboard-schedule))
+        ;; Only after taking a request, so that an error before taking
+        ;; any, were it to come every time, does not keep a timer
+        ;; running every moment.
+        (when (and taken (not finished))
+          (spectreshell--clipboard-schedule))
         (spectreshell--clipboard-forget-done)
         (spectreshell--clipboard-schedule-ask)))))
 
@@ -832,19 +839,26 @@ minibuffer, or with `enable-recursive-minibuffers' open on top of it;
 the request waits instead.  The request is answered however asking
 ends, a denial unless the user allowed it.  \\[keyboard-quit] also
 denies every request of the same terminal still waiting for a prompt,
-so that a child asking again and again can be stopped."
+so that a child asking again and again can be stopped.
+
+Nothing is asked while requests are being handled either: the end of
+`spectreshell--clipboard-run' looks for prompts again.  The terminals
+take turns: the one asked about goes to the back of the queue, so that
+a child asking again and again does not keep the others waiting."
   (unless (or spectreshell--clipboard-asking
+              spectreshell--clipboard-running
               (> (minibuffer-depth) 0))
-    (when-let* ((entry (seq-find (lambda (entry)
-                                   (and (cdr entry)
-                                        (spectreshell--clipboard-live-p (car entry))))
-                                 spectreshell--clipboard-queues)))
-      (let ((obj (car entry)))
-        (if (spectreshell--clipboard-decision obj (cadr entry))
-            ;; Decided meanwhile (the user options changed): no prompt.
-            (spectreshell--clipboard-schedule)
-          (let ((request (pop (cdr entry)))
-                (decision 'deny))
+    (let ((entry (spectreshell--clipboard-next-to-ask)))
+      (spectreshell--clipboard-forget-done)
+      (when entry
+        (let ((obj (car entry)))
+          (if (spectreshell--clipboard-decision obj (cadr entry))
+              ;; Decided meanwhile (the user options changed): no prompt.
+              (spectreshell--clipboard-schedule)
+            (setq spectreshell--clipboard-queues
+                  (nconc (delq entry spectreshell--clipboard-queues) (list entry)))
+            (let ((request (pop (cdr entry)))
+                  (decision 'deny))
             (setq spectreshell--clipboard-asking obj)
             (unwind-protect
                 (setq decision (spectreshell--clipboard-ask-user obj request))
@@ -853,7 +867,28 @@ so that a child asking again and again can be stopped."
               (unwind-protect
                   (spectreshell--clipboard-handle obj request decision)
                 (when (eq decision 'quit)
-                  (spectreshell--clipboard-deny-prompts obj))))))))))
+                  (spectreshell--clipboard-deny-prompts obj)))))))))))
+
+(defun spectreshell--clipboard-next-to-ask ()
+  "Return the queue entry of the first live terminal with a request left.
+Requests the module no longer waits on (`spectreshell--clipboard-awaited-p')
+are dropped from the front of each queue on the way, unasked."
+  (seq-find (lambda (entry)
+              (when (spectreshell--clipboard-live-p (car entry))
+                (while (and (cdr entry)
+                            (not (spectreshell--clipboard-awaited-p
+                                  (car entry) (cadr entry))))
+                  (pop (cdr entry)))
+                (cdr entry)))
+            spectreshell--clipboard-queues))
+
+(defun spectreshell--clipboard-awaited-p (obj request)
+  "Return non-nil unless OBJ's module no longer waits on REQUEST.
+A request with an `:id' stops being waited on when the child resets
+\(RIS); one without cannot be told, and counts as waited on."
+  (let ((id (plist-get request :id)))
+    (or (null id)
+        (spectreshell--clipboard-pending-p (spectreshell-term obj) id))))
 
 (defun spectreshell--clipboard-ask-user (obj request)
   "Ask about OBJ's REQUEST; return `allow', `deny', `always' or `quit'.
@@ -985,14 +1020,13 @@ without completion, history, or a dialog after a mouse event."
 
 (defun spectreshell--clipboard-program (obj request)
   "Describe who sent OBJ's REQUEST, for a prompt.
-The name the child gave, if any, loses its double quotes, bidirectional
-controls, line and paragraph separators and other control characters,
-is cut to `spectreshell--clipboard-name-width' columns and is quoted
-with `prin1', so that it can neither redraw nor reorder the prompt nor
-pass its own words off as the prompt's."
+The name the child gave, if any, keeps only letters and digits (of any
+script), spaces and -_.:/+@, is cut to `spectreshell--clipboard-name-width'
+columns and is quoted with `prin1', so that it can neither redraw nor
+reorder the prompt nor pass its own words off as the prompt's."
   (let ((name (truncate-string-to-width
                (replace-regexp-in-string
-                "[\"[:cntrl:]\177\u0080-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069]" ""
+                "[^[:alnum:] _.:/+@-]" ""
                 (decode-coding-string (or (plist-get request :name) "") 'utf-8-unix))
                spectreshell--clipboard-name-width nil nil t)))
     (format "%s in %s"
@@ -1089,8 +1123,11 @@ seconds."
       ;; The command loop has set `last-command' to the command before
       ;; this timer; left so, the next command would take this write as
       ;; part of the user's own kills or yanks: `kill-region' would
-      ;; append to it, and `yank-pop' would rotate past it.
-      (setq last-command nil)
+      ;; append to it, and `yank-pop' would rotate past it.  Other
+      ;; commands are left alone, so as not to break a run of `undo',
+      ;; the goal column of `next-line', or a history search.
+      (when (memq last-command '(kill-region yank))
+        (setq last-command nil))
       (when too-long
         (message "Spectreshell: copied %d characters to the kill ring only; too long for the terminal's clipboard (`xterm-max-cut-length')"
                  (length text)))))))

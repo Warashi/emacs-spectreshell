@@ -1292,7 +1292,7 @@ OSC 5522 の書き込みに EPERM で答える。ask と allow は先に DONE �
         (spectreshell-feed term "\e]5522;type=read:name=cBtbMzFteAo=;dGV4dC9wbGFpbg==\a")
         (spectreshell-test--clipboard-drain)
         (should (= (length asks) 1))
-        (should (string-match-p "p\\[31mx" (car asks)))
+        (should (string-search "\"p31mx\"" (car asks)))
         (should-not (string-match-p "[\e\n]" (car asks)))))))
 
 (ert-deftest spectreshell-test-kitty-ask-quotes-a-cleaned-and-shortened-name ()
@@ -1310,9 +1310,23 @@ OSC 5522 の書き込みに EPERM で答える。ask と allow は先に DONE �
         (let ((prompt (car asks)))
           (should (string-match "\\`Spectreshell: \\(\"[^\"]*\"\\) in " prompt))
           (let ((shown (read (match-string 1 prompt))))
-            (should (string-prefix-p "abcd[1mxxx" shown))
+            (should (string-prefix-p "abcd1mxxx" shown))
             (should (<= (string-width shown) 40)))
           (should-not (string-match-p "[\u200e\u200f\u202a-\u202e\u2066-\u2069\e]" prompt)))))))
+
+;; 名前の無害化は残す文字を決める形なので、ここに無い記号はすべて落ちる。
+(ert-deftest spectreshell-test-kitty-ask-keeps-only-plain-name-characters ()
+  "名前には英数字 (ほかの文字体系を含む)・空白・-_.:/+@ だけを残し、それ以外の
+記号や見えない文字はすべて除く。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (_cuts asks 'deny)
+      (let* ((spectreshell-clipboard-read 'ask)
+             (name "vim 9.1-x_y.z:a/b+c@d日本<>!$`'\\;=?\u3000\u200b\u00ad")
+             (encoded (base64-encode-string (encode-coding-string name 'utf-8) t)))
+        (spectreshell-feed
+         term (format "\e]5522;type=read:name=%s;dGV4dC9wbGFpbg==\a" encoded))
+        (spectreshell-test--clipboard-drain)
+        (should (string-search "\"vim 9.1-x_y.z:a/b+c@d日本\" in " (car asks)))))))
 
 (defmacro spectreshell-test--with-read-string (spec &rest body)
   "`read-string' を差し替えて BODY を実行する.
@@ -1692,6 +1706,89 @@ paste イベントを送り、続く読み取りには ask でも確認せずに
           (should (= (length asks) 2))
           (should (equal responses '("\e]52;c;aGk=\a" "\e]52;c;\a"))))))))
 
+(ert-deftest spectreshell-test-clipboard-run-rearms-only-after-taking-a-request ()
+  "要求の処理がエラーで抜けたとき、timer を張り直すのは要求を取り出した後
+だけ。取り出す前に毎回エラーになっても 0 秒の timer が回り続けない。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (_cuts _asks 'deny)
+      (let ((spectreshell-clipboard-write 'allow))
+        (spectreshell-feed term "\e]52;c;aGk=\a")
+        (cancel-timer spectreshell--clipboard-timer)
+        (setq spectreshell--clipboard-timer nil)
+        (cl-letf (((symbol-function 'spectreshell--clipboard-decision)
+                   (lambda (&rest _) (error "Boom"))))
+          (should-error (spectreshell--clipboard-run)))
+        (should-not spectreshell--clipboard-timer)
+        (cl-letf (((symbol-function 'spectreshell--clipboard-handle)
+                   (lambda (&rest _) (error "Boom"))))
+          (should-error (spectreshell--clipboard-run)))
+        (should spectreshell--clipboard-timer)))))
+
+(ert-deftest spectreshell-test-clipboard-ask-next-waits-while-running ()
+  "要求の処理の最中 (処理が timer を走らせたとき) には確認を出さず、処理の
+終わりに任せる。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (_cuts asks 'deny)
+      (let ((spectreshell-clipboard-read 'ask))
+        (spectreshell-feed term "\e]52;c;?\a")
+        (spectreshell-test--clipboard-run-timer)
+        (let ((spectreshell--clipboard-running t))
+          (spectreshell--clipboard-ask-next))
+        (should (null asks))
+        (spectreshell-test--clipboard-drain)
+        (should (= (length asks) 1))))))
+
+(ert-deftest spectreshell-test-clipboard-ask-next-forgets-finalized-terminals ()
+  "確認を待つ間に端末が finalize されたら、次の確認を探すときにその queue を
+捨てる。次の要求を待たずに捨てて、確認の timer も止める。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (_cuts asks 'deny)
+      (let ((spectreshell-clipboard-read 'ask))
+        (spectreshell-feed term "\e]52;c;?\a")
+        (spectreshell-test--clipboard-run-timer)
+        (should spectreshell--clipboard-queues)
+        (spectreshell-finalize term)
+        (spectreshell--clipboard-ask-next)
+        (should (null spectreshell--clipboard-queues))
+        (should (null asks))))))
+
+(ert-deftest spectreshell-test-clipboard-requests-before-reset-are-not-asked ()
+  "確認を待つ間に子が RIS (\\ec) を出したら、RIS の前の、もう答えを待って
+いない要求は確認せずに捨てる。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts asks 'allow)
+      (let ((spectreshell-clipboard-read 'ask)
+            (spectreshell-clipboard-write 'ask))
+        (kill-new "x")
+        (spectreshell-feed term (concat spectreshell-test--kitty-read
+                                        "\e]52;c;?\a"
+                                        spectreshell-test--kitty-write))
+        (spectreshell-test--clipboard-run-timer)
+        (setq responses nil)
+        (spectreshell-feed term "\ec")
+        (spectreshell-test--clipboard-drain)
+        (should (null asks))
+        (should (null responses))
+        (should (equal kill-ring '("x")))
+        (should (null spectreshell--clipboard-queues))))))
+
+(ert-deftest spectreshell-test-clipboard-prompts-take-turns-across-terminals ()
+  "確認は端末ごとに順番に (round-robin で) 出す。確認を出し続ける端末が
+あっても、ほかの端末の確認が後回しにされ続けない。"
+  (spectreshell-test--with-terminal (a 1 10)
+    (spectreshell-test--with-terminal (b 1 10)
+      (spectreshell-test--with-clipboard (_cuts _asks 'deny)
+        (let* ((spectreshell-clipboard-read 'ask)
+               (order nil)
+               (spectreshell--clipboard-ask-function
+                (lambda (obj _request _prompt)
+                  (setq order (append order (list (if (eq obj a) 'a 'b))))
+                  'deny)))
+          (spectreshell-feed a "\e]52;c;?\a\e]52;c;?\a\e]52;c;?\a")
+          (spectreshell-feed b "\e]52;c;?\a")
+          (spectreshell-test--clipboard-drain)
+          (should (equal order '(a b a a))))))))
+
 (ert-deftest spectreshell-test-kitty-always-after-reset-is-not-remembered ()
   "確認の間に子が RIS (\\ec) を出したら、その前の読み取りに always と答えても
 パスワードを覚えず、答えも送らない。"
@@ -1717,6 +1814,21 @@ paste イベントを送り、続く読み取りには ask でも確認せずに
         (spectreshell-feed term "\e]52;c;YQ0KYg==\a")
         (spectreshell-test--clipboard-drain)
         (should (equal kill-ring '("a\r\nb")))))))
+
+(ert-deftest spectreshell-test-osc52-write-keeps-other-last-commands ()
+  "子の書き込みで `last-command' を変えるのは、kill と yank の続き
+\(`kill-region'・`yank') のときだけ。`undo' の連続や `next-line' の桁、
+eshell の履歴の巡回などは壊さない。"
+  (dolist (command '(undo next-line eshell-previous-matching-input-from-input
+                          self-insert-command))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-test--with-clipboard (_cuts _asks 'allow)
+        (let ((spectreshell-clipboard-write 'allow)
+              (last-command command))
+          (spectreshell-feed term "\e]52;c;aGk=\a")
+          (spectreshell-test--clipboard-drain)
+          (should (equal kill-ring '("hi")))
+          (should (eq last-command command)))))))
 
 (ert-deftest spectreshell-test-osc52-write-breaks-kill-and-yank-sequences ()
   "子の書き込みを kill-ring に入れたら `last-command' を nil にする。続く

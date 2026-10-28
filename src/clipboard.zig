@@ -396,6 +396,14 @@ pub const State = struct {
         return bytes;
     }
 
+    /// ID の要求がまだ答えを待っているか。答えた後と RIS の後は false。
+    pub fn isWaiting(self: *const State, id: u64) bool {
+        for (self.waiting.items) |w| {
+            if (w.id == id) return true;
+        }
+        return false;
+    }
+
     /// RIS で、答えていない記録を捨てる。上流は RIS で grants を消すので、
     /// RIS の前の要求に後から覚えると答えても覚えないようにする。まだ
     /// 渡していない要求も、記録の無い id を持たないよう、読み取りは捨て、
@@ -854,6 +862,30 @@ test "RIS の前の要求には、RIS の後で覚えると答えても覚えず
     defer after.deinit();
     try testing.expect(!after.clipboard[0].read.granted);
     try testing.expect(!after.clipboard[1].write.granted);
+}
+
+test "答えを待つ id は、答えた後と RIS の後にはもう待っていない" {
+    const alloc = testing.allocator;
+    const t = try core.Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    const read = kittyOsc("type=read:name=cHJvZw==:pw=c2VjcmV0", "dGV4dC9wbGFpbg==");
+    var update = try t.feed(alloc, read ++ "\x1b]52;c;?\x07");
+    defer update.deinit();
+    const answered = update.clipboard[0].read.id;
+    const reset_away = update.clipboard[1].read.id;
+    try testing.expect(t.clipboardPending(answered));
+    try testing.expect(t.clipboardPending(reset_away));
+    try testing.expect(!t.clipboardPending(reset_away + 1));
+
+    const bytes = (try t.clipboardReply(alloc, answered, null, false)).?;
+    alloc.free(bytes);
+    try testing.expect(!t.clipboardPending(answered));
+    try testing.expect(t.clipboardPending(reset_away));
+
+    var reset = try t.feed(alloc, "\x1bc");
+    defer reset.deinit();
+    try testing.expect(!t.clipboardPending(reset_away));
 }
 
 test "同じ feed の RIS の前の読み取りは載せず、書き込みは覚えられないものにする" {

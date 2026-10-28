@@ -306,6 +306,11 @@ pub const Term = struct {
         return self.clipboard.reply(self.alloc, alloc, &self.stream.handler.inner.kitty_clipboard_grants, id, data, remember);
     }
 
+    /// 子のクリップボードの要求 ID がまだ答えを待っているか。
+    pub fn clipboardPending(self: *const Term, id: u64) bool {
+        return self.clipboard.isWaiting(id);
+    }
+
     pub fn setClipboardWrite(self: *Term, policy: clipboard.WritePolicy) void {
         self.clipboard.write_policy = policy;
     }

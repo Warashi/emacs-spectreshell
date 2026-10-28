@@ -105,6 +105,26 @@
       (should-not (spectreshell--clipboard-reply term first "hi")))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-clipboard-pending-until-answered-or-reset ()
+  "`spectreshell--clipboard-pending-p' は、要求の id がまだ答えを待っていれば
+t を返す。答えた後と、子の RIS (\\ec) の後は nil。"
+  (let* ((term (spectreshell--create 5 10))
+         (requests (plist-get (spectreshell--feed term "\e]52;c;?\a\e]52;c;?\a")
+                              :clipboard))
+         (first (plist-get (nth 0 requests) :id))
+         (second (plist-get (nth 1 requests) :id)))
+    (should (eq (spectreshell--clipboard-pending-p term first) t))
+    (should (eq (spectreshell--clipboard-pending-p term second) t))
+    (spectreshell--clipboard-reply term first nil)
+    (should-not (spectreshell--clipboard-pending-p term first))
+    (should (spectreshell--clipboard-pending-p term second))
+    (spectreshell--feed term "\ec")
+    (should-not (spectreshell--clipboard-pending-p term second))
+    (should-not (spectreshell--clipboard-pending-p term -1))
+    (spectreshell--release term)
+    (should-error (spectreshell--clipboard-pending-p term second)
+                  :type 'spectreshell-terminal-released)))
+
 (ert-deftest spectreshell-module-test-kitty-clipboard-write-produces-request ()
   "OSC 5522 の書き込みには上流が DONE で答え、:clipboard に名前とパスワード
 の有無を添えた要求を積む。パスワードがあれば覚えるための id を振る。"
