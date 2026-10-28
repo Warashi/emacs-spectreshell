@@ -721,7 +721,14 @@ Each terminal's REQUESTS are oldest first, and handled in that order.")
   "Seconds without input before a clipboard prompt is shown.")
 
 (defconst spectreshell--clipboard-ask-poll 0.1
-  "Seconds between checks whether a clipboard prompt can be shown.")
+  "Seconds between checks whether a clipboard prompt can be shown.
+The checks start at this, and come back to it on input.")
+
+(defconst spectreshell--clipboard-ask-poll-max 2.0
+  "Most seconds between checks while a clipboard prompt cannot be shown.")
+
+(defvar spectreshell--clipboard-ask-interval spectreshell--clipboard-ask-poll
+  "Seconds until the next check whether a clipboard prompt can be shown.")
 
 (defvar spectreshell--clipboard-input-seen nil
   "(COUNT . TIME) of `num-nonmacro-input-events' last seen to change, or nil.")
@@ -814,7 +821,8 @@ this."
   (when (and (not spectreshell--clipboard-asking)
              (not spectreshell--clipboard-ask-timer)
              spectreshell--clipboard-queues)
-    (setq spectreshell--clipboard-input-seen nil)
+    (setq spectreshell--clipboard-input-seen nil
+          spectreshell--clipboard-ask-interval spectreshell--clipboard-ask-poll)
     (spectreshell--clipboard-arm-ask)))
 
 (defun spectreshell--clipboard-arm-ask ()
@@ -822,7 +830,7 @@ this."
   ;; Not a repeating timer: `timer-event-handler' re-arms one before
   ;; calling it, so it would run again in the middle of the prompt.
   (setq spectreshell--clipboard-ask-timer
-        (run-at-time spectreshell--clipboard-ask-poll nil
+        (run-at-time spectreshell--clipboard-ask-interval nil
                      #'spectreshell--clipboard-ask-tick)))
 
 (defun spectreshell--clipboard-ask-tick ()
@@ -830,14 +838,22 @@ this."
 The prompt waits until the user has stopped typing
 \(`spectreshell--clipboard-input-stopped-p'), so that the child cannot
 time a request to take a key typed for something else as the answer.
-The timer stops once no request is waiting, and while a prompt is shown."
+The timer stops once no request is waiting, and while a prompt is shown.
+While input has stopped yet no request can be taken, the checks come
+farther apart, up to `spectreshell--clipboard-ask-poll-max', and input
+brings them back to `spectreshell--clipboard-ask-poll'."
   ;; A timer checking `num-nonmacro-input-events' rather than an idle
   ;; timer: Emacs counts itself idle again only after the next key once
   ;; a prompt has read its answer, so the next prompt would wait for
   ;; that key, and a user away from the keyboard would never see it.
   (setq spectreshell--clipboard-ask-timer nil)
-  (when (spectreshell--clipboard-input-stopped-p)
-    (spectreshell--clipboard-ask-next))
+  (setq spectreshell--clipboard-ask-interval
+        (cond ((not (spectreshell--clipboard-input-stopped-p))
+               spectreshell--clipboard-ask-poll)
+              ((spectreshell--clipboard-ask-next)
+               spectreshell--clipboard-ask-interval)
+              (t (min spectreshell--clipboard-ask-poll-max
+                      (* 2 spectreshell--clipboard-ask-interval)))))
   (spectreshell--clipboard-forget-done)
   (when (and spectreshell--clipboard-queues
              (not spectreshell--clipboard-asking)
@@ -856,24 +872,42 @@ ago, as far as the calls to this have seen."
       (setq spectreshell--clipboard-input-seen (cons count now))
       nil)))
 
+(defun spectreshell--clipboard-may-ask-p ()
+  "Return non-nil if nothing keeps a clipboard prompt from being shown now.
+Not while a prompt is shown, nor while requests are being handled: the
+end of `spectreshell--clipboard-run' looks for prompts again.  Not
+while the minibuffer is in use: the prompt would then fail, end the
+user's minibuffer, or with `enable-recursive-minibuffers' open on top
+of it.  Not while a keyboard macro is being defined or executed: the
+word and RET typed would go into the macro, and to the child when it
+is replayed.  Not while a command runs (`this-command' is non-nil; the
+command loop clears it just before reading the next command), nor
+while input is pending: a timer run from within a command, as by
+`accept-process-output', would take keys typed ahead as the answer."
+  (not (or spectreshell--clipboard-asking
+           spectreshell--clipboard-running
+           (> (minibuffer-depth) 0)
+           defining-kbd-macro
+           executing-kbd-macro
+           this-command
+           (input-pending-p))))
+
 (defun spectreshell--clipboard-ask-next ()
   "Ask about the first request waiting for a prompt, and handle it.
+Return non-nil if a request was taken.  Nothing is taken unless
+`spectreshell--clipboard-may-ask-p'; the request waits instead.
 Whether the prompt is still needed, and whether anyone can answer it,
-is decided again here, just before asking.  Nothing is asked while the
-minibuffer is in use: the prompt would then fail, end the user's
-minibuffer, or with `enable-recursive-minibuffers' open on top of it;
-the request waits instead.  The request is answered however asking
-ends, a denial unless the user allowed it.  \\[keyboard-quit] also
-denies every request of the same terminal still waiting for a prompt,
-so that a child asking again and again can be stopped.
+is decided again here, just before asking.  The request is answered
+however asking ends, a denial unless the user allowed it and the child
+has not reset meanwhile.  \\[keyboard-quit] also denies every request
+of the same terminal still waiting for a prompt, so that a child asking
+again and again can be stopped.  Handling the answer counts as handling
+requests, so that no other request or prompt comes in the middle.
 
-Nothing is asked while requests are being handled either: the end of
-`spectreshell--clipboard-run' looks for prompts again.  The terminals
-take turns: the one asked about goes to the back of the queue, so that
-a child asking again and again does not keep the others waiting."
-  (unless (or spectreshell--clipboard-asking
-              spectreshell--clipboard-running
-              (> (minibuffer-depth) 0))
+The terminals take turns: the one asked about goes to the back of the
+queue, so that a child asking again and again does not keep the others
+waiting."
+  (when (spectreshell--clipboard-may-ask-p)
     (let ((entry (spectreshell--clipboard-next-to-ask)))
       (spectreshell--clipboard-forget-done)
       (when entry
@@ -885,19 +919,22 @@ a child asking again and again does not keep the others waiting."
                   (nconc (delq entry spectreshell--clipboard-queues) (list entry)))
             (let ((request (pop (cdr entry)))
                   (decision 'deny))
-            (setq spectreshell--clipboard-asking obj)
-            (unwind-protect
-                (setq decision (spectreshell--clipboard-ask-user obj request))
-              (setq spectreshell--clipboard-asking nil)
-              ;; The child may have reset while the prompt was shown.
-              (when (and (memq decision '(allow always))
-                         (spectreshell--clipboard-stale-p obj request))
-                (setq decision 'deny))
-              (spectreshell--clipboard-schedule)
+              (setq spectreshell--clipboard-asking obj)
               (unwind-protect
-                  (spectreshell--clipboard-handle obj request decision)
-                (when (eq decision 'quit)
-                  (spectreshell--clipboard-deny-prompts obj)))))))))))
+                  (setq decision (spectreshell--clipboard-ask-user obj request))
+                (setq spectreshell--clipboard-asking nil)
+                ;; The child may have reset while the prompt was shown.
+                (when (and (memq decision '(allow always))
+                           (spectreshell--clipboard-stale-p obj request))
+                  (setq decision 'deny))
+                (unwind-protect
+                    (let ((spectreshell--clipboard-running t))
+                      (unwind-protect
+                          (spectreshell--clipboard-handle obj request decision)
+                        (when (eq decision 'quit)
+                          (spectreshell--clipboard-deny-prompts obj))))
+                  (spectreshell--clipboard-schedule))))))
+        t))))
 
 (defun spectreshell--clipboard-next-to-ask ()
   "Return the queue entry of the first live terminal with a request to take.
@@ -933,9 +970,18 @@ counts as not reset."
   "Ask about OBJ's REQUEST; return `allow', `deny', `always' or `quit'.
 `quit' is \\[keyboard-quit] at the prompt; an error is `deny'."
   ;; Not `with-local-quit': it sets `quit-flag' again on the way out,
-  ;; which would quit whatever runs the timer.
+  ;; which would quit whatever runs the timer.  The command loop of the
+  ;; prompt's minibuffer sets the command variables and leaves them so,
+  ;; as `call-interactively' also guards against; `this-command' left
+  ;; non-nil would hold the next prompt (`spectreshell--clipboard-may-ask-p')
+  ;; until the next key, and `last-command' would break a run of the
+  ;; command before the prompt.
   (condition-case nil
-      (let ((inhibit-quit nil))
+      (let ((inhibit-quit nil)
+            (this-command this-command)
+            (real-this-command real-this-command)
+            (this-original-command this-original-command)
+            (last-command last-command))
         (funcall spectreshell--clipboard-ask-function obj request
                  (spectreshell--clipboard-prompt obj request)))
     (quit 'quit)
@@ -1061,22 +1107,61 @@ without completion, history, or a dialog after a mouse event."
               where))))
 
 (defconst spectreshell--clipboard-name-width 40
-  "Most columns of the child's name shown in a prompt.")
+  "Most columns of a name shown in a prompt.")
+
+(defconst spectreshell--clipboard-name-punctuation " _.:/+@-"
+  "Characters kept in a name shown in a prompt besides letters and digits.")
+
+;; Emacs has no table of Default_Ignorable_Code_Point.  These are the
+;; letters in it; the rest of it is of categories dropped anyway.
+(defconst spectreshell--clipboard-blank-letters '(#x115F #x1160 #x3164 #xFFA0)
+  "Letters that draw as blank, dropped from a name shown in a prompt.")
+
+(defvar uni-confusable-table)
+
+(defun spectreshell--clipboard-name-char-p (char)
+  "Return non-nil if CHAR is kept in a name shown in a prompt.
+Kept are letters (general category L) and decimal digits (Nd) of any
+script, and `spectreshell--clipboard-name-punctuation'.  Of the letters,
+not those that draw as blank (`spectreshell--clipboard-blank-letters'),
+nor those `uni-confusable-table' takes for dropped ASCII characters
+only, such as U+02BC for an apostrophe."
+  (or (seq-contains-p spectreshell--clipboard-name-punctuation char)
+      (and (memq (get-char-code-property char 'general-category)
+                 '(Lu Ll Lt Lm Lo Nd))
+           (not (memq char spectreshell--clipboard-blank-letters))
+           (let ((skeleton (progn (require 'uni-confusable)
+                                  (gethash char uni-confusable-table))))
+             (not (and skeleton
+                       (seq-every-p (lambda (c)
+                                      (and (< c 128)
+                                           (not (spectreshell--clipboard-name-char-p c))))
+                                    skeleton)))))))
+
+(defun spectreshell--clipboard-quote-name (name)
+  "Return NAME as shown in a prompt, or nil if nothing of it is left.
+It keeps only the characters `spectreshell--clipboard-name-char-p'
+allows, is cut to `spectreshell--clipboard-name-width' columns and is
+quoted with `prin1', so that it can neither redraw nor reorder the
+prompt nor pass its own words off as the prompt's."
+  (let ((kept (truncate-string-to-width
+               (apply #'string (seq-filter #'spectreshell--clipboard-name-char-p name))
+               spectreshell--clipboard-name-width nil nil t)))
+    (unless (string-empty-p kept)
+      (format "%S" kept))))
 
 (defun spectreshell--clipboard-program (obj request)
   "Describe who sent OBJ's REQUEST, for a prompt.
-The name the child gave, if any, keeps only letters and digits (of any
-script), spaces and -_.:/+@, is cut to `spectreshell--clipboard-name-width'
-columns and is quoted with `prin1', so that it can neither redraw nor
-reorder the prompt nor pass its own words off as the prompt's."
-  (let ((name (truncate-string-to-width
-               (replace-regexp-in-string
-                "[^[:alnum:] _.:/+@-]" ""
-                (decode-coding-string (or (plist-get request :name) "") 'utf-8-unix))
-               spectreshell--clipboard-name-width nil nil t)))
-    (format "%s in %s"
-            (if (string-empty-p name) "the program" (format "%S" name))
-            (buffer-name (spectreshell-buffer obj)))))
+The name the child gave, if any, and the buffer's name, which can come
+from the child's title, are shown as `spectreshell--clipboard-quote-name'
+leaves them."
+  (format "%s in %s"
+          (or (spectreshell--clipboard-quote-name
+               (decode-coding-string (or (plist-get request :name) "") 'utf-8-unix))
+              "the program")
+          (or (spectreshell--clipboard-quote-name
+               (buffer-name (spectreshell-buffer obj)))
+              "a buffer")))
 
 (defun spectreshell--clipboard-text (request)
   "Return the text of the write REQUEST, decoded as UTF-8.

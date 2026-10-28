@@ -2932,6 +2932,21 @@ top frame を見えているとするだけ) ので、ルートのフレーム�
 
 未確認: GUI の実機での iconify / deiconify、tty の実機でのフレームの切り替え。
 
+** TODO L-56: クリップボードの確認を出してよいかの判定に漏れがある
+対象: =spectreshell.el= (=--clipboard-may-ask-p= / =--clipboard-ask-tick= / =--clipboard-write=)
+
+- =minibuffer-depth= は全クライアントで共通なので、daemon の別のクライ
+  アントがミニバッファを開いたままだと、全端末の確認が止まる。
+- 深さ 0 のまま入力を待つもの (=query-replace= の =read-key=、=read-key=
+  方式の =y-or-n-p=、=read-char=、isearch、transient、prefix key の途中)
+  は検出できない。=this-command= と =input-pending-p= で一部は除けるが、
+  すべてではない。誤って確認に入力が入った場合の結果は拒否。
+- 入力が止まったかの判定に壁時計の =float-time= を使っているので、時計が
+  戻ると確認が遅れる。
+- 子の書き込みの後に =last-command= を消すのは =kill-region= と =yank=
+  のときだけなので、cua の =cua-paste-pop= や evil の paste の続きでは
+  効かない。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き
