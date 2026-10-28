@@ -2921,9 +2921,16 @@ Claude Code は =TERM_PROGRAM= で次を切り替える (調査時のバンド�
 advice は利用者の割り当てを潰すので使わず、フォーカスの変化
 (=after-focus-change-function=) を契機にして近似している。WM がフォー
 カスを変えずにフレームを隠したり出したりした場合は、次の契機 (ウィンド
-ウのバッファの変化、フォーカスの変化、フレームの削除) まで報告が遅れる。
+ウのバッファの変化、選択の変化、フォーカスの変化、フレームの削除) まで
+報告が遅れる。
 
-未確認: GUI の実機での iconify / deiconify。
+tty のフレームは、Emacs 31 が切り替えで裏に回ったフレームの
+=frame-visible-p= を落とさない (frame.c の =do_switch_frame= は新しい
+top frame を見えているとするだけ) ので、ルートのフレームが
+=tty-top-frame= のときだけ見えているとする。切り替えは選択の変化として
+来るので、=window-selection-change-functions= を契機に足した。
+
+未確認: GUI の実機での iconify / deiconify、tty の実機でのフレームの切り替え。
 
 * ビルド・パッケージング
 

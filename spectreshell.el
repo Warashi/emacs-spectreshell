@@ -1082,11 +1082,16 @@ They are told again whenever it may have changed.")
 (defun spectreshell--visible-p (buffer)
   "Return t if a window of a visible frame shows BUFFER.
 Any window counts, not only the selected one.  A daemon's initial frame
-does not count: nobody looks at it.  A tty frame that the outer terminal
-hides behind another tab looks visible, since Emacs cannot tell."
+does not count: nobody looks at it.  A tty frame counts only while its
+root frame is its terminal's top frame, since Emacs leaves the frame a
+tty switched away from marked visible.  A tty frame that the outer
+terminal hides behind another tab looks visible, since Emacs cannot
+tell."
   (and (seq-some (lambda (frame)
                    (and (not (frame-initial-p frame))
                         (eq (frame-visible-p frame) t)
+                        (or (not (eq (framep frame) t))
+                            (eq (frame-root-frame frame) (tty-top-frame frame)))
                         (get-buffer-window buffer frame)))
                  (frame-list))
        t))
@@ -1114,20 +1119,22 @@ Member of `spectreshell--before-feed-functions'."
   "Tell every tracked terminal its visibility, which may have changed.
 Terminals that have been finalized, or whose buffer is gone, are
 forgotten instead."
-  (interactive "e")
   (dolist (obj spectreshell--visibility-terminals)
     (if (marker-buffer (spectreshell-marker obj))
         (spectreshell--update-visibility obj)
       (setq spectreshell--visibility-terminals
             (delq obj spectreshell--visibility-terminals)))))
 
-;; Windows gaining or losing the buffer, frames being deleted, and focus
-;; changes.  Emacs has no hook for a frame being iconified or made
-;; visible, and special-event-map or advice would override the user's own
-;; bindings; iconifying usually loses focus, so that stands in for it.
-;; `after-delete-frame-functions' rather than `delete-frame-functions',
-;; which runs while the frame is still in `frame-list'.
+;; Windows gaining or losing the buffer, the selection moving (switching
+;; tty frames changes the top frame and selects it), frames being
+;; deleted, and focus changes.  Emacs has no hook for a frame being
+;; iconified or made visible, and special-event-map or advice would
+;; override the user's own bindings; iconifying usually loses focus, so
+;; that stands in for it.  `after-delete-frame-functions' rather than
+;; `delete-frame-functions', which runs while the frame is still in
+;; `frame-list'.
 (add-hook 'window-buffer-change-functions #'spectreshell--report-visibility)
+(add-hook 'window-selection-change-functions #'spectreshell--report-visibility)
 (add-hook 'after-delete-frame-functions #'spectreshell--report-visibility)
 (add-function :after after-focus-change-function
               #'spectreshell--report-visibility)

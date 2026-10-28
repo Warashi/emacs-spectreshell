@@ -1529,6 +1529,43 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
       (setq frames `((f0 t t ,buffer)))
       (should-not (spectreshell--visible-p buffer)))))
 
+(ert-deftest spectreshell-test-tty-frame-is-visible-only-as-top-frame ()
+  "tty のフレームは、ルートのフレームがその端末の `tty-top-frame' のときだけ
+見えているとみなす。Emacs は tty のフレームを切り替えても、裏に回った
+フレームの可視性を落とさない。"
+  (let ((buffer (current-buffer))
+        ;; (FRAME ROOT SHOWN-BUFFER)。どれも同じ tty の、可視性 t のフレーム。
+        (frames nil)
+        (top nil))
+    (cl-letf (((symbol-function 'frame-list) (lambda () (mapcar #'car frames)))
+              ((symbol-function 'framep) (lambda (f) (and (assq f frames) t)))
+              ((symbol-function 'frame-visible-p) (lambda (_) t))
+              ((symbol-function 'frame-initial-p) #'ignore)
+              ((symbol-function 'frame-root-frame)
+               (lambda (&optional f) (nth 1 (assq f frames))))
+              ((symbol-function 'tty-top-frame) (lambda (&optional _) top))
+              ((symbol-function 'get-buffer-window)
+               (lambda (b f) (and (eq b (nth 2 (assq f frames))) 'window))))
+      (setq frames `((f1 f1 ,buffer) (f2 f2 other)) top 'f2)
+      (should-not (spectreshell--visible-p buffer))
+      (setq top 'f1)
+      (should (spectreshell--visible-p buffer))
+      ;; 子フレームは、ルートが一番上にあれば見えている。
+      (setq frames `((f1 f1 other) (c1 f1 ,buffer)))
+      (should (spectreshell--visible-p buffer))
+      (setq top 'f2)
+      (should-not (spectreshell--visible-p buffer)))))
+
+(ert-deftest spectreshell-test-visibility-is-reevaluated-on-selection-change ()
+  "tty のフレームの切り替えは選択の変化として来るので、
+`window-selection-change-functions' でも可視性を引き直す。"
+  (should (memq #'spectreshell--report-visibility
+                (default-value 'window-selection-change-functions))))
+
+(ert-deftest spectreshell-test-report-visibility-is-not-a-command ()
+  "可視性の引き直しはフックから呼ぶ関数で、コマンドではない。"
+  (should-not (commandp #'spectreshell--report-visibility)))
+
 (ert-deftest spectreshell-test-visibility-query-answers-current-visibility ()
   "\\e[?998n には、バッファの今の可視性で Ghostty と同じ形で答える。"
   (spectreshell-test--with-visibility visible

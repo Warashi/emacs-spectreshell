@@ -17,6 +17,7 @@ Phase 3 (spectreshell.el) 以降はこのドキュメントを参照する。
 | ~(spectreshell--encode-paste TERM TEXT)~ | TERM、TEXT: 文字列 | unibyte 文字列 |
 | ~(spectreshell--encode-mouse TERM BUTTON ACTION ROW COL MODIFIERS)~ | TERM、BUTTON、ACTION、ROW/COL: 整数、MODIFIERS | unibyte 文字列 or nil |
 | ~(spectreshell--set-color-scheme TERM SCHEME)~ | TERM、SCHEME: ~dark~ / ~light~ | unibyte 文字列 or nil |
+| ~(spectreshell--set-visibility TERM VISIBLE)~ | TERM、VISIBLE: nil or それ以外 | unibyte 文字列 or nil |
 | ~(spectreshell--set-colors TERM FG BG PALETTE)~ | TERM、FG/BG: 色 or nil、PALETTE: 色 or nil の 16 要素のリスト | nil (副作用のみ) |
 | ~(spectreshell--clipboard-reply TERM ID RESULT &optional REMEMBER)~ | TERM、ID: 要求の ~:id~ 、RESULT: 文字列 or nil | unibyte 文字列 or nil |
 | ~(spectreshell--set-clipboard-write TERM POLICY)~ | TERM、POLICY: ~allow~ / ~ask~ / ~deny~ | nil (副作用のみ) |
@@ -27,7 +28,7 @@ TERM は ~spectreshell--create~ が返す user-ptr。他のモジュールの
 user-ptr や整数など、うちの Term でない値を渡すと
 ~wrong-type-argument~ が signal される。 ~spectreshell--release~ 済みの
 TERM に ~--feed~ / ~--resize~ / ~--flush~ / ~--encode-key~ / ~--encode-paste~ /
-~--encode-mouse~ / ~--set-color-scheme~ / ~--set-colors~ / ~--clipboard-reply~ /
+~--encode-mouse~ / ~--set-color-scheme~ / ~--set-visibility~ / ~--set-colors~ / ~--clipboard-reply~ /
 ~--set-clipboard-write~ / ~--encode-paste-event~ を呼ぶと ~spectreshell-terminal-released~ (~error~ の
 子コンディション) が signal される。 ~--release~ 自体は二重に呼んでも
 安全 (2回目は no-op)。
@@ -225,6 +226,15 @@ unibyte 文字列。
 いなければ答えない。それ以外のシンボルは ~error~ を signal する。
 
 戻り値は、子が mode 2031 を有効にしていて SCHEME が前回と違うときだけ、
+子へ送る同じ形の通知 (unibyte 文字列)。それ以外は ~nil~ 。
+
+* ~--set-visibility~ の VISIBLE
+
+子の可視性の問い合わせ (=\e[?998n=) に答える値。TERM はこれを覚え、
+=\e[?999;1n= (non-nil) / =\e[?999;2n= (~nil~) で答える。渡す前は見えて
+いるとして答える (Ghostty と同じ)。
+
+戻り値は、子が mode 2033 を有効にしていて VISIBLE が前回と違うときだけ、
 子へ送る同じ形の通知 (unibyte 文字列)。それ以外は ~nil~ 。
 
 * ~--clipboard-reply~ の ID / RESULT / REMEMBER
