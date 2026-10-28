@@ -326,6 +326,7 @@ fn appendClipboard(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayL
                 try appendPair(env, arena, &plist, ":op", emacs.intern(env, "write"));
                 if (w.id) |id| try appendPair(env, arena, &plist, ":id", emacs.makeInteger(env, @intCast(id)));
                 try appendPair(env, arena, &plist, ":loc", locationValue(env, w.loc));
+                try appendPair(env, arena, &plist, ":generation", generationValue(env, w.generation));
                 try appendPair(env, arena, &plist, ":text", emacs.makeUnibyteString(env, w.text));
                 try appendRequestCommon(env, arena, &plist, w.name, w.granted, w.remember);
             },
@@ -333,6 +334,7 @@ fn appendClipboard(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayL
                 try appendPair(env, arena, &plist, ":op", emacs.intern(env, "read"));
                 try appendPair(env, arena, &plist, ":id", emacs.makeInteger(env, @intCast(read.id)));
                 try appendPair(env, arena, &plist, ":loc", locationValue(env, read.loc));
+                try appendPair(env, arena, &plist, ":generation", generationValue(env, read.generation));
                 if (read.no_text) try appendPair(env, arena, &plist, ":no-text", emacs.t(env));
                 try appendRequestCommon(env, arena, &plist, read.name, read.granted, read.remember);
             },
@@ -699,12 +701,13 @@ fn clipboardReplyImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value
     return emacs.nilv(env);
 }
 
-fn clipboardPendingImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
+fn clipboardGenerationImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
     const term = try getTerm(env, args[0]);
-    const id = emacs.extractInteger(env, args[1]);
-    if (emacs.pendingExit(env)) return error.PendingLispSignal;
-    if (id < 0 or !term.clipboardPending(@intCast(id))) return emacs.nilv(env);
-    return emacs.t(env);
+    return generationValue(env, term.clipboardGeneration());
+}
+
+fn generationValue(env: *emacs.Env, generation: u64) *emacs.Value {
+    return emacs.makeInteger(env, @intCast(generation));
 }
 
 /// POLICY は `allow'/`ask'/`deny' シンボルのいずれか。
@@ -810,9 +813,9 @@ fn clipboardReplyFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: 
     return finish(env, clipboardReplyImpl(env, args[0..@intCast(nargs)]));
 }
 
-fn clipboardPendingFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
+fn clipboardGenerationFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
     _ = data;
-    return finish(env, clipboardPendingImpl(env, args[0..@intCast(nargs)]));
+    return finish(env, clipboardGenerationImpl(env, args[0..@intCast(nargs)]));
 }
 
 fn setClipboardWriteFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
@@ -873,7 +876,7 @@ pub fn registerAll(env: *emacs.Env) void {
     defalias(env, "spectreshell--set-visibility", 2, 2, setVisibilityFn, "Set whether TERM is VISIBLE; return the report due to the child, or nil.");
     defalias(env, "spectreshell--set-colors", 4, 4, setColorsFn, "Set the colors TERM answers the child's queries with: FG, BG and PALETTE (16 colors).");
     defalias(env, "spectreshell--clipboard-reply", 3, 4, clipboardReplyFn, "Answer TERM's clipboard request ID with RESULT (a string, or nil to deny), remembering its password if REMEMBER; return the bytes due to the child, or nil.");
-    defalias(env, "spectreshell--clipboard-pending-p", 2, 2, clipboardPendingFn, "Return t if TERM's clipboard request ID still waits for an answer.");
+    defalias(env, "spectreshell--clipboard-generation", 1, 1, clipboardGenerationFn, "Return TERM's clipboard generation, which changes when the child resets (RIS).");
     defalias(env, "spectreshell--set-clipboard-write", 2, 2, setClipboardWriteFn, "Set whether TERM takes the child's clipboard writes: POLICY is allow, ask or deny.");
     defalias(env, "spectreshell--encode-paste-event", 1, 1, encodePasteEventFn, "Return TERM's kitty paste event (mode 5522) for a paste, or nil if the child has not asked for them.");
     defalias(env, "spectreshell--release", 1, 1, releaseFn, "Explicitly release TERM. Safe to call more than once.");

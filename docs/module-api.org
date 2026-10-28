@@ -20,7 +20,7 @@ Phase 3 (spectreshell.el) 以降はこのドキュメントを参照する。
 | ~(spectreshell--set-visibility TERM VISIBLE)~ | TERM、VISIBLE: nil or それ以外 | unibyte 文字列 or nil |
 | ~(spectreshell--set-colors TERM FG BG PALETTE)~ | TERM、FG/BG: 色 or nil、PALETTE: 色 or nil の 16 要素のリスト | nil (副作用のみ) |
 | ~(spectreshell--clipboard-reply TERM ID RESULT &optional REMEMBER)~ | TERM、ID: 要求の ~:id~ 、RESULT: 文字列 or nil | unibyte 文字列 or nil |
-| ~(spectreshell--clipboard-pending-p TERM ID)~ | TERM、ID: 要求の ~:id~ | ~t~ (まだ答えを待っている) or nil |
+| ~(spectreshell--clipboard-generation TERM)~ | TERM | 整数 (今の RIS の世代) |
 | ~(spectreshell--set-clipboard-write TERM POLICY)~ | TERM、POLICY: ~allow~ / ~ask~ / ~deny~ | nil (副作用のみ) |
 | ~(spectreshell--encode-paste-event TERM)~ | TERM | unibyte 文字列 or nil |
 | ~(spectreshell--release TERM)~ | TERM | nil (副作用のみ) |
@@ -29,7 +29,7 @@ TERM は ~spectreshell--create~ が返す user-ptr。他のモジュールの
 user-ptr や整数など、うちの Term でない値を渡すと
 ~wrong-type-argument~ が signal される。 ~spectreshell--release~ 済みの
 TERM に ~--feed~ / ~--resize~ / ~--flush~ / ~--encode-key~ / ~--encode-paste~ /
-~--encode-mouse~ / ~--set-color-scheme~ / ~--set-visibility~ / ~--set-colors~ / ~--clipboard-reply~ / ~--clipboard-pending-p~ /
+~--encode-mouse~ / ~--set-color-scheme~ / ~--set-visibility~ / ~--set-colors~ / ~--clipboard-reply~ / ~--clipboard-generation~ /
 ~--set-clipboard-write~ / ~--encode-paste-event~ を呼ぶと ~spectreshell-terminal-released~ (~error~ の
 子コンディション) が signal される。 ~--release~ 自体は二重に呼んでも
 安全 (2回目は no-op)。
@@ -95,14 +95,14 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
   順に処理する (design.org の判断 19)。各要素は ~:op~ で種類が分かる
   plist で、LOC は ~clipboard~ か ~primary~ (OSC 52 の ~p~ と ~s~ は
   ~primary~ 、それ以外は ~clipboard~)。
-  - ~(:op write [:id ID] :loc LOC :text TEXT ...)~: OSC 52 / OSC 5522 の
+  - ~(:op write [:id ID] :loc LOC :generation GEN :text TEXT ...)~: OSC 52 / OSC 5522 の
     書き込み。TEXT は base64 を解いたバイト列 (unibyte。UTF-8 として解く
     のは受け手)。OSC 5522 では最初の text の表現 (~text/plain~ と上流の
     ~isTextMime~ の別名)。空の書き込み、base64 として不正な書き込み、
     ~--set-clipboard-write~ が ~deny~ の間の書き込みは載せない。ID は
     パスワードを覚えられるときだけ付き、受け手は ~--clipboard-reply~ で
     覚えるかを答える (RESULT は ~nil~ 、戻り値は常に ~nil~ )。
-  - ~(:op read :id ID :loc LOC ...)~: OSC 52 の読み取り (~?~) と OSC 5522
+  - ~(:op read :id ID :loc LOC :generation GEN ...)~: OSC 52 の読み取り (~?~) と OSC 5522
     の読み取り。feed では答えず、ID で ~--clipboard-reply~ に答えを求める。
     OSC 52 は種別によらず clipboard を読む。答えていない読み取りが 64 件を
     超えると、それ以上は載せずに断る (OSC 52 は空、OSC 5522 は EBUSY)。
@@ -115,8 +115,9 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
     ない。
   - 同じ feed の RIS より前の要求は、読み取りを載せず、書き込みから
     ~:id~ と ~:remember~ を外す (RIS で答えていない記録を消すため)。
-    前の feed で載せた要求の ID は、RIS の後は ~--clipboard-pending-p~ が
-    nil になる。
+  - GEN は子が要求を出した時点の RIS の世代。RIS のたびに変わり、今の
+    世代は ~--clipboard-generation~ で分かる。RIS の前の要求 (同じ feed
+    のものと、id の無い書き込みを含む) は GEN が今の世代と違う。
 - *~:focus-event~*: 子がフォーカスの報告 (mode 1004) を有効にしている
   間は ~t~ 。無効ならキーごと省略される。
 - *~:alt-screen~*: このバッチで alternate screen への出入りが

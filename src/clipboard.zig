@@ -69,6 +69,8 @@ pub const Request = union(enum) {
 pub const Write = struct {
     loc: Location,
     text: []u8,
+    /// 子が書いた時点の RIS の世代 (State.generation)。
+    generation: u64,
     /// 覚えられる (REMEMBER) ときだけ振る。Elisp は Term.clipboardReply で
     /// 覚えるかを答える。
     id: ?u64 = null,
@@ -84,6 +86,8 @@ pub const Write = struct {
 pub const Read = struct {
     id: u64,
     loc: Location,
+    /// 子が求めた時点の RIS の世代 (State.generation)。
+    generation: u64,
     /// 子が text を求めていない (OSC 5522 の一覧だけ、または text 以外の
     /// MIME だけ)。答えても中身を明かさないので確認しない。
     no_text: bool = false,
@@ -196,6 +200,9 @@ pub const State = struct {
     requests: std.ArrayList(Request) = .empty,
     waiting: std.ArrayList(Waiting) = .empty,
     next_id: u64 = 1,
+    /// RIS のたびに変わる。Elisp は要求の世代と比べて RIS の前の要求を
+    /// 見分ける。id の無い書き込みも見分けられるよう、id とは別に持つ。
+    generation: u64 = 0,
     write_policy: WritePolicy = .allow,
 
     pub fn deinit(self: *State, alloc: std.mem.Allocator) void {
@@ -224,6 +231,7 @@ pub const State = struct {
         var request: Write = .{
             .loc = .fromVt(write.location),
             .text = try alloc.dupe(u8, text),
+            .generation = self.generation,
             .granted = write.granted,
         };
         errdefer alloc.free(request.text);
@@ -340,6 +348,7 @@ pub const State = struct {
         self.requests.appendAssumeCapacity(.{ .read = .{
             .id = id,
             .loc = if (meta.loc == .primary) .primary else .clipboard,
+            .generation = self.generation,
             .no_text = !text,
             .name = name,
             .granted = granted,
@@ -354,7 +363,7 @@ pub const State = struct {
         const id = self.next_id;
         self.next_id += 1;
         self.waiting.appendAssumeCapacity(.{ .id = id, .reply = answer });
-        self.requests.appendAssumeCapacity(.{ .read = .{ .id = id, .loc = loc } });
+        self.requests.appendAssumeCapacity(.{ .read = .{ .id = id, .loc = loc, .generation = self.generation } });
     }
 
     /// ID の要求への答えを OUT で確保して返す。読み取りは DATA が null
@@ -396,20 +405,13 @@ pub const State = struct {
         return bytes;
     }
 
-    /// ID の要求がまだ答えを待っているか。答えた後と RIS の後は false。
-    pub fn isWaiting(self: *const State, id: u64) bool {
-        for (self.waiting.items) |w| {
-            if (w.id == id) return true;
-        }
-        return false;
-    }
-
     /// RIS で、答えていない記録を捨てる。上流は RIS で grants を消すので、
     /// RIS の前の要求に後から覚えると答えても覚えないようにする。まだ
     /// 渡していない要求も、記録の無い id を持たないよう、読み取りは捨て、
     /// 書き込みは覚えられないものにする。id は振り直さず、古い id が新しい
-    /// 要求に当たらないようにする。
+    /// 要求に当たらないようにする。残す書き込みは前の世代のままにする。
     pub fn reset(self: *State, alloc: std.mem.Allocator) void {
+        self.generation +%= 1;
         for (self.waiting.items) |*w| w.deinit(alloc);
         self.waiting.clearRetainingCapacity();
         var kept: usize = 0;
@@ -864,28 +866,33 @@ test "RIS の前の要求には、RIS の後で覚えると答えても覚えず
     try testing.expect(!after.clipboard[1].write.granted);
 }
 
-test "答えを待つ id は、答えた後と RIS の後にはもう待っていない" {
+test "要求には子が出した時点の RIS の世代が付き、RIS で世代が変わる" {
     const alloc = testing.allocator;
     const t = try core.Term.init(alloc, 5, 10);
     defer t.deinit();
 
-    const read = kittyOsc("type=read:name=cHJvZw==:pw=c2VjcmV0", "dGV4dC9wbGFpbg==");
-    var update = try t.feed(alloc, read ++ "\x1b]52;c;?\x07");
-    defer update.deinit();
-    const answered = update.clipboard[0].read.id;
-    const reset_away = update.clipboard[1].read.id;
-    try testing.expect(t.clipboardPending(answered));
-    try testing.expect(t.clipboardPending(reset_away));
-    try testing.expect(!t.clipboardPending(reset_away + 1));
+    const before = t.clipboardGeneration();
+    const write = kittyOsc("type=write", "") ++
+        kittyOsc("type=wdata:mime=dGV4dC9wbGFpbg==", "aGk=") ++
+        kittyOsc("type=wdata", "");
+    var first = try t.feed(alloc, "\x1b]52;c;?\x07" ++ write);
+    defer first.deinit();
+    try testing.expectEqual(before, first.clipboard[0].read.generation);
+    try testing.expectEqual(before, first.clipboard[1].write.generation);
+    try testing.expectEqual(before, t.clipboardGeneration());
 
-    const bytes = (try t.clipboardReply(alloc, answered, null, false)).?;
-    alloc.free(bytes);
-    try testing.expect(!t.clipboardPending(answered));
-    try testing.expect(t.clipboardPending(reset_away));
+    // 同じ feed の RIS の前の書き込みは、id が無くても前の世代のまま。
+    var second = try t.feed(alloc, "\x1b]52;c;aGk=\x07\x1bc\x1b]52;c;eW8=\x07");
+    defer second.deinit();
+    const after = t.clipboardGeneration();
+    try testing.expect(after != before);
+    try testing.expectEqual(@as(usize, 2), second.clipboard.len);
+    try testing.expectEqual(before, second.clipboard[0].write.generation);
+    try testing.expectEqual(after, second.clipboard[1].write.generation);
 
-    var reset = try t.feed(alloc, "\x1bc");
-    defer reset.deinit();
-    try testing.expect(!t.clipboardPending(reset_away));
+    var third = try t.feed(alloc, "\x1b]52;c;?\x07");
+    defer third.deinit();
+    try testing.expectEqual(after, third.clipboard[0].read.generation);
 }
 
 test "同じ feed の RIS の前の読み取りは載せず、書き込みは覚えられないものにする" {

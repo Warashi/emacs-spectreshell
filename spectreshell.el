@@ -44,7 +44,7 @@
 (declare-function spectreshell--encode-paste "libspectreshell" (term text))
 (declare-function spectreshell--encode-mouse "libspectreshell" (term button action row col modifiers))
 (declare-function spectreshell--clipboard-reply "libspectreshell" (term id result &optional remember))
-(declare-function spectreshell--clipboard-pending-p "libspectreshell" (term id))
+(declare-function spectreshell--clipboard-generation "libspectreshell" (term))
 (declare-function spectreshell--set-clipboard-write "libspectreshell" (term policy))
 (declare-function spectreshell--encode-paste-event "libspectreshell" (term))
 
@@ -889,6 +889,10 @@ a child asking again and again does not keep the others waiting."
             (unwind-protect
                 (setq decision (spectreshell--clipboard-ask-user obj request))
               (setq spectreshell--clipboard-asking nil)
+              ;; The child may have reset while the prompt was shown.
+              (when (and (memq decision '(allow always))
+                         (spectreshell--clipboard-stale-p obj request))
+                (setq decision 'deny))
               (spectreshell--clipboard-schedule)
               (unwind-protect
                   (spectreshell--clipboard-handle obj request decision)
@@ -899,15 +903,16 @@ a child asking again and again does not keep the others waiting."
   "Return the queue entry of the first live terminal with a request to take.
 That is a first request decided meanwhile, or one to ask about while
 the selected frame shows the terminal's buffer
-\(`spectreshell--clipboard-in-front-p'); the others wait.  Requests the
-module no longer waits on (`spectreshell--clipboard-awaited-p') are
-dropped from the front of each queue on the way, unasked."
+\(`spectreshell--clipboard-in-front-p'); the others wait.  Requests
+from before the child last reset (`spectreshell--clipboard-stale-p')
+that need a prompt are dropped from the front of each queue on the way,
+unasked."
   (seq-find (lambda (entry)
               (let ((obj (car entry)))
                 (when (spectreshell--clipboard-live-p obj)
                   (while (and (cdr entry)
-                              (not (spectreshell--clipboard-awaited-p
-                                    obj (cadr entry))))
+                              (not (spectreshell--clipboard-decision obj (cadr entry)))
+                              (spectreshell--clipboard-stale-p obj (cadr entry)))
                     (pop (cdr entry)))
                   (and (cdr entry)
                        (or (spectreshell--clipboard-decision obj (cadr entry))
@@ -915,13 +920,14 @@ dropped from the front of each queue on the way, unasked."
                             (spectreshell-buffer obj)))))))
             spectreshell--clipboard-queues))
 
-(defun spectreshell--clipboard-awaited-p (obj request)
-  "Return non-nil unless OBJ's module no longer waits on REQUEST.
-A request with an `:id' stops being waited on when the child resets
-\(RIS); one without cannot be told, and counts as waited on."
-  (let ((id (plist-get request :id)))
-    (or (null id)
-        (spectreshell--clipboard-pending-p (spectreshell-term obj) id))))
+(defun spectreshell--clipboard-stale-p (obj request)
+  "Return non-nil if OBJ's child has reset (RIS) since it sent REQUEST.
+The program that sent it may be gone, and the module has forgotten
+what answering it needs.  A finalized OBJ has no module to ask, and
+counts as not reset."
+  (and (spectreshell--clipboard-live-p obj)
+       (not (eql (plist-get request :generation)
+                 (spectreshell--clipboard-generation (spectreshell-term obj))))))
 
 (defun spectreshell--clipboard-ask-user (obj request)
   "Ask about OBJ's REQUEST; return `allow', `deny', `always' or `quit'.

@@ -113,6 +113,13 @@ stty -echo; printf '\e]52;c;?\a'; timeout 10 cat -v; stty echo
   断られ、 =^[]52;c;^G= が 2 つ表示されること。
 - ~stty -echo; printf '\e]52;c;?\a'; sleep 0.2; printf '\ec'; timeout 3 cat -v; stty echo~
   では、確認が出ず、答えも表示されないこと (RIS の前の要求は捨てる)。
+  ~(setq spectreshell-clipboard-write 'ask)~ で
+  ~printf '\e]52;c;aGk=\a'; sleep 0.2; printf '\ec'~ も、確認が出ず
+  kill-ring に入らないこと。
+- ~(setq spectreshell-clipboard-write 'ask)~ で
+  ~printf '\e]52;c;aGk=\a'; sleep 3; printf '\ec'~ を実行し、確認が出た
+  ら 3 秒待ってから「Allow once:」の語を打って RET と答えても、kill-ring
+  に入らないこと (確認の間の RIS)。
 - 2 つの eshell を並べて表示し、1 つ目で
   ~sleep 3; printf '\e]52;c;?\a\e]52;c;?\a\e]52;c;?\a'~ 、続けて 2 つ目で
   ~sleep 3; printf '\e]52;c;?\a'~ を実行してすぐ ~M-x~ を押し、5 秒ほど

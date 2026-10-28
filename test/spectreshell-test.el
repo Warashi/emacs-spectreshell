@@ -1881,25 +1881,76 @@ paste イベントを送り、続く読み取りには ask でも確認せずに
         (should (null spectreshell--clipboard-queues))
         (should (null asks))))))
 
+(defconst spectreshell-test--kitty-write-without-password
+  (concat "\e]5522;type=write\a"
+          "\e]5522;type=wdata:mime=dGV4dC9wbGFpbg==;eW8=\a"
+          "\e]5522;type=wdata\a")
+  "名前もパスワードも無い (id の付かない)、text/plain の yo の書き込み。")
+
 (ert-deftest spectreshell-test-clipboard-requests-before-reset-are-not-asked ()
-  "確認を待つ間に子が RIS (\\ec) を出したら、RIS の前の、もう答えを待って
-いない要求は確認せずに捨てる。"
-  (spectreshell-test--with-terminal (term 1 10 responses)
-    (spectreshell-test--with-clipboard (_cuts asks 'allow)
-      (let ((spectreshell-clipboard-read 'ask)
-            (spectreshell-clipboard-write 'ask))
-        (kill-new "x")
-        (spectreshell-feed term (concat spectreshell-test--kitty-read
-                                        "\e]52;c;?\a"
-                                        spectreshell-test--kitty-write))
-        (spectreshell-test--clipboard-run-timer)
-        (setq responses nil)
+  "確認を待つ間に子が RIS (\\ec) を出したら、RIS の前の要求は、id の無い
+OSC 52 の書き込みやパスワードの無い OSC 5522 の書き込みも含めて、確認せずに
+捨てる。同じ feed の RIS の前の要求も同じ。"
+  (dolist (split '(t nil))
+    (spectreshell-test--with-terminal (term 1 10 responses)
+      (spectreshell-test--with-clipboard (_cuts asks 'allow)
+        (let ((spectreshell-clipboard-read 'ask)
+              (spectreshell-clipboard-write 'ask)
+              (requests (concat spectreshell-test--kitty-read
+                                "\e]52;c;?\a"
+                                spectreshell-test--kitty-write
+                                "\e]52;c;aGk=\a"
+                                spectreshell-test--kitty-write-without-password)))
+          (kill-new "x")
+          (if (not split)
+              (spectreshell-feed term (concat requests "\ec"))
+            (spectreshell-feed term requests)
+            (spectreshell-test--clipboard-run-timer)
+            (spectreshell-feed term "\ec"))
+          (setq responses nil)
+          (spectreshell-test--clipboard-drain)
+          (should (null asks))
+          (should (null responses))
+          (should (equal kill-ring '("x")))
+          (should (null spectreshell--clipboard-queues)))))))
+
+(ert-deftest spectreshell-test-clipboard-reset-during-prompt-drops-the-request ()
+  "確認の間に子が RIS (\\ec) を出したら、許可と答えても、その RIS の前の
+要求は処理しない。id の無い書き込みも kill-ring に入れず、読み取りには
+答えない。RIS の後の要求は確認する。"
+  (dolist (request (list "\e]52;c;aGk=\a"
+                         spectreshell-test--kitty-write-without-password
+                         "\e]52;c;?\a"))
+    (spectreshell-test--with-terminal (term 1 10 responses)
+      (spectreshell-test--with-clipboard (_cuts asks (progn
+                                                       (when (= (length asks) 1)
+                                                         (spectreshell-feed term "\ec"))
+                                                       'allow))
+        (let ((spectreshell-clipboard-read 'ask)
+              (spectreshell-clipboard-write 'ask))
+          (spectreshell-feed term request)
+          (setq responses nil)
+          (spectreshell-test--clipboard-drain)
+          (should (= (length asks) 1))
+          (should (null kill-ring))
+          (should (null responses))
+          (spectreshell-feed term "\e]52;c;aGk=\a")
+          (spectreshell-test--clipboard-drain)
+          (should (= (length asks) 2))
+          (should (equal kill-ring '("hi"))))))))
+
+(ert-deftest spectreshell-test-clipboard-allowed-write-before-reset-is-kept ()
+  "確認の要らない (allow の) 書き込みは、処理の前に子が RIS を出しても
+kill-ring に入れる。書いてすぐ reset するコマンドの書き込みを、処理の
+timer との競争で落とさないため。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (_cuts asks 'deny)
+      (let ((spectreshell-clipboard-write 'allow))
+        (spectreshell-feed term "\e]52;c;aGk=\a")
         (spectreshell-feed term "\ec")
         (spectreshell-test--clipboard-drain)
         (should (null asks))
-        (should (null responses))
-        (should (equal kill-ring '("x")))
-        (should (null spectreshell--clipboard-queues))))))
+        (should (equal kill-ring '("hi")))))))
 
 (ert-deftest spectreshell-test-clipboard-prompts-take-turns-across-terminals ()
   "確認は端末ごとに順番に (round-robin で) 出す。確認を出し続ける端末が

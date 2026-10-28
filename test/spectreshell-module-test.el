@@ -69,9 +69,9 @@
          (update (spectreshell--feed
                   term "\x1b]52;p;aGk=\x07\x1b]52;s;44GC\x07\x1b]52;;eW8=\x07")))
     (should (equal (plist-get update :clipboard)
-                   `((:op write :loc primary :text "hi")
-                     (:op write :loc primary :text ,(encode-coding-string "あ" 'utf-8))
-                     (:op write :loc clipboard :text "yo"))))
+                   `((:op write :loc primary :generation 0 :text "hi")
+                     (:op write :loc primary :generation 0 :text ,(encode-coding-string "あ" 'utf-8))
+                     (:op write :loc clipboard :generation 0 :text "yo"))))
     (should-not (multibyte-string-p
                  (plist-get (nth 1 (plist-get update :clipboard)) :text)))
     (should-not (plist-member update :relay))
@@ -105,24 +105,23 @@
       (should-not (spectreshell--clipboard-reply term first "hi")))
     (spectreshell--release term)))
 
-(ert-deftest spectreshell-module-test-clipboard-pending-until-answered-or-reset ()
-  "`spectreshell--clipboard-pending-p' は、要求の id がまだ答えを待っていれば
-t を返す。答えた後と、子の RIS (\\ec) の後は nil。"
+(ert-deftest spectreshell-module-test-clipboard-requests-carry-reset-generation ()
+  "要求には、子が出した時点の RIS (\\ec) の世代が `:generation' で付き、
+`spectreshell--clipboard-generation' は今の世代を返す。RIS の後は世代が
+変わるので、RIS の前の要求 (id の無い書き込みを含む) と区別できる。"
   (let* ((term (spectreshell--create 5 10))
-         (requests (plist-get (spectreshell--feed term "\e]52;c;?\a\e]52;c;?\a")
+         (before (spectreshell--clipboard-generation term))
+         (requests (plist-get (spectreshell--feed term "\e]52;c;?\a\e]52;c;aGk=\a\ec\e]52;c;eW8=\a")
                               :clipboard))
-         (first (plist-get (nth 0 requests) :id))
-         (second (plist-get (nth 1 requests) :id)))
-    (should (eq (spectreshell--clipboard-pending-p term first) t))
-    (should (eq (spectreshell--clipboard-pending-p term second) t))
-    (spectreshell--clipboard-reply term first nil)
-    (should-not (spectreshell--clipboard-pending-p term first))
-    (should (spectreshell--clipboard-pending-p term second))
-    (spectreshell--feed term "\ec")
-    (should-not (spectreshell--clipboard-pending-p term second))
-    (should-not (spectreshell--clipboard-pending-p term -1))
+         (after (spectreshell--clipboard-generation term)))
+    (should (integerp before))
+    (should (integerp after))
+    (should-not (eql before after))
+    (should (equal (mapcar (lambda (r) (plist-get r :op)) requests) '(write write)))
+    (should (eql (plist-get (nth 0 requests) :generation) before))
+    (should (eql (plist-get (nth 1 requests) :generation) after))
     (spectreshell--release term)
-    (should-error (spectreshell--clipboard-pending-p term second)
+    (should-error (spectreshell--clipboard-generation term)
                   :type 'spectreshell-terminal-released)))
 
 (ert-deftest spectreshell-module-test-kitty-clipboard-write-produces-request ()
@@ -137,7 +136,7 @@ t を返す。答えた後と、子の RIS (\\ec) の後は nil。"
     (should (equal (plist-get update :responses) "\e]5522;type=write:status=DONE\a"))
     (should (integerp (plist-get request :id)))
     (should (equal (plist-put (copy-sequence request) :id 0)
-                   '(:op write :id 0 :loc clipboard :text "hi" :name "prog" :remember t)))
+                   '(:op write :id 0 :loc clipboard :generation 0 :text "hi" :name "prog" :remember t)))
     (should-not (spectreshell--clipboard-reply term (plist-get request :id) nil t))
     (spectreshell--release term)))
 
@@ -169,9 +168,9 @@ OSC 5522 には EPERM で答える。"
          (listing (nth 1 requests)))
     (should-not (plist-member update :responses))
     (should (equal (plist-put (copy-sequence read) :id 0)
-                   '(:op read :id 0 :loc primary :name "prog" :remember t)))
+                   '(:op read :id 0 :loc primary :generation 0 :name "prog" :remember t)))
     (should (equal (plist-put (copy-sequence listing) :id 0)
-                   '(:op read :id 0 :loc clipboard :no-text t)))
+                   '(:op read :id 0 :loc clipboard :generation 0 :no-text t)))
     (should (equal (spectreshell--clipboard-reply term (plist-get read :id) "hi" t)
                    (concat "\e]5522;type=read:status=OK:loc=primary\a"
                            "\e]5522;type=read:status=DATA:mime=dGV4dC9wbGFpbg==;aGk=\a"
@@ -203,7 +202,7 @@ OSC 5522 には EPERM で答える。"
 保留しない。"
   (let* ((term (spectreshell--create 5 10))
          (update (spectreshell--feed term "\x1b[?2026h\x1b]52;c;aGk=\x07")))
-    (should (equal update '(:synchronized t :clipboard ((:op write :loc clipboard :text "hi")))))
+    (should (equal update '(:synchronized t :clipboard ((:op write :loc clipboard :generation 0 :text "hi")))))
     (spectreshell--release term)))
 
 (ert-deftest spectreshell-module-test-primary-device-attributes-report-clipboard ()
