@@ -2979,6 +2979,15 @@ ghostty の pkg/apple-sdk (または zig std) が xcrun を介さず SDKROOT
 する。このフォールバック経路はフレームワークパスを設定しないため
 libghostty-vt のビルドに足りるかは未確認 (推測)。
 
+2026-10-28 の再検証 (ghostty v1.4.0 / zig 0.17.0 に更新後): v1.4.0 の
+=pkg/apple-sdk/build.zig= は findNative を =catch break :darwin= で
+受け、macOS ターゲットなら =gen_libc.zig= で同梱ヘッダの libc ファイル
+を作るフォールバックを持つ。SDKROOT は依然として直接見ない。また
+=src/build/Config.zig= は lib-vt モードでは =xcodebuild= が PATH に無
+ければ =emit-xcframework= を既定で無効にするため、iOS 向けグラフは組
+まれない見込み。シムを外して darwin の =nix flake check= が通るかは CI
+で確かめる。
+
 * 性能・UX (設計判断を要する改善)
 
 ** DONE P-7: コマンドが最後に出した空行が確定時に消える
