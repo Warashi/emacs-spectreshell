@@ -205,8 +205,8 @@ Emacs が 256 色で描くとき ( @code{COLORTERM} の無い @code{TERM=xterm-2
 @node クリップボード
 @unnumberedsec クリップボード
 
-子 (Claude Code ・ Copilot CLI など) がクリップボードへ書く OSC 52 は、
-外側の端末へは中継せず Emacs のクリップボードで受ける。
+子 (Claude Code ・ Copilot CLI など) がクリップボードを読み書きする
+OSC 52 は、外側の端末へは中継せず Emacs のクリップボードで受ける。
 
 @table @asis
 @item @code{spectreshell-clipboard-write}
@@ -215,9 +215,17 @@ Emacs が 256 色で描くとき ( @code{COLORTERM} の無い @code{TERM=xterm-2
 @code{deny} は捨てる。確認で @code{C-g} を押すと拒否になる。batch・クライアント
 のいない daemon・端末のバッファを表示しているフレームが無いときは、
 @code{ask} でも確認せずに捨てる
+@item @code{spectreshell-clipboard-read}
+子の読み取りに答えるか。 @code{ask} (既定)
+は確認してから答え、 @code{allow} は確認せずに答え、 @code{deny} は空で答える。
+確認できないときと @code{C-g} は、 @code{ask} でも拒否になる
 @end table
 
-書き込みは、子が出力した直後ではなく、出力を描いた後に処理する。
+読み書きは、子が出力した直後ではなく、出力を描いた後に来た順に処理し、
+確認は一度に 1 つだけ出す。読み取りには、 @code{current-kill} で見た kill-ring
+の先頭 (ほかのアプリケーションが新しく選択したものがあればそれ) で、
+Ghostty と同じく要求の種別によらず clipboard を読んで答える。答えるまでに
+ジョブが終わったら答えない。
 clipboard への書き込みは @code{kill-new} で kill-ring に入るので、 @code{C-y} で
 貼れる。外側への反映は @code{interprogram-cut-function} に任せるので、GUI
 フレームではシステムのクリップボードに入り、tty フレームでは xterm.el が
@@ -433,8 +441,8 @@ GUI フレームには送らない。どの tty フレームも表示してい�
 (daemon にクライアントがつながっていないときなど) に出たものは捨て、
 後から送り直さない
 @item
-子の OSC 52 によるクリップボードへの書き込みは、Emacs のクリップ
-ボードで受ける (「設定」のクリップボードを参照)
+子の OSC 52 によるクリップボードへの書き込みと読み取りは、Emacs の
+クリップボードで受ける (「設定」のクリップボードを参照)
 @item
 デスクトップ通知 (OSC 777 / OSC 9) は OSC 777 にして送る。タイトルと
 本文から制御文字を除き、タイトルからは @code{;} も除く。通知を出すかは
@@ -565,7 +573,7 @@ feed のときに選択中のフレームで face を解決する。tty と GUI 
 @code{nil} にすると増える)。桁は折り返しの印のために最後の 1 桁を使わない
 ( @code{truncate-lines} でも変わらない)
 @item
-OSC 52 クリップボードの読み取り・画像 (kitty graphics/sixel) は未実装
+画像 (kitty graphics/sixel) は未実装
 @item
 TRAMP / リモート @code{default-directory} は対象外: リモートでは常に
 eshell 本来の (非端末) 経路にフォールバックする

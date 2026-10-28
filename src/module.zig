@@ -329,6 +329,14 @@ fn appendClipboard(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayL
                 emacs.intern(env, ":text"),
                 emacs.makeUnibyteString(env, w.text),
             }),
+            .read => |read| emacs.list(env, &.{
+                emacs.intern(env, ":op"),
+                emacs.intern(env, "read"),
+                emacs.intern(env, ":id"),
+                emacs.makeInteger(env, @intCast(read.id)),
+                emacs.intern(env, ":loc"),
+                locationValue(env, read.loc),
+            }),
         });
     }
     try items.append(arena, emacs.intern(env, ":clipboard"));
@@ -645,6 +653,25 @@ fn extractList(
     }
 }
 
+/// RESULT は nil (断る) か、読み取りに答える中身の文字列。
+fn clipboardReplyImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
+    const term = try getTerm(env, args[0]);
+    const id = emacs.extractInteger(env, args[1]);
+    if (emacs.pendingExit(env)) return error.PendingLispSignal;
+    if (id < 0) return emacs.nilv(env);
+
+    var arena = scratchArena();
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const data: ?[]const u8 = if (emacs.isNotNil(env, args[2]))
+        try emacs.copyStringContents(env, a, args[2])
+    else
+        null;
+    if (try term.clipboardReply(a, @intCast(id), data)) |bytes| return emacs.makeUnibyteString(env, bytes);
+    return emacs.nilv(env);
+}
+
 fn setColorsImpl(env: *emacs.Env, args: []const *emacs.Value) !*emacs.Value {
     const term = try getTerm(env, args[0]);
     var colors: handler.Colors = .{
@@ -718,6 +745,11 @@ fn setVisibilityFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?
     return finish(env, setVisibilityImpl(env, args[0..@intCast(nargs)]));
 }
 
+fn clipboardReplyFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
+    _ = data;
+    return finish(env, clipboardReplyImpl(env, args[0..@intCast(nargs)]));
+}
+
 fn setColorsFn(env: *emacs.Env, nargs: isize, args: [*]*emacs.Value, data: ?*anyopaque) callconv(.c) *emacs.Value {
     _ = data;
     return finish(env, setColorsImpl(env, args[0..@intCast(nargs)]));
@@ -765,5 +797,6 @@ pub fn registerAll(env: *emacs.Env) void {
     defalias(env, "spectreshell--set-color-scheme", 2, 2, setColorSchemeFn, "Set TERM's color SCHEME (dark or light); return the report due to the child, or nil.");
     defalias(env, "spectreshell--set-visibility", 2, 2, setVisibilityFn, "Set whether TERM is VISIBLE; return the report due to the child, or nil.");
     defalias(env, "spectreshell--set-colors", 4, 4, setColorsFn, "Set the colors TERM answers the child's queries with: FG, BG and PALETTE (16 colors).");
+    defalias(env, "spectreshell--clipboard-reply", 3, 3, clipboardReplyFn, "Answer TERM's clipboard read ID with RESULT (a string, or nil to deny); return the bytes due to the child, or nil.");
     defalias(env, "spectreshell--release", 1, 1, releaseFn, "Explicitly release TERM. Safe to call more than once.");
 }

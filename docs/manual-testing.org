@@ -85,6 +85,21 @@ printf '\e]52;c;%s\a' "$(printf 'こんにちは' | base64)"
   入らないこと。 ~C-g~ の後もエコー領域に「Quit」が残らず、子の出力が
   続けて描かれること。
 
+読み取りは次のコマンドで出せる (既定の ~spectreshell-clipboard-read~ は
+~ask~ )。 ~cat -v~ が子へ届いた答えを表示する。
+
+#+begin_src sh
+stty -echo; printf '\e]52;c;?\a'; timeout 10 cat -v; stty echo
+#+end_src
+
+- 確認で ~y~ を押すと、kill-ring の先頭 (GUI ではほかのアプリケーション
+  で新しくコピーしたもの) の base64 が =^[]52;c;...^G= で表示されること。
+  ~n~ と ~C-g~ では =^[]52;c;^G= になり、 ~C-g~ の後も「Quit」が残らない
+  こと。
+- 確認の間に ~C-x o~ などほかの操作をしても子の出力が止まらないこと。
+- ~printf '\e]52;c;?\a\e]52;c;?\a'~ のように 2 つ続けると、確認が
+  1 つずつ順に出ること。
+
 ** eshell コマンドライン編集での ddskk
 
 ddskk 有効化 (~skk-mode~) した状態で、プロセスを実行していない
@@ -103,8 +118,7 @@ eshell のコマンドライン (プロンプトの後ろ) で日本語入力を
   (docs/design.org の割り切り)。
 - *プロセス実行中への IME 直接入力は対象外* (design.org 参照)。
   ~C-y~ (kill-ring からの bracketed paste) 経由での日本語送信は可能。
-- *OSC 52 クリップボードの読み取り・画像 (kitty graphics/sixel) は未実装*
-  (Phase 6 の将来拡張)。書き込みは kill-ring で受ける。
+- *画像 (kitty graphics/sixel) は未実装* (Phase 6 の将来拡張)。
 - Emacs が新規に開く pty は既定で ~-echo -onlcr~ (~stty -a~ で確認可能)
   になっており、素の LF だけの出力が階段状にずれてしまう。
   ~spectreshell-eshell--wrap-command-for-pty~ が ~term.el~ と同じ

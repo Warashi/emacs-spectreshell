@@ -123,7 +123,12 @@ pub const Handler = struct {
             .dcs_put => try self.dcsPut(value),
             .dcs_unhook => try self.dcsUnhook(),
             .window_title => try self.setTitle(value.title),
-            .clipboard_contents => try self.innerVtWithPty(action, value),
+            // 読み取りは上流に渡すと feed の中で答えることになるので、
+            // 横取りして記録し、Elisp が後で答える。
+            .clipboard_contents => if (std.mem.eql(u8, value.data, "?"))
+                try self.clipboard.recordOsc52Read(self.alloc, self.responses, value.kind, value.terminator)
+            else
+                try self.innerVtWithPty(action, value),
             .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
             .progress_report => try self.progressReport(value),
             .bell => try self.relay.append(self.alloc, .bell),

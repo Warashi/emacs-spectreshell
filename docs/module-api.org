@@ -18,13 +18,14 @@ Phase 3 (spectreshell.el) 以降はこのドキュメントを参照する。
 | ~(spectreshell--encode-mouse TERM BUTTON ACTION ROW COL MODIFIERS)~ | TERM、BUTTON、ACTION、ROW/COL: 整数、MODIFIERS | unibyte 文字列 or nil |
 | ~(spectreshell--set-color-scheme TERM SCHEME)~ | TERM、SCHEME: ~dark~ / ~light~ | unibyte 文字列 or nil |
 | ~(spectreshell--set-colors TERM FG BG PALETTE)~ | TERM、FG/BG: 色 or nil、PALETTE: 色 or nil の 16 要素のリスト | nil (副作用のみ) |
+| ~(spectreshell--clipboard-reply TERM ID RESULT)~ | TERM、ID: 読み取りの ~:id~ 、RESULT: 文字列 or nil | unibyte 文字列 or nil |
 | ~(spectreshell--release TERM)~ | TERM | nil (副作用のみ) |
 
 TERM は ~spectreshell--create~ が返す user-ptr。他のモジュールの
 user-ptr や整数など、うちの Term でない値を渡すと
 ~wrong-type-argument~ が signal される。 ~spectreshell--release~ 済みの
 TERM に ~--feed~ / ~--resize~ / ~--flush~ / ~--encode-key~ / ~--encode-paste~ /
-~--encode-mouse~ / ~--set-color-scheme~ / ~--set-colors~ を呼ぶと ~spectreshell-terminal-released~ (~error~ の
+~--encode-mouse~ / ~--set-color-scheme~ / ~--set-colors~ / ~--clipboard-reply~ を呼ぶと ~spectreshell-terminal-released~ (~error~ の
 子コンディション) が signal される。 ~--release~ 自体は二重に呼んでも
 安全 (2回目は no-op)。
 
@@ -92,6 +93,10 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
   - ~(:op write :loc LOC :text TEXT)~: 書き込み。TEXT は base64 を解いた
     バイト列 (unibyte。UTF-8 として解くのは受け手)。空の書き込みと
     base64 として不正な書き込みは載せない。
+  - ~(:op read :id ID :loc clipboard)~: OSC 52 の読み取り (~?~)。feed では
+    答えず、ID で ~--clipboard-reply~ に答えを求める。種別によらず
+    clipboard を読む。答えていない読み取りが 64 件を超えると、それ以上は
+    載せずに空で答える。
 - *~:focus-event~*: 子がフォーカスの報告 (mode 1004) を有効にしている
   間は ~t~ 。無効ならキーごと省略される。
 - *~:alt-screen~*: このバッチで alternate screen への出入りが
@@ -207,6 +212,16 @@ unibyte 文字列。
 
 戻り値は、子が mode 2031 を有効にしていて SCHEME が前回と違うときだけ、
 子へ送る同じ形の通知 (unibyte 文字列)。それ以外は ~nil~ 。
+
+* ~--clipboard-reply~ の ID / RESULT
+
+~:clipboard~ の読み取りの ID に答える。RESULT は答える中身の文字列
+(UTF-8 として base64 にする。unibyte ならそのままのバイト列)、 ~nil~ なら
+断る。戻り値は子へ送るバイト列で、OSC 52 なら要求と同じ種別の文字
+(~s~ ・ ~p~ 以外は ~c~ ) と終端 (BEL / ST) の =\e]52;c;BASE64= 。断った
+ときは中身を空にする (上流の ghostty-vt と同じ。子を待たせない)。答えて
+いない ID (答え済み・未知) には ~nil~ を返す。1 つの ID に答えるのは 1 回
+だけ。
 
 * ~--set-colors~ の FG / BG / PALETTE
 

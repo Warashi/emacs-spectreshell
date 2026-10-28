@@ -138,8 +138,9 @@ nix ビルドと同様に自動検出される:
   (グローバルなモードを勝手に切り替えないため spectreshell 側では
   有効にしない)
 - OSC 8 ハイパーリンク (クリック可能な button として描画)
-- 子の OSC 52 によるクリップボードへの書き込みを kill-ring で受ける
-  (~spectreshell-clipboard-write~ で許可・確認・拒否を選ぶ)
+- 子の OSC 52 によるクリップボードの読み書きを kill-ring で受ける
+  (~spectreshell-clipboard-read~ ・ ~spectreshell-clipboard-write~ で
+  許可・確認・拒否を選ぶ)
 - ~xterm-ghostty~ の terminfo をビルド時生成・同梱し、 ~TERM~ / ~TERMINFO~
   として子プロセスに自動注入 (未検出時は ~xterm-256color~ に自動
   フォールバック)
@@ -162,7 +163,7 @@ nix ビルドと同様に自動検出される:
   (端末エミュレータ側の IME など)、その文字は UTF-8 のバイト列として
   そのまま子プロセスへ送られる。 ~C-y~ (kill-ring からの
   bracketed paste) 経由での日本語送信も可能
-- *OSC 52 クリップボードの読み取り・画像 (kitty graphics/sixel) は未実装*
+- *画像 (kitty graphics/sixel) は未実装*
 - *TRAMP / リモート ~default-directory~ は対象外*: リモートでは常に
   eshell 本来の (非端末) 経路にフォールバックする
 - *パイプラインは末尾のプロセスのみ端末に接続*: ~cmd1 | cmd2~ の

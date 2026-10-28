@@ -299,6 +299,12 @@ pub const Term = struct {
         return handler.visibilityReport(visible);
     }
 
+    /// 子のクリップボードの読み取り ID に DATA で答えるバイト列を返す。
+    /// DATA が null なら断る。答えていない ID なら null。
+    pub fn clipboardReply(self: *Term, alloc: std.mem.Allocator, id: u64, data: ?[]const u8) !?[]u8 {
+        return self.clipboard.reply(self.alloc, alloc, id, data);
+    }
+
     pub fn setColors(self: *Term, colors: handler.Colors) void {
         self.colors = colors;
     }
@@ -1172,17 +1178,6 @@ test "OSC 2 はタイトル変更を通知する" {
     defer update.deinit();
     try testing.expect(update.title != null);
     try testing.expectEqualStrings("hello", update.title.?);
-}
-
-test "OSC 52 の読み取りは無視する" {
-    const alloc = testing.allocator;
-    const t = try Term.init(alloc, 5, 10);
-    defer t.deinit();
-
-    var update = try t.feed(alloc, "\x1b]52;c;?\x07");
-    defer update.deinit();
-    try testing.expectEqual(@as(usize, 0), update.relay.len);
-    try testing.expectEqualStrings("", update.responses);
 }
 
 test "OSC 777 と OSC 9 の通知は中継にタイトルと本文を積む" {

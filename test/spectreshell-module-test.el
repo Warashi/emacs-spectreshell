@@ -84,12 +84,25 @@
     (should-not (plist-member update :clipboard))
     (spectreshell--release term)))
 
-(ert-deftest spectreshell-module-test-osc52-read-is-ignored ()
-  "OSC 52 の読み取り (?) は :relay にも :responses にも何も積まない。"
+(ert-deftest spectreshell-module-test-osc52-read-is-answered-by-reply ()
+  "OSC 52 の読み取り (?) は feed では答えず、:clipboard に id を振った要求を
+積む。`spectreshell--clipboard-reply' に中身を渡すと、要求と同じ種別と終端で
+答えるバイト列を返す。nil を渡すと空で答える。答えた id にはもう答えない。"
   (let* ((term (spectreshell--create 5 10))
-         (update (spectreshell--feed term "\x1b]52;c;?\x07")))
-    (should-not (plist-member update :relay))
+         (update (spectreshell--feed term "\x1b]52;c;?\x07\x1b]52;p;?\x1b\\"))
+         (requests (plist-get update :clipboard)))
     (should-not (plist-member update :responses))
+    (should (equal (mapcar (lambda (r) (plist-get r :op)) requests) '(read read)))
+    (should (equal (mapcar (lambda (r) (plist-get r :loc)) requests) '(clipboard clipboard)))
+    (let ((first (plist-get (nth 0 requests) :id))
+          (second (plist-get (nth 1 requests) :id)))
+      (should (integerp first))
+      (should-not (eql first second))
+      (let ((bytes (spectreshell--clipboard-reply term first "hi")))
+        (should (equal bytes "\x1b]52;c;aGk=\x07"))
+        (should-not (multibyte-string-p bytes)))
+      (should (equal (spectreshell--clipboard-reply term second nil) "\x1b]52;p;\x1b\\"))
+      (should-not (spectreshell--clipboard-reply term first "hi")))
     (spectreshell--release term)))
 
 (ert-deftest spectreshell-module-test-synchronized-feed-keeps-relay ()

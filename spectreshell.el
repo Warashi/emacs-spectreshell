@@ -43,6 +43,7 @@
 (declare-function spectreshell--encode-key "libspectreshell" (term key modifiers))
 (declare-function spectreshell--encode-paste "libspectreshell" (term text))
 (declare-function spectreshell--encode-mouse "libspectreshell" (term button action row col modifiers))
+(declare-function spectreshell--clipboard-reply "libspectreshell" (term id result))
 
 ;; ---------------------------------------------------------------------
 ;; Module loading
@@ -627,6 +628,19 @@ point, so the terminals to clear are still found."
 ;; Clipboard (OSC 52)
 ;; ---------------------------------------------------------------------
 
+(defcustom spectreshell-clipboard-read 'ask
+  "Whether the child may read Emacs's clipboard (OSC 52).
+`allow' answers without asking, `ask' (the default) asks in the
+minibuffer first and `deny' answers with nothing.  The clipboard is the
+front of the kill ring as `current-kill' sees it, so a newer selection
+from another program comes first.  Reads are never asked about when
+nobody can answer (`spectreshell--clipboard-can-ask-p'); they are
+answered with nothing instead."
+  :type '(choice (const :tag "Allow" allow)
+                 (const :tag "Ask" ask)
+                 (const :tag "Deny" deny))
+  :group 'spectreshell)
+
 (defcustom spectreshell-clipboard-write 'allow
   "Whether the child may write Emacs's clipboard (OSC 52).
 `allow' writes without asking, `ask' asks in the minibuffer first and
@@ -686,7 +700,8 @@ outer call picks up whatever was queued meanwhile."
           (when (spectreshell--clipboard-live-p obj)
             (condition-case err
                 (pcase (plist-get request :op)
-                  ('write (spectreshell--clipboard-handle-write obj request)))
+                  ('write (spectreshell--clipboard-handle-write obj request))
+                  ('read (spectreshell--clipboard-handle-read obj request)))
               (error (message "Spectreshell: clipboard request failed: %S" err)))))))))
 
 (defun spectreshell--clipboard-live-p (obj)
@@ -749,6 +764,39 @@ error, count as `deny'."
                               (if primary "primary selection" "clipboard")))
                      '(allow always)))
       (spectreshell--clipboard-write primary text))))
+
+(defun spectreshell--clipboard-handle-read (obj request)
+  "Answer OBJ's read REQUEST as `spectreshell-clipboard-read' allows.
+Anything going wrong before the answer denies the read rather than
+leaving the child waiting.  A terminal finalized while asking gets no
+answer."
+  (let* ((primary (eq (plist-get request :loc) 'primary))
+         (result
+          (condition-case err
+              (and (memq (spectreshell--clipboard-decide
+                          obj spectreshell-clipboard-read request
+                          (format "Let the program in %s read the %s? "
+                                  (buffer-name (spectreshell-buffer obj))
+                                  (if primary "primary selection" "clipboard")))
+                         '(allow always))
+                   (encode-coding-string (spectreshell--clipboard-read primary)
+                                         'utf-8-unix))
+            (error (message "Spectreshell: clipboard read failed: %S" err)
+                   nil))))
+    (when (spectreshell--clipboard-live-p obj)
+      (when-let* ((bytes (spectreshell--clipboard-reply
+                          (spectreshell-term obj) (plist-get request :id) result)))
+        (funcall (spectreshell-send-fn obj) bytes)))))
+
+(defun spectreshell--clipboard-read (primary)
+  "Return the primary selection if PRIMARY, else the front of the kill ring.
+Through `current-kill' rather than `interprogram-paste-function' itself,
+so that the kill ring takes in what it returns as a yank would.  Nothing
+there, or an error getting it, gives the empty string."
+  (let ((text (if primary
+                  (condition-case nil (gui-get-primary-selection) (error nil))
+                (condition-case nil (current-kill 0 t) (error nil)))))
+    (if (stringp text) (substring-no-properties text) "")))
 
 (defun spectreshell--clipboard-write (primary text)
   "Put TEXT in the primary selection if PRIMARY, else in the kill ring.

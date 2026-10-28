@@ -1071,6 +1071,102 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
         (should (= (length messages) 1))))))
 
 ;; ---------------------------------------------------------------------
+;; クリップボードの読み取り (OSC 52)
+;; ---------------------------------------------------------------------
+
+(ert-deftest spectreshell-test-osc52-read-answers-kill-ring-after-feed ()
+  "子の OSC 52 の読み取りには、feed の後の timer で kill-ring の先頭を
+UTF-8 の base64 にして答える。feed の中では答えない。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts asks 'allow)
+      (let ((spectreshell-clipboard-read 'allow))
+        (kill-new "あ")
+        (spectreshell-feed term "\x1b]52;c;?\x07")
+        (should (null responses))
+        (spectreshell--clipboard-run)
+        (should (equal responses '("\x1b]52;c;44GC\x07")))
+        (should (null asks))))))
+
+(ert-deftest spectreshell-test-osc52-read-uses-current-kill ()
+  "読み取りは `current-kill' を通すので、外のクリップボードの新しい中身が
+あればそれを kill-ring に取り込んで答える。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts _asks 'allow)
+      (let ((spectreshell-clipboard-read 'allow)
+            (interprogram-paste-function (lambda () "ext")))
+        (kill-new "old")
+        (spectreshell-feed term "\x1b]52;c;?\x07")
+        (spectreshell--clipboard-run)
+        (should (equal responses '("\x1b]52;c;ZXh0\x07")))
+        (should (equal (car kill-ring) "ext"))))))
+
+(ert-deftest spectreshell-test-osc52-read-of-empty-kill-ring-is-empty ()
+  "kill-ring が空なら空で答える。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts _asks 'allow)
+      (let ((spectreshell-clipboard-read 'allow))
+        (spectreshell-feed term "\x1b]52;c;?\x1b\\")
+        (spectreshell--clipboard-run)
+        (should (equal responses '("\x1b]52;c;\x1b\\")))))))
+
+(ert-deftest spectreshell-test-osc52-read-right-after-write-returns-it ()
+  "書いた直後の読み取りには、書いた値で答える。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts _asks 'allow)
+      (let ((spectreshell-clipboard-read 'allow)
+            (spectreshell-clipboard-write 'allow))
+        (kill-new "old")
+        (spectreshell-feed term "\x1b]52;c;aGk=\x07\x1b]52;c;?\x07")
+        (spectreshell--clipboard-run)
+        (should (equal responses '("\x1b]52;c;aGk=\x07")))))))
+
+(ert-deftest spectreshell-test-osc52-read-denied-is-answered-empty-without-asking ()
+  "`spectreshell-clipboard-read' が deny なら、確認せずに空で答える。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts asks 'allow)
+      (let ((spectreshell-clipboard-read 'deny))
+        (kill-new "secret")
+        (spectreshell-feed term "\x1b]52;c;?\x07")
+        (spectreshell--clipboard-run)
+        (should (equal responses '("\x1b]52;c;\x07")))
+        (should (null asks))))))
+
+(ert-deftest spectreshell-test-osc52-read-ask-yes-no-and-quit ()
+  "ask では確認し、許したときだけ中身で答える。断ったときと C-g では空で
+答え、quit を外へ漏らさない。"
+  (pcase-dolist (`(,answer . ,reply) '(('allow . "\x1b]52;c;aGk=\x07")
+                                       ('deny . "\x1b]52;c;\x07")
+                                       ((progn (setq quit-flag t) (ignore) 'allow)
+                                        . "\x1b]52;c;\x07")))
+    (spectreshell-test--with-terminal (term 1 10 responses)
+      (spectreshell-test--with-clipboard (_cuts asks (eval answer t))
+        (let ((spectreshell-clipboard-read 'ask))
+          (kill-new "hi")
+          (spectreshell-feed term "\x1b]52;c;?\x07")
+          (let ((inhibit-quit t))
+            (spectreshell--clipboard-run))
+          (should (= (length asks) 1))
+          (should (equal responses (list reply)))
+          (should (null quit-flag)))))))
+
+(ert-deftest spectreshell-test-osc52-read-of-finalized-terminal-is-dropped ()
+  "処理する前と確認の間に端末が finalize されたら、答えずに捨てる。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts _asks 'allow)
+      (let ((spectreshell-clipboard-read 'allow))
+        (spectreshell-feed term "\x1b]52;c;?\x07")
+        (spectreshell-finalize term)
+        (spectreshell--clipboard-run)
+        (should (null responses)))))
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts asks (progn (spectreshell-finalize term) 'allow))
+      (let ((spectreshell-clipboard-read 'ask))
+        (spectreshell-feed term "\x1b]52;c;?\x07")
+        (spectreshell--clipboard-run)
+        (should (= (length asks) 1))
+        (should (null responses))))))
+
+;; ---------------------------------------------------------------------
 ;; デスクトップ通知の中継 (L-41)
 ;; ---------------------------------------------------------------------
 
