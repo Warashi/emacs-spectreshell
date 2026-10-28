@@ -628,6 +628,32 @@ point, so the terminals to clear are still found."
       (spectreshell--relay owner clear))))
 
 ;; ---------------------------------------------------------------------
+;; Frames the user looks at
+;; ---------------------------------------------------------------------
+
+(defun spectreshell--frame-shown-p (frame)
+  "Return non-nil if FRAME may be in front of the user.
+A daemon's initial frame is not: nobody looks at it.  Nor is an
+iconified or invisible frame.  A tty frame is only while its root frame
+is its terminal's top frame, since Emacs leaves the frame a tty switched
+away from marked visible.  A tty frame that the outer terminal hides
+behind another tab looks shown, since Emacs cannot tell."
+  (and (not (frame-initial-p frame))
+       (eq (frame-visible-p frame) t)
+       (or (not (eq (framep frame) t))
+           (eq (frame-root-frame frame) (tty-top-frame frame)))))
+
+(defun spectreshell--buffer-shown-p (buffer)
+  "Return t if a window of a shown frame shows BUFFER.
+Any window counts, not only the selected one.  See
+`spectreshell--frame-shown-p' for the frames that count."
+  (and (seq-some (lambda (frame)
+                   (and (spectreshell--frame-shown-p frame)
+                        (get-buffer-window buffer frame)))
+                 (frame-list))
+       t))
+
+;; ---------------------------------------------------------------------
 ;; Clipboard (OSC 52 / OSC 5522)
 ;; ---------------------------------------------------------------------
 
@@ -870,16 +896,23 @@ a child asking again and again does not keep the others waiting."
                   (spectreshell--clipboard-deny-prompts obj)))))))))))
 
 (defun spectreshell--clipboard-next-to-ask ()
-  "Return the queue entry of the first live terminal with a request left.
-Requests the module no longer waits on (`spectreshell--clipboard-awaited-p')
-are dropped from the front of each queue on the way, unasked."
+  "Return the queue entry of the first live terminal with a request to take.
+That is a first request decided meanwhile, or one to ask about while
+the selected frame shows the terminal's buffer
+\(`spectreshell--clipboard-in-front-p'); the others wait.  Requests the
+module no longer waits on (`spectreshell--clipboard-awaited-p') are
+dropped from the front of each queue on the way, unasked."
   (seq-find (lambda (entry)
-              (when (spectreshell--clipboard-live-p (car entry))
-                (while (and (cdr entry)
-                            (not (spectreshell--clipboard-awaited-p
-                                  (car entry) (cadr entry))))
-                  (pop (cdr entry)))
-                (cdr entry)))
+              (let ((obj (car entry)))
+                (when (spectreshell--clipboard-live-p obj)
+                  (while (and (cdr entry)
+                              (not (spectreshell--clipboard-awaited-p
+                                    obj (cadr entry))))
+                    (pop (cdr entry)))
+                  (and (cdr entry)
+                       (or (spectreshell--clipboard-decision obj (cadr entry))
+                           (spectreshell--clipboard-in-front-p
+                            (spectreshell-buffer obj)))))))
             spectreshell--clipboard-queues))
 
 (defun spectreshell--clipboard-awaited-p (obj request)
@@ -921,15 +954,21 @@ A request with an `:id' stops being waited on when the child resets
 
 (defun spectreshell--clipboard-can-ask-p (buffer)
   "Return non-nil if the user can be asked about BUFFER's child.
-Not in batch, and only while a frame other than a daemon's initial one
-shows BUFFER: a daemon with no clients has nobody to answer, and a
-hidden buffer leaves the user guessing which program asks."
+Not in batch, and only while BUFFER is shown
+\(`spectreshell--buffer-shown-p'): a daemon with no clients has nobody
+to answer, and a hidden buffer leaves the user guessing which program
+asks."
   (and (not noninteractive)
-       (seq-some (lambda (frame)
-                   (and (not (frame-initial-p frame))
-                        (get-buffer-window buffer frame)))
-                 (frame-list))
-       t))
+       (spectreshell--buffer-shown-p buffer)))
+
+(defun spectreshell--clipboard-in-front-p (buffer)
+  "Return non-nil if the selected frame is shown and shows BUFFER.
+A prompt waits for this, so that with several clients of a daemon it
+comes up where the user looks at BUFFER, not on another terminal."
+  (let ((frame (selected-frame)))
+    (and (spectreshell--frame-shown-p frame)
+         (get-buffer-window buffer frame)
+         t)))
 
 (defun spectreshell--clipboard-decision (obj request)
   "Return `allow' or `deny' for OBJ's REQUEST if no prompt is needed, else nil.
@@ -1361,23 +1400,6 @@ forgotten instead."
   "Terminals whose module was told the visibility.
 They are told again whenever it may have changed.")
 
-(defun spectreshell--visible-p (buffer)
-  "Return t if a window of a visible frame shows BUFFER.
-Any window counts, not only the selected one.  A daemon's initial frame
-does not count: nobody looks at it.  A tty frame counts only while its
-root frame is its terminal's top frame, since Emacs leaves the frame a
-tty switched away from marked visible.  A tty frame that the outer
-terminal hides behind another tab looks visible, since Emacs cannot
-tell."
-  (and (seq-some (lambda (frame)
-                   (and (not (frame-initial-p frame))
-                        (eq (frame-visible-p frame) t)
-                        (or (not (eq (framep frame) t))
-                            (eq (frame-root-frame frame) (tty-top-frame frame)))
-                        (get-buffer-window buffer frame)))
-                 (frame-list))
-       t))
-
 (defun spectreshell--update-visibility (obj)
   "Tell OBJ's module whether its buffer is visible.
 The module answers the child's queries with it, and returns a report
@@ -1385,7 +1407,7 @@ for the child when the visibility changed while the child asks for them
 \(mode 2033); that report is sent here."
   (when-let* ((report (spectreshell--set-visibility
                        (spectreshell-term obj)
-                       (spectreshell--visible-p (spectreshell-buffer obj)))))
+                       (spectreshell--buffer-shown-p (spectreshell-buffer obj)))))
     (funcall (spectreshell-send-fn obj) report)))
 
 (defun spectreshell--track-visibility (obj)

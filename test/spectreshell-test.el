@@ -877,6 +877,62 @@ SENT には `send-string-to-terminal' に渡った (STRING . TERMINAL) が
        ,@body)))
 
 ;; ---------------------------------------------------------------------
+;; 利用者が見ているフレーム (可視性の報告とクリップボードの確認で共通)
+;; ---------------------------------------------------------------------
+
+(ert-deftest spectreshell-test-buffer-shown-when-a-visible-frame-shows-it ()
+  "daemon の初期フレームを除く、見えているフレームのどれかのウィンドウ
+(選択中でなくてよい) がバッファを表示していれば、見えているとみなす。
+アイコン化したフレームと不可視のフレームは数えない。"
+  (let ((buffer (current-buffer))
+        ;; (FRAME VISIBILITY INITIAL SHOWN-BUFFER)
+        (frames nil))
+    (cl-letf (((symbol-function 'frame-list) (lambda () (mapcar #'car frames)))
+              ((symbol-function 'frame-visible-p)
+               (lambda (f) (nth 1 (assq f frames))))
+              ((symbol-function 'frame-initial-p)
+               (lambda (f) (nth 2 (assq f frames))))
+              ((symbol-function 'get-buffer-window)
+               (lambda (b f) (and (eq b (nth 3 (assq f frames))) 'window))))
+      (setq frames `((f1 t nil ,buffer)))
+      (should (spectreshell--buffer-shown-p buffer))
+      (setq frames `((f1 t nil other) (f2 t nil ,buffer)))
+      (should (spectreshell--buffer-shown-p buffer))
+      (setq frames `((f1 t nil other)))
+      (should-not (spectreshell--buffer-shown-p buffer))
+      (setq frames `((f1 icon nil ,buffer) (f2 nil nil ,buffer)))
+      (should-not (spectreshell--buffer-shown-p buffer))
+      (setq frames `((f0 t t ,buffer)))
+      (should-not (spectreshell--buffer-shown-p buffer)))))
+
+(ert-deftest spectreshell-test-tty-frame-is-shown-only-as-top-frame ()
+  "tty のフレームは、ルートのフレームがその端末の `tty-top-frame' のときだけ
+見えているとみなす。Emacs は tty のフレームを切り替えても、裏に回った
+フレームの可視性を落とさない。"
+  (let ((buffer (current-buffer))
+        ;; (FRAME ROOT SHOWN-BUFFER)。どれも同じ tty の、可視性 t のフレーム。
+        (frames nil)
+        (top nil))
+    (cl-letf (((symbol-function 'frame-list) (lambda () (mapcar #'car frames)))
+              ((symbol-function 'framep) (lambda (f) (and (assq f frames) t)))
+              ((symbol-function 'frame-visible-p) (lambda (_) t))
+              ((symbol-function 'frame-initial-p) #'ignore)
+              ((symbol-function 'frame-root-frame)
+               (lambda (&optional f) (nth 1 (assq f frames))))
+              ((symbol-function 'tty-top-frame) (lambda (&optional _) top))
+              ((symbol-function 'get-buffer-window)
+               (lambda (b f) (and (eq b (nth 2 (assq f frames))) 'window))))
+      (setq frames `((f1 f1 ,buffer) (f2 f2 other)) top 'f2)
+      (should-not (spectreshell--buffer-shown-p buffer))
+      (setq top 'f1)
+      (should (spectreshell--buffer-shown-p buffer))
+      ;; 子フレームは、ルートが一番上にあれば見えている。
+      (setq frames `((f1 f1 other) (c1 f1 ,buffer)))
+      (should (spectreshell--buffer-shown-p buffer))
+      (setq top 'f2)
+      (should-not (spectreshell--buffer-shown-p buffer)))))
+
+;; ---------------------------------------------------------------------
 ;; クリップボード (OSC 52)
 ;; ---------------------------------------------------------------------
 
@@ -887,7 +943,8 @@ SENT には `send-string-to-terminal' に渡った (STRING . TERMINAL) が
 SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
 渡った文字列が渡った順に溜まる。確認の関数は確認のたびに式 ANSWER を
 評価して返し、ASKS にはそのときのプロンプトが溜まる。batch では
-ミニバッファを使えないので、確認できるかの判定は常に真にする。
+ミニバッファを使えないので、確認できるかと、選択中のフレームがバッファを
+表示しているかの判定は常に真にする。
 要求の処理は timer を待たず `spectreshell-test--clipboard-drain' で進める。"
   (declare (indent 1))
   (pcase-let ((`(,cuts ,asks ,answer) spec))
@@ -909,6 +966,8 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
                 (setq ,asks (append ,asks (list prompt)))
                 ,answer)))
          (cl-letf (((symbol-function 'spectreshell--clipboard-can-ask-p)
+                    (lambda (_) t))
+                   ((symbol-function 'spectreshell--clipboard-in-front-p)
                     (lambda (_) t)))
            (unwind-protect (progn ,@body)
              (cancel-function-timers #'spectreshell--clipboard-run)
@@ -1061,25 +1120,95 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
         (should (null asks))
         (should (null kill-ring))))))
 
-(ert-deftest spectreshell-test-clipboard-can-ask-only-with-a-frame-showing-buffer ()
-  "確認できるのは、batch でなく、初期フレーム以外のフレームがバッファを
-表示しているときだけ。クライアントのいない daemon には初期フレームしか無い。"
+(defmacro spectreshell-test--with-frames-showing (frames &rest body)
+  "フレームの判定に使う関数を変数 FRAMES の値に差し替えて BODY を実行する.
+FRAMES は (FRAME VISIBILITY INITIAL SHOWN-BUFFER ROOT) の並び。FRAME は
+どれも同じ tty のフレームで、ROOT が変数 `top' と同じときだけその端末の
+一番上にある。選択中のフレームは変数 `selected' の値。"
+  (declare (indent 1))
+  `(let ((,frames nil)
+         (top nil)
+         (selected nil))
+     (ignore top selected)
+     (cl-letf (((symbol-function 'frame-list) (lambda () (mapcar #'car ,frames)))
+               ((symbol-function 'selected-frame) (lambda () selected))
+               ((symbol-function 'framep) (lambda (f) (and (assq f ,frames) t)))
+               ((symbol-function 'frame-visible-p)
+                (lambda (f) (nth 1 (assq f ,frames))))
+               ((symbol-function 'frame-initial-p)
+                (lambda (&optional f) (nth 2 (assq f ,frames))))
+               ((symbol-function 'frame-root-frame)
+                (lambda (&optional f) (or (nth 4 (assq f ,frames)) f)))
+               ((symbol-function 'tty-top-frame) (lambda (&optional _) top))
+               ((symbol-function 'get-buffer-window)
+                (lambda (b &optional f) (and (eq b (nth 3 (assq f ,frames))) 'window))))
+       ,@body)))
+
+(ert-deftest spectreshell-test-clipboard-can-ask-only-while-buffer-is-shown ()
+  "確認できるのは、batch でなく、可視性の報告と同じ意味でバッファが見えて
+いるとき (初期フレームでなく、見えていて、tty なら一番上のフレームが表示
+している) だけ。クライアントのいない daemon には初期フレームしか無い。"
   (with-temp-buffer
     (let ((buffer (current-buffer)))
       (should-not (spectreshell--clipboard-can-ask-p buffer))
-      (let ((noninteractive nil)
-            (frames nil))
-        (cl-letf (((symbol-function 'frame-list) (lambda () (mapcar #'car frames)))
-                  ((symbol-function 'frame-initial-p)
-                   (lambda (&optional frame) (eq (cdr (assq frame frames)) 'initial)))
-                  ((symbol-function 'get-buffer-window)
-                   (lambda (_buffer frame) (memq (cdr (assq frame frames)) '(shows initial)))))
-          (setq frames '((f0 . initial)))
+      (let ((noninteractive nil))
+        (spectreshell-test--with-frames-showing frames
+          (setq top 'f1)
+          (setq frames `((f0 t t ,buffer)))
           (should-not (spectreshell--clipboard-can-ask-p buffer))
-          (setq frames '((f0 . initial) (f1 . other)))
+          (setq frames `((f0 t t ,buffer) (f1 t nil other)))
           (should-not (spectreshell--clipboard-can-ask-p buffer))
-          (setq frames '((f0 . initial) (f1 . other) (f2 . shows)))
+          (setq frames `((f1 icon nil ,buffer)))
+          (should-not (spectreshell--clipboard-can-ask-p buffer))
+          (setq frames `((f1 t nil other) (f2 t nil ,buffer)))
+          (should-not (spectreshell--clipboard-can-ask-p buffer))
+          (setq top 'f2)
           (should (spectreshell--clipboard-can-ask-p buffer)))))))
+
+(ert-deftest spectreshell-test-clipboard-in-front-only-in-the-selected-frame ()
+  "確認を出してよいのは、選択中のフレームが見えていて、バッファを表示して
+いるときだけ。daemon に複数のクライアントがいても、バッファを見ていない
+端末に確認を出さない。"
+  (with-temp-buffer
+    (let ((buffer (current-buffer)))
+      (spectreshell-test--with-frames-showing frames
+        (setq top 'f1 selected 'f1)
+        (setq frames `((f1 t nil ,buffer)))
+        (should (spectreshell--clipboard-in-front-p buffer))
+        (setq frames `((f1 t nil other) (f2 t nil ,buffer)))
+        (should-not (spectreshell--clipboard-in-front-p buffer))
+        (setq frames `((f1 icon nil ,buffer)))
+        (should-not (spectreshell--clipboard-in-front-p buffer))
+        (setq frames `((f1 t nil ,buffer)) top 'f2)
+        (should-not (spectreshell--clipboard-in-front-p buffer))))))
+
+(ert-deftest spectreshell-test-clipboard-prompt-waits-for-the-selected-frame ()
+  "選択中のフレームがバッファを表示していない間は、確認を出さずに待たせ、
+表示したら出す。その間も、選択中のフレームが表示している端末の確認は出す。"
+  (spectreshell-test--with-terminal (a 1 10 a-responses)
+    (spectreshell-test--with-terminal (b 1 10)
+      (spectreshell-test--with-clipboard (_cuts _asks 'deny)
+        (let* ((spectreshell-clipboard-read 'ask)
+               (front nil)
+               (order nil)
+               (spectreshell--clipboard-ask-function
+                (lambda (obj _request _prompt)
+                  (setq order (append order (list (if (eq obj a) 'a 'b))))
+                  'deny)))
+          (cl-letf (((symbol-function 'spectreshell--clipboard-in-front-p)
+                     (lambda (buffer) (memq buffer front))))
+            (spectreshell-feed a "\e]52;c;?\a")
+            (spectreshell-test--clipboard-drain)
+            (should (null order))
+            (should (null a-responses))
+            (should spectreshell--clipboard-queues)
+            (spectreshell-feed b "\e]52;c;?\a")
+            (setq front (list (spectreshell-buffer b)))
+            (spectreshell-test--clipboard-drain)
+            (should (equal order '(b)))
+            (setq front (list (spectreshell-buffer a)))
+            (spectreshell-test--clipboard-drain)
+            (should (equal order '(b a)))))))))
 
 (ert-deftest spectreshell-test-osc52-write-too-long-for-tty-stays-in-kill-ring ()
   "tty で xterm.el が OSC 52 で書く端末に `xterm-max-cut-length' を超える
@@ -2041,65 +2170,13 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
 
 (defmacro spectreshell-test--with-visibility (visible &rest body)
   "可視性の判定を変数 VISIBLE の値に差し替えて BODY を実行する.
-判定そのものは `spectreshell-test-visible-when-a-visible-frame-shows-buffer'
+判定そのものは `spectreshell-test-buffer-shown-when-a-visible-frame-shows-it'
 で固定してあるので、ここでは報告の流れだけを見る。"
   (declare (indent 1))
   `(let ((,visible t))
-     (cl-letf (((symbol-function 'spectreshell--visible-p)
+     (cl-letf (((symbol-function 'spectreshell--buffer-shown-p)
                 (lambda (_) ,visible)))
        ,@body)))
-
-(ert-deftest spectreshell-test-visible-when-a-visible-frame-shows-buffer ()
-  "daemon の初期フレームを除く、見えているフレームのどれかのウィンドウ
-(選択中でなくてよい) がバッファを表示していれば、見えているとみなす。
-アイコン化したフレームと不可視のフレームは数えない。"
-  (let ((buffer (current-buffer))
-        ;; (FRAME VISIBILITY INITIAL SHOWN-BUFFER)
-        (frames nil))
-    (cl-letf (((symbol-function 'frame-list) (lambda () (mapcar #'car frames)))
-              ((symbol-function 'frame-visible-p)
-               (lambda (f) (nth 1 (assq f frames))))
-              ((symbol-function 'frame-initial-p)
-               (lambda (f) (nth 2 (assq f frames))))
-              ((symbol-function 'get-buffer-window)
-               (lambda (b f) (and (eq b (nth 3 (assq f frames))) 'window))))
-      (setq frames `((f1 t nil ,buffer)))
-      (should (spectreshell--visible-p buffer))
-      (setq frames `((f1 t nil other) (f2 t nil ,buffer)))
-      (should (spectreshell--visible-p buffer))
-      (setq frames `((f1 t nil other)))
-      (should-not (spectreshell--visible-p buffer))
-      (setq frames `((f1 icon nil ,buffer) (f2 nil nil ,buffer)))
-      (should-not (spectreshell--visible-p buffer))
-      (setq frames `((f0 t t ,buffer)))
-      (should-not (spectreshell--visible-p buffer)))))
-
-(ert-deftest spectreshell-test-tty-frame-is-visible-only-as-top-frame ()
-  "tty のフレームは、ルートのフレームがその端末の `tty-top-frame' のときだけ
-見えているとみなす。Emacs は tty のフレームを切り替えても、裏に回った
-フレームの可視性を落とさない。"
-  (let ((buffer (current-buffer))
-        ;; (FRAME ROOT SHOWN-BUFFER)。どれも同じ tty の、可視性 t のフレーム。
-        (frames nil)
-        (top nil))
-    (cl-letf (((symbol-function 'frame-list) (lambda () (mapcar #'car frames)))
-              ((symbol-function 'framep) (lambda (f) (and (assq f frames) t)))
-              ((symbol-function 'frame-visible-p) (lambda (_) t))
-              ((symbol-function 'frame-initial-p) #'ignore)
-              ((symbol-function 'frame-root-frame)
-               (lambda (&optional f) (nth 1 (assq f frames))))
-              ((symbol-function 'tty-top-frame) (lambda (&optional _) top))
-              ((symbol-function 'get-buffer-window)
-               (lambda (b f) (and (eq b (nth 2 (assq f frames))) 'window))))
-      (setq frames `((f1 f1 ,buffer) (f2 f2 other)) top 'f2)
-      (should-not (spectreshell--visible-p buffer))
-      (setq top 'f1)
-      (should (spectreshell--visible-p buffer))
-      ;; 子フレームは、ルートが一番上にあれば見えている。
-      (setq frames `((f1 f1 other) (c1 f1 ,buffer)))
-      (should (spectreshell--visible-p buffer))
-      (setq top 'f2)
-      (should-not (spectreshell--visible-p buffer)))))
 
 (ert-deftest spectreshell-test-visibility-is-reevaluated-on-selection-change ()
   "tty のフレームの切り替えは選択の変化として来るので、
