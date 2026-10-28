@@ -378,6 +378,10 @@ DECRQM @code{?1016} (SGR pixel 座標) には未対応 (0) と答える。報告
 イベントを送らない @code{?2033} (可視性の報告) と @code{?5522} (kitty の paste
 イベント) にも 0 と答える
 @item
+カーソル位置の問い合わせ ( @code{\e[6n} ) には @code{\e[行;桁R} で、DECXCPR
+( @code{\e[?6n} ) には Ghostty と同じくページ番号 1 を添えた
+@code{\e[?行;桁;1R} で答える。DECOM ではスクロール領域からの相対位置
+@item
 Backspace は DEL (0x7f) を送る。子が DECBKM ( @code{\e[?67h} ) を立てると
 Ghostty と同じく BS (0x08) を送る
 @item

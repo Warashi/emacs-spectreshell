@@ -143,33 +143,31 @@ pub const Handler = struct {
     fn deviceStatus(self: *Handler, req: ghostty_vt.device_status.Request) !void {
         switch (req) {
             .operating_status => try self.responses.appendSlice(self.alloc, "\x1b[0n"),
-            .cursor_position => {
-                const t = self.inner.terminal;
-                // DECOM (origin mode) 有効時はスクロール領域の左上を原点と
-                // した相対座標で応答する (xterm 仕様、ghostty 本体
-                // stream_handler.zig の deviceStatusReport と同じ)。
-                const pos: struct { x: usize, y: usize } = if (t.modes.get(.origin)) .{
-                    .x = t.screens.active.cursor.x -| t.scrolling_region.left,
-                    .y = t.screens.active.cursor.y -| t.scrolling_region.top,
-                } else .{
-                    .x = t.screens.active.cursor.x,
-                    .y = t.screens.active.cursor.y,
-                };
-                var buf: [32]u8 = undefined;
-                const resp = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}R", .{
-                    pos.y + 1,
-                    pos.x + 1,
-                });
-                try self.responses.appendSlice(self.alloc, resp);
-            },
+            .cursor_position => try self.cursorPositionReport("\x1b[{d};{d}R"),
+            // DECXCPR は末尾にページ番号を足す。ghostty 本体はページを持たず
+            // 常に 1 と答える。
+            .cursor_position_extended => try self.cursorPositionReport("\x1b[?{d};{d};1R"),
             // まだ渡されていなければ、推測で答えず黙る。
             .color_scheme => if (self.color_scheme.*) |scheme| {
                 try self.responses.appendSlice(self.alloc, scheme.report());
             },
-            // DECXCPR (CSI ? 6 n) と可視性 (CSI ? 998 n) には答えない。
-            // 可視性は Emacs 側のウィンドウの状態で、ここでは分からない。
-            .cursor_position_extended, .visibility => {},
+            // 可視性 (CSI ? 998 n) は Emacs 側のウィンドウの状態で、ここでは
+            // 分からないので答えない。
+            .visibility => {},
         }
+    }
+
+    /// DECOM (origin mode) 有効時はスクロール領域の左上を原点とした
+    /// 相対座標で応答する (xterm 仕様、ghostty 本体 stream_handler.zig の
+    /// cursorReportPos と同じ)。
+    fn cursorPositionReport(self: *Handler, comptime fmt: []const u8) !void {
+        const t = self.inner.terminal;
+        const cursor = t.screens.active.cursor;
+        const x = if (t.modes.get(.origin)) cursor.x -| t.scrolling_region.left else cursor.x;
+        const y = if (t.modes.get(.origin)) cursor.y -| t.scrolling_region.top else cursor.y;
+        var buf: [48]u8 = undefined;
+        const resp = try std.fmt.bufPrint(&buf, fmt, .{ y + 1, x + 1 });
+        try self.responses.appendSlice(self.alloc, resp);
     }
 
     /// ghostty 本体の colorOperation (src/termio/stream_handler.zig) の

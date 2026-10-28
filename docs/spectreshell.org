@@ -273,6 +273,9 @@ less や vim などの alternate screen アプリの画面は確定化されず�
   DECRQM ~?1016~ (SGR pixel 座標) には未対応 (0) と答える。報告や
   イベントを送らない ~?2033~ (可視性の報告) と ~?5522~ (kitty の paste
   イベント) にも 0 と答える
+- カーソル位置の問い合わせ ( ~\e[6n~ ) には ~\e[行;桁R~ で、DECXCPR
+  ( ~\e[?6n~ ) には Ghostty と同じくページ番号 1 を添えた
+  ~\e[?行;桁;1R~ で答える。DECOM ではスクロール領域からの相対位置
 - Backspace は DEL (0x7f) を送る。子が DECBKM ( ~\e[?67h~ ) を立てると
   Ghostty と同じく BS (0x08) を送る
 - 書記素クラスタ (mode 2027) は Ghostty と同じく既定で有効で、RIS

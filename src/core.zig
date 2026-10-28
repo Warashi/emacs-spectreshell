@@ -949,12 +949,32 @@ test "DECRQM は可視性の報告 (?2033) と kitty の paste イベント (?55
     try testing.expectEqualStrings("\x1b[?2033;0$y\x1b[?5522;0$y", update.responses);
 }
 
-test "DECXCPR (CSI ? 6 n) と可視性の問い合わせ (CSI ? 998 n) には応答しない" {
+test "DECXCPR (CSI ? 6 n) はページ番号 1 を添えた位置で応答する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);
     defer t.deinit();
 
-    var update = try t.feed(alloc, "\x1b[?6n\x1b[?998n");
+    var update = try t.feed(alloc, "\x1b[3;4H\x1b[?6n");
+    defer update.deinit();
+    try testing.expectEqualStrings("\x1b[?3;4;1R", update.responses);
+}
+
+test "DECXCPR (CSI ? 6 n) は origin mode でスクロール領域からの相対位置で応答する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[2;4r\x1b[?6h\x1b[2;3H\x1b[?6n");
+    defer update.deinit();
+    try testing.expectEqualStrings("\x1b[?2;3;1R", update.responses);
+}
+
+test "可視性の問い合わせ (CSI ? 998 n) には応答しない" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[?998n");
     defer update.deinit();
     try testing.expectEqualStrings("", update.responses);
 }
