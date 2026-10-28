@@ -1319,6 +1319,30 @@ test "encodeKey は DECCKM の on/off で矢印キーのエンコードが変わ
     }
 }
 
+test "encodeKey は DECBKM (?67) の on/off で Backspace を DEL と BS に切り替え、DECRQM に現在値で応答する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    {
+        const bytes = try t.encodeKey(alloc, .{ .key = .backspace });
+        defer if (bytes) |b| alloc.free(b);
+        try testing.expectEqualStrings("\x7f", bytes.?);
+    }
+
+    {
+        var update = try t.feed(alloc, "\x1b[?67$p\x1b[?67h\x1b[?67$p");
+        defer update.deinit();
+        try testing.expectEqualStrings("\x1b[?67;2$y\x1b[?67;1$y", update.responses);
+    }
+
+    {
+        const bytes = try t.encodeKey(alloc, .{ .key = .backspace });
+        defer if (bytes) |b| alloc.free(b);
+        try testing.expectEqualStrings("\x08", bytes.?);
+    }
+}
+
 test "encodeKey は alt 付きの文字を ESC 前置でエンコードする" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);

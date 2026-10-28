@@ -378,6 +378,9 @@ DECRQM @code{?1016} (SGR pixel 座標) には未対応 (0) と答える。報告
 イベントを送らない @code{?2033} (可視性の報告) と @code{?5522} (kitty の paste
 イベント) にも 0 と答える
 @item
+Backspace は DEL (0x7f) を送る。子が DECBKM ( @code{\e[?67h} ) を立てると
+Ghostty と同じく BS (0x08) を送る
+@item
 書記素クラスタ (mode 2027) は Ghostty と同じく既定で有効で、RIS
 ( @code{\ec} ) 後も有効に戻る。国旗・ZWJ でつないだ絵文字・肌色修飾は
 1 つの書記素として 2 セルを占める。子は @code{\e[?2027l} で無効にできる
