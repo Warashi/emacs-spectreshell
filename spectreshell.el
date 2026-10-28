@@ -631,26 +631,31 @@ point, so the terminals to clear are still found."
 ;; ---------------------------------------------------------------------
 
 (defcustom spectreshell-clipboard-read 'ask
-  "Whether the child may read Emacs's clipboard (OSC 52).
+  "Whether the child may read Emacs's clipboard (OSC 52 / OSC 5522).
 `allow' answers without asking, `ask' (the default) asks in the
 minibuffer first and `deny' answers with nothing.  The clipboard is the
 front of the kill ring as `current-kill' sees it, so a newer selection
 from another program comes first.  Reads are never asked about when
 nobody can answer (`spectreshell--clipboard-can-ask-p'); they are
-answered with nothing instead."
+answered with nothing instead.  Nor are OSC 5522 reads that ask for no
+text (only the list of types, or only types other than text), or that
+carry a password already allowed: they reveal nothing, or were allowed
+before."
   :type '(choice (const :tag "Allow" allow)
                  (const :tag "Ask" ask)
                  (const :tag "Deny" deny))
   :group 'spectreshell)
 
 (defcustom spectreshell-clipboard-write 'allow
-  "Whether the child may write Emacs's clipboard (OSC 52).
+  "Whether the child may write Emacs's clipboard (OSC 52 / OSC 5522).
 `allow' writes without asking, `ask' asks in the minibuffer first and
 `deny' drops the write.  A write to the clipboard goes to the kill ring
 with `kill-new', which hands it on to `interprogram-cut-function'; a
 write to the primary selection goes to `gui-set-selection' only.
 Writes are never asked about when nobody can answer
-\(`spectreshell--clipboard-can-ask-p'); they are dropped instead."
+\(`spectreshell--clipboard-can-ask-p'); they are dropped instead.  An
+OSC 5522 write is told it succeeded before it is asked about, unless
+this is `deny'."
   :type '(choice (const :tag "Allow" allow)
                  (const :tag "Ask" ask)
                  (const :tag "Deny" deny))
@@ -664,14 +669,28 @@ Called with the `spectreshell' object, the request plist and a prompt;
 returns `allow', `deny', or `always' to allow this and later requests
 carrying the same password.")
 
-(defvar spectreshell--clipboard-queue nil
-  "Clipboard requests not yet handled, as (OBJ . REQUEST), oldest first.")
+(defconst spectreshell--clipboard-queue-limit 64
+  "Most requests one terminal may have waiting to be handled.
+More are denied at once, so that a child cannot grow the queue without
+bound while a prompt waits.  The module's limit on unanswered reads.")
+
+(defvar spectreshell--clipboard-queues nil
+  "Clipboard requests not yet handled, as (OBJ . REQUESTS) per terminal.
+Each terminal's REQUESTS are oldest first, and handled in that order.")
 
 (defvar spectreshell--clipboard-timer nil
   "Timer that will run `spectreshell--clipboard-run', or nil.")
 
-(defvar spectreshell--clipboard-busy nil
+(defvar spectreshell--clipboard-running nil
   "Non-nil while `spectreshell--clipboard-run' handles requests.")
+
+(defvar spectreshell--clipboard-ask-timer nil
+  "Timer that will run `spectreshell--clipboard-ask-next', or nil.")
+
+(defvar spectreshell--clipboard-asking nil
+  "The terminal whose request is being asked about, or nil.
+One prompt at a time across all terminals.  The asked terminal's later
+requests wait behind it; the other terminals' requests do not.")
 
 (defun spectreshell--clipboard-take (obj update)
   "Queue the `:clipboard' requests of the module UPDATE plist for OBJ.
@@ -679,32 +698,132 @@ Member of `spectreshell--update-functions'.  They are handled from a
 timer rather than here: this runs inside the process filter, where
 `kill-new' or `current-kill' waiting on the outer terminal or the
 window system would let the filter run again in the middle of a feed,
-and where `inhibit-quit' keeps \\[keyboard-quit] from answering a prompt."
+and where `inhibit-quit' keeps \\[keyboard-quit] from answering a prompt.
+Requests beyond `spectreshell--clipboard-queue-limit' are denied here."
   (when-let* ((requests (plist-get update :clipboard)))
-    (setq spectreshell--clipboard-queue
-          (nconc spectreshell--clipboard-queue
-                 (mapcar (lambda (request) (cons obj request)) requests)))
-    (unless (or spectreshell--clipboard-timer spectreshell--clipboard-busy)
-      (setq spectreshell--clipboard-timer
-            (run-at-time 0 nil #'spectreshell--clipboard-run)))))
+    (let ((entry (assq obj spectreshell--clipboard-queues)))
+      (unless entry
+        (setq entry (list obj))
+        (setq spectreshell--clipboard-queues
+              (nconc spectreshell--clipboard-queues (list entry))))
+      (dolist (request requests)
+        (if (< (length (cdr entry)) spectreshell--clipboard-queue-limit)
+            (setcdr entry (nconc (cdr entry) (list request)))
+          (spectreshell--clipboard-answer obj request nil))))
+    (spectreshell--clipboard-schedule)))
 
 (add-hook 'spectreshell--update-functions #'spectreshell--clipboard-take)
 
+(defun spectreshell--clipboard-schedule ()
+  "Arm the timer handling the queued requests, unless it is armed."
+  (unless spectreshell--clipboard-timer
+    (setq spectreshell--clipboard-timer
+          (run-at-time 0 nil #'spectreshell--clipboard-run))))
+
 (defun spectreshell--clipboard-run ()
-  "Handle the queued clipboard requests in order, one prompt at a time.
-Does nothing when already running: a prompt lets timers run, and the
+  "Handle the queued requests that need no prompt, in each terminal's order.
+A terminal's requests stop at the first one that needs a prompt, and
+all of them wait while one of its requests is being asked about; the
+prompt is left to `spectreshell--clipboard-ask-next'.  Does nothing
+when already running: handling a request can let timers run, and the
 outer call picks up whatever was queued meanwhile."
   (setq spectreshell--clipboard-timer nil)
-  (unless spectreshell--clipboard-busy
-    (let ((spectreshell--clipboard-busy t))
-      (while spectreshell--clipboard-queue
-        (pcase-let ((`(,obj . ,request) (pop spectreshell--clipboard-queue)))
-          (when (spectreshell--clipboard-live-p obj)
-            (condition-case err
-                (pcase (plist-get request :op)
-                  ('write (spectreshell--clipboard-handle-write obj request))
-                  ('read (spectreshell--clipboard-handle-read obj request)))
-              (error (message "Spectreshell: clipboard request failed: %S" err)))))))))
+  (unless spectreshell--clipboard-running
+    (let ((spectreshell--clipboard-running t)
+          (finished nil))
+      (unwind-protect
+          (progn
+            (while-let ((next (spectreshell--clipboard-take-decided)))
+              (apply #'spectreshell--clipboard-handle next))
+            (setq finished t))
+        (unless finished (spectreshell--clipboard-schedule))
+        (spectreshell--clipboard-forget-done)
+        (spectreshell--clipboard-schedule-ask)))))
+
+(defun spectreshell--clipboard-take-decided ()
+  "Take the first queued request that is decided without a prompt.
+Return (OBJ REQUEST DECISION), or nil when every terminal's first
+request needs a prompt or waits behind one."
+  (seq-some (lambda (entry)
+              (let ((obj (car entry)))
+                (when-let* (((cdr entry))
+                            ((not (eq obj spectreshell--clipboard-asking)))
+                            ((spectreshell--clipboard-live-p obj))
+                            (decision (spectreshell--clipboard-decision
+                                       obj (cadr entry))))
+                  (list obj (pop (cdr entry)) decision))))
+            spectreshell--clipboard-queues))
+
+(defun spectreshell--clipboard-forget-done ()
+  "Forget the terminals with nothing queued, or finalized.
+A finalized terminal's requests go unanswered: its module is gone."
+  (setq spectreshell--clipboard-queues
+        (seq-filter (lambda (entry)
+                      (and (cdr entry) (spectreshell--clipboard-live-p (car entry))))
+                    spectreshell--clipboard-queues)))
+
+(defun spectreshell--clipboard-schedule-ask ()
+  "Arm the timer showing a prompt, if a request waits for one.
+Not while a prompt is shown: its end runs the queue again, which
+arms this."
+  (when (and (not spectreshell--clipboard-asking)
+             (not spectreshell--clipboard-ask-timer)
+             spectreshell--clipboard-queues)
+    (setq spectreshell--clipboard-ask-timer
+          (run-at-time 0 nil #'spectreshell--clipboard-ask-next))))
+
+(defun spectreshell--clipboard-ask-next ()
+  "Ask about the first request waiting for a prompt, and handle it.
+The request is answered however asking ends, a denial unless the user
+allowed it.  \\[keyboard-quit] also denies every request of the same
+terminal still waiting for a prompt, so that a child asking again and
+again can be stopped."
+  (setq spectreshell--clipboard-ask-timer nil)
+  (unless spectreshell--clipboard-asking
+    (when-let* ((entry (seq-find (lambda (entry)
+                                   (and (cdr entry)
+                                        (spectreshell--clipboard-live-p (car entry))))
+                                 spectreshell--clipboard-queues)))
+      (let ((obj (car entry)))
+        (if (spectreshell--clipboard-decision obj (cadr entry))
+            ;; Decided meanwhile (the user options changed): no prompt.
+            (spectreshell--clipboard-schedule)
+          (let ((request (pop (cdr entry)))
+                (decision 'deny))
+            (setq spectreshell--clipboard-asking obj)
+            (unwind-protect
+                (setq decision (spectreshell--clipboard-ask-user obj request))
+              (setq spectreshell--clipboard-asking nil)
+              (spectreshell--clipboard-schedule)
+              (unwind-protect
+                  (spectreshell--clipboard-handle obj request decision)
+                (when (eq decision 'quit)
+                  (spectreshell--clipboard-deny-prompts obj))))))))))
+
+(defun spectreshell--clipboard-ask-user (obj request)
+  "Ask about OBJ's REQUEST; return `allow', `deny', `always' or `quit'.
+`quit' is \\[keyboard-quit] at the prompt; an error is `deny'."
+  ;; Not `with-local-quit': it sets `quit-flag' again on the way out,
+  ;; which would quit whatever runs the timer.
+  (condition-case nil
+      (let ((inhibit-quit nil))
+        (funcall spectreshell--clipboard-ask-function obj request
+                 (spectreshell--clipboard-prompt obj request)))
+    (quit 'quit)
+    (error 'deny)))
+
+(defun spectreshell--clipboard-deny-prompts (obj)
+  "Deny every queued request of OBJ's that would need a prompt."
+  (when-let* ((entry (assq obj spectreshell--clipboard-queues)))
+    (let ((kept nil)
+          (denied nil))
+      (dolist (request (cdr entry))
+        (if (spectreshell--clipboard-decision obj request)
+            (push request kept)
+          (push request denied)))
+      (setcdr entry (nreverse kept))
+      (dolist (request (nreverse denied))
+        (spectreshell--clipboard-answer obj request nil)))))
 
 (defun spectreshell--clipboard-live-p (obj)
   "Return non-nil if OBJ has been neither finalized nor its buffer killed."
@@ -722,27 +841,24 @@ hidden buffer leaves the user guessing which program asks."
                  (frame-list))
        t))
 
-(defun spectreshell--clipboard-decide (obj policy request prompt)
-  "Return `allow', `deny' or `always' for OBJ's clipboard REQUEST.
-POLICY is `allow', `ask' or `deny'; `ask' asks with PROMPT unless
-REQUEST is already granted (a password remembered with `always', or a
-paste event's) or asks for nothing but the list of types.
-\\[keyboard-quit] at the prompt, and any error, count as `deny'."
-  (cond
-   ((eq policy 'deny) 'deny)
-   ((or (eq policy 'allow)
-        (plist-get request :granted)
-        (plist-get request :no-text))
-    'allow)
-   ((not (spectreshell--clipboard-can-ask-p (spectreshell-buffer obj))) 'deny)
-   (t
-    ;; Not `with-local-quit': it sets `quit-flag' again on the way out,
-    ;; which would quit whatever runs the timer.
-    (condition-case nil
-        (let ((inhibit-quit nil))
-          (funcall spectreshell--clipboard-ask-function obj request prompt))
-      (quit 'deny)
-      (error 'deny)))))
+(defun spectreshell--clipboard-decision (obj request)
+  "Return `allow' or `deny' for OBJ's REQUEST if no prompt is needed, else nil.
+The policy is `spectreshell-clipboard-read' or `-write'.  `ask' needs
+a prompt unless REQUEST is already granted (a password remembered with
+`always', or a paste event's), asks for no text, or nobody can answer."
+  (let ((policy (if (eq (plist-get request :op) 'read)
+                    spectreshell-clipboard-read
+                  spectreshell-clipboard-write)))
+    (cond
+     ((eq policy 'deny) 'deny)
+     ((and (eq (plist-get request :op) 'write)
+           (string-empty-p (plist-get request :text)))
+      'deny)
+     ((or (eq policy 'allow)
+          (plist-get request :granted)
+          (plist-get request :no-text))
+      'allow)
+     ((not (spectreshell--clipboard-can-ask-p (spectreshell-buffer obj))) 'deny))))
 
 (defun spectreshell--clipboard-ask (_obj request prompt)
   "Ask with PROMPT about REQUEST; return `allow', `deny' or `always'.
@@ -757,69 +873,91 @@ paste event's) or asks for nothing but the list of types.
     (?a 'always)
     (_ 'deny)))
 
+(defun spectreshell--clipboard-prompt (obj request)
+  "Return the prompt asking whether to allow OBJ's REQUEST."
+  (let ((where (if (eq (plist-get request :loc) 'primary)
+                   "primary selection"
+                 "clipboard")))
+    (if (eq (plist-get request :op) 'read)
+        (format "Let %s read the %s? "
+                (spectreshell--clipboard-program obj request) where)
+      (format "Let %s copy %d characters to the %s? "
+              (spectreshell--clipboard-program obj request)
+              (length (spectreshell--clipboard-text request))
+              where))))
+
 (defun spectreshell--clipboard-program (obj request)
   "Describe who sent OBJ's REQUEST, for a prompt.
 The name the child gave, if any, has its control characters removed so
 that it cannot redraw the prompt."
   (let ((name (replace-regexp-in-string
                "[[:cntrl:]\177\u0080-\u009f]" ""
-               (decode-coding-string (or (plist-get request :name) "") 'utf-8))))
+               (decode-coding-string (or (plist-get request :name) "") 'utf-8-unix))))
     (format "%s in %s"
             (if (string-empty-p name) "the program" (format "\"%s\"" name))
             (buffer-name (spectreshell-buffer obj)))))
 
-(defun spectreshell--clipboard-handle-write (obj request)
-  "Write the text of OBJ's write REQUEST, if `spectreshell-clipboard-write' allows.
-A REQUEST with an `:id' is answered whether to remember its password.
+(defun spectreshell--clipboard-text (request)
+  "Return the text of the write REQUEST, decoded as UTF-8.
+Line ends are kept as the child wrote them."
+  (decode-coding-string (plist-get request :text) 'utf-8-unix))
+
+(defun spectreshell--clipboard-answer (obj request result &optional remember)
+  "Answer OBJ's REQUEST with RESULT, a string or nil to deny, and send it.
+REMEMBER non-nil remembers the request's password.  Nothing to do for a
+request without an `:id', or for a finalized terminal.  An error is
+reported rather than signaled: this runs where the rest must go on."
+  (condition-case err
+      (when-let* ((id (plist-get request :id))
+                  ((spectreshell--clipboard-live-p obj))
+                  (bytes (spectreshell--clipboard-reply
+                          (spectreshell-term obj) id result remember)))
+        (funcall (spectreshell-send-fn obj) bytes))
+    (error (message "Spectreshell: clipboard answer failed: %S" err))))
+
+(defun spectreshell--clipboard-handle (obj request decision)
+  "Carry out DECISION, `allow', `always' or else a denial, on OBJ's REQUEST."
+  (if (eq (plist-get request :op) 'read)
+      (spectreshell--clipboard-handle-read obj request decision)
+    (spectreshell--clipboard-handle-write obj request decision)))
+
+(defun spectreshell--clipboard-handle-write (obj request decision)
+  "Write the text of OBJ's write REQUEST if DECISION allows it.
+A REQUEST with an `:id' is answered whether to remember its password
+however writing ends; leaving without finishing does not remember.
 An OSC 5522 write was already told it succeeded (the module answers
 during the feed), so a write denied here is dropped silently."
-  (let* ((text (decode-coding-string (plist-get request :text) 'utf-8))
-         (primary (eq (plist-get request :loc) 'primary))
-         (decision
-          (if (> (length text) 0)
-              (spectreshell--clipboard-decide
-               obj spectreshell-clipboard-write request
-               (format "Let %s copy %d characters to the %s? "
-                       (spectreshell--clipboard-program obj request)
-                       (length text)
-                       (if primary "primary selection" "clipboard")))
-            'deny)))
-    (when (memq decision '(allow always))
-      (spectreshell--clipboard-write primary text))
-    (when-let* ((id (plist-get request :id)))
-      (when (spectreshell--clipboard-live-p obj)
-        (spectreshell--clipboard-reply (spectreshell-term obj) id nil
-                                       (eq decision 'always))))))
-
-(defun spectreshell--clipboard-handle-read (obj request)
-  "Answer OBJ's read REQUEST as `spectreshell-clipboard-read' allows.
-Anything going wrong before the answer denies the read rather than
-leaving the child waiting.  A terminal finalized while asking gets no
-answer."
-  (let* ((primary (eq (plist-get request :loc) 'primary))
-         (decision 'deny)
-         (result
+  (let ((remember nil))
+    (unwind-protect
+        (when (memq decision '(allow always))
           (condition-case err
-              (progn
-                (setq decision
-                      (spectreshell--clipboard-decide
-                       obj spectreshell-clipboard-read request
-                       (format "Let %s read the %s? "
-                               (spectreshell--clipboard-program obj request)
-                               (if primary "primary selection" "clipboard"))))
-                (cond
-                 ((not (memq decision '(allow always))) nil)
-                 ;; Only the list of types: nothing to read.
-                 ((plist-get request :no-text) "")
-                 (t (encode-coding-string (spectreshell--clipboard-read primary)
-                                          'utf-8-unix))))
-            (error (message "Spectreshell: clipboard read failed: %S" err)
-                   nil))))
-    (when (spectreshell--clipboard-live-p obj)
-      (when-let* ((bytes (spectreshell--clipboard-reply
-                          (spectreshell-term obj) (plist-get request :id) result
-                          (and result (eq decision 'always)))))
-        (funcall (spectreshell-send-fn obj) bytes)))))
+              (spectreshell--clipboard-write
+               (eq (plist-get request :loc) 'primary)
+               (spectreshell--clipboard-text request))
+            (error (message "Spectreshell: clipboard write failed: %S" err)))
+          (setq remember (eq decision 'always)))
+      (spectreshell--clipboard-answer obj request nil remember))))
+
+(defun spectreshell--clipboard-handle-read (obj request decision)
+  "Answer OBJ's read REQUEST as DECISION says.
+The answer goes out however reading ends, a denial unless the text was
+read, so that the child is not left waiting."
+  (let ((result nil))
+    (unwind-protect
+        (when (memq decision '(allow always))
+          (setq result
+                (condition-case err
+                    (if (plist-get request :no-text)
+                        ;; Only the list of types: nothing to read.
+                        ""
+                      (encode-coding-string
+                       (spectreshell--clipboard-read
+                        (eq (plist-get request :loc) 'primary))
+                       'utf-8-unix))
+                  (error (message "Spectreshell: clipboard read failed: %S" err)
+                         nil))))
+      (spectreshell--clipboard-answer obj request result
+                                      (and result (eq decision 'always))))))
 
 (defun spectreshell--clipboard-read (primary)
   "Return the primary selection if PRIMARY, else the front of the kill ring.
@@ -846,6 +984,11 @@ seconds."
      (t
       (let ((interprogram-cut-function (unless too-long interprogram-cut-function)))
         (kill-new text))
+      ;; The command loop has set `last-command' to the command before
+      ;; this timer; left so, the next command would take this write as
+      ;; part of the user's own kills or yanks: `kill-region' would
+      ;; append to it, and `yank-pop' would rotate past it.
+      (setq last-command nil)
       (when too-long
         (message "Spectreshell: copied %d characters to the kill ring only; too long for the terminal's clipboard (`xterm-max-cut-length')"
                  (length text)))))))

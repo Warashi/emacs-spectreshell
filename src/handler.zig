@@ -160,6 +160,11 @@ pub const Handler = struct {
                 try self.innerVt(action, value);
                 try self.colorReports(&value.requests, value.terminator);
             },
+            // 上流が RIS で grants を消すのに揃え、答えていない記録も消す。
+            .full_reset => {
+                try self.innerVt(action, value);
+                self.clipboard.reset(self.alloc);
+            },
             else => try self.innerVt(action, value),
         }
     }

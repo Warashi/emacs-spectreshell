@@ -888,7 +888,7 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
 渡った文字列が渡った順に溜まる。確認の関数は確認のたびに式 ANSWER を
 評価して返し、ASKS にはそのときのプロンプトが溜まる。batch では
 ミニバッファを使えないので、確認できるかの判定は常に真にする。
-要求の処理は timer を待たず `spectreshell--clipboard-run' を呼んで進める。"
+要求の処理は timer を待たず `spectreshell-test--clipboard-drain' で進める。"
   (declare (indent 1))
   (pcase-let ((`(,cuts ,asks ,answer) spec))
     `(let ((,cuts nil)
@@ -896,9 +896,11 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
            (kill-ring nil)
            (kill-ring-yank-pointer nil)
            (interprogram-paste-function nil)
-           (spectreshell--clipboard-queue nil)
+           (spectreshell--clipboard-queues nil)
            (spectreshell--clipboard-timer nil)
-           (spectreshell--clipboard-busy nil))
+           (spectreshell--clipboard-running nil)
+           (spectreshell--clipboard-ask-timer nil)
+           (spectreshell--clipboard-asking nil))
        (let ((interprogram-cut-function
               (lambda (text) (setq ,cuts (append ,cuts (list text)))))
              (spectreshell--clipboard-ask-function
@@ -908,8 +910,24 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
          (cl-letf (((symbol-function 'spectreshell--clipboard-can-ask-p)
                     (lambda (_) t)))
            (unwind-protect (progn ,@body)
-             (when spectreshell--clipboard-timer
-               (cancel-timer spectreshell--clipboard-timer))))))))
+             (dolist (timer (list spectreshell--clipboard-timer
+                                  spectreshell--clipboard-ask-timer))
+               (when timer (cancel-timer timer)))))))))
+
+(defun spectreshell-test--clipboard-drain ()
+  "クリップボードの要求を、timer を待たずに処理し尽くす.
+張られた timer を止めて、その関数をすぐに呼ぶ。呼んだ先がまた張った
+timer も同じように呼び、どちらも張られていなくなるまで繰り返す。"
+  (spectreshell--clipboard-run)
+  (let ((rounds 0))
+    (while (and (< rounds 1000)
+                (or spectreshell--clipboard-timer spectreshell--clipboard-ask-timer))
+      (setq rounds (1+ rounds))
+      (if spectreshell--clipboard-timer
+          (progn (cancel-timer spectreshell--clipboard-timer)
+                 (spectreshell--clipboard-run))
+        (cancel-timer spectreshell--clipboard-ask-timer)
+        (spectreshell--clipboard-ask-next)))))
 
 (ert-deftest spectreshell-test-osc52-write-goes-to-kill-ring-after-feed ()
   "子の OSC 52 の書き込みは feed の後の timer で、UTF-8 として kill-ring に
@@ -922,7 +940,7 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
           (spectreshell-feed term "\x1b]52;c;44GC\x07")
           (should (null kill-ring))
           (should spectreshell--clipboard-timer)
-          (spectreshell--clipboard-run)
+          (spectreshell-test--clipboard-drain)
           (should (equal kill-ring '("あ")))
           (should (equal cuts '("あ")))
           (should (null asks))
@@ -934,7 +952,7 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
     (spectreshell-test--with-clipboard (cuts _asks 'allow)
       (let ((spectreshell-clipboard-write 'allow))
         (spectreshell-feed term "\x1b[?2026h\x1b]52;c;aGk=\x07")
-        (spectreshell--clipboard-run)
+        (spectreshell-test--clipboard-drain)
         (should (equal kill-ring '("hi")))
         (should (equal cuts '("hi")))))))
 
@@ -948,7 +966,7 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
                    (lambda (type data)
                      (setq selections (append selections (list (list type data)))))))
           (spectreshell-feed term "\x1b]52;p;aGk=\x07\x1b]52;s;eW8=\x07")
-          (spectreshell--clipboard-run))
+          (spectreshell-test--clipboard-drain))
         (should (equal selections '((PRIMARY "hi") (PRIMARY "yo"))))
         (should (null kill-ring))
         (should (null cuts))))))
@@ -959,7 +977,7 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
     (spectreshell-test--with-clipboard (cuts asks 'allow)
       (let ((spectreshell-clipboard-write 'deny))
         (spectreshell-feed term "\x1b]52;c;aGk=\x07")
-        (spectreshell--clipboard-run)
+        (spectreshell-test--clipboard-drain)
         (should (null kill-ring))
         (should (null cuts))
         (should (null asks))))))
@@ -971,7 +989,7 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
       (spectreshell-test--with-clipboard (_cuts asks answer)
         (let ((spectreshell-clipboard-write 'ask))
           (spectreshell-feed term "\x1b]52;c;aGk=\x07")
-          (spectreshell--clipboard-run)
+          (spectreshell-test--clipboard-drain)
           (should (= (length asks) 1))
           (should (equal kill-ring (and (eq answer 'allow) '("hi")))))))))
 
@@ -985,7 +1003,7 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
       (let ((spectreshell-clipboard-write 'ask))
         (spectreshell-feed term "\x1b]52;c;aGk=\x07")
         (let ((inhibit-quit t))
-          (spectreshell--clipboard-run))
+          (spectreshell-test--clipboard-drain))
         (should (= (length asks) 1))
         (should (null kill-ring))
         (should (null quit-flag))))))
@@ -1000,7 +1018,7 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
                                                        'allow))
         (let ((spectreshell-clipboard-write 'ask))
           (spectreshell-feed term "\x1b]52;c;aGk=\x07\x1b]52;c;eW8=\x07")
-          (spectreshell--clipboard-run)
+          (spectreshell-test--clipboard-drain)
           (should (equal depths '(2 1)))
           (should (equal kill-ring '("yo" "hi"))))))))
 
@@ -1011,7 +1029,7 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
       (let ((spectreshell-clipboard-write 'allow))
         (spectreshell-feed term "\x1b]52;c;aGk=\x07")
         (spectreshell-finalize term)
-        (spectreshell--clipboard-run)
+        (spectreshell-test--clipboard-drain)
         (should (null kill-ring))
         (should (null cuts))))))
 
@@ -1023,7 +1041,7 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
         (cl-letf (((symbol-function 'spectreshell--clipboard-can-ask-p)
                    (lambda (_) nil)))
           (spectreshell-feed term "\x1b]52;c;aGk=\x07")
-          (spectreshell--clipboard-run))
+          (spectreshell-test--clipboard-drain))
         (should (null asks))
         (should (null kill-ring))))))
 
@@ -1065,7 +1083,7 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
                          (funcall orig terminal parameter))))
                   ((symbol-function 'message)
                    (lambda (&rest args) (push (apply #'format args) messages))))
-          (spectreshell--clipboard-run))
+          (spectreshell-test--clipboard-drain))
         (should (equal kill-ring '("hi" "hello")))
         (should (equal cuts '("hi")))
         (should (= (length messages) 1))))))
@@ -1083,7 +1101,7 @@ UTF-8 の base64 にして答える。feed の中では答えない。"
         (kill-new "あ")
         (spectreshell-feed term "\x1b]52;c;?\x07")
         (should (null responses))
-        (spectreshell--clipboard-run)
+        (spectreshell-test--clipboard-drain)
         (should (equal responses '("\x1b]52;c;44GC\x07")))
         (should (null asks))))))
 
@@ -1096,7 +1114,7 @@ UTF-8 の base64 にして答える。feed の中では答えない。"
             (interprogram-paste-function (lambda () "ext")))
         (kill-new "old")
         (spectreshell-feed term "\x1b]52;c;?\x07")
-        (spectreshell--clipboard-run)
+        (spectreshell-test--clipboard-drain)
         (should (equal responses '("\x1b]52;c;ZXh0\x07")))
         (should (equal (car kill-ring) "ext"))))))
 
@@ -1106,7 +1124,7 @@ UTF-8 の base64 にして答える。feed の中では答えない。"
     (spectreshell-test--with-clipboard (_cuts _asks 'allow)
       (let ((spectreshell-clipboard-read 'allow))
         (spectreshell-feed term "\x1b]52;c;?\x1b\\")
-        (spectreshell--clipboard-run)
+        (spectreshell-test--clipboard-drain)
         (should (equal responses '("\x1b]52;c;\x1b\\")))))))
 
 (ert-deftest spectreshell-test-osc52-read-right-after-write-returns-it ()
@@ -1117,7 +1135,7 @@ UTF-8 の base64 にして答える。feed の中では答えない。"
             (spectreshell-clipboard-write 'allow))
         (kill-new "old")
         (spectreshell-feed term "\x1b]52;c;aGk=\x07\x1b]52;c;?\x07")
-        (spectreshell--clipboard-run)
+        (spectreshell-test--clipboard-drain)
         (should (equal responses '("\x1b]52;c;aGk=\x07")))))))
 
 (ert-deftest spectreshell-test-osc52-read-denied-is-answered-empty-without-asking ()
@@ -1127,7 +1145,7 @@ UTF-8 の base64 にして答える。feed の中では答えない。"
       (let ((spectreshell-clipboard-read 'deny))
         (kill-new "secret")
         (spectreshell-feed term "\x1b]52;c;?\x07")
-        (spectreshell--clipboard-run)
+        (spectreshell-test--clipboard-drain)
         (should (equal responses '("\x1b]52;c;\x07")))
         (should (null asks))))))
 
@@ -1144,7 +1162,7 @@ UTF-8 の base64 にして答える。feed の中では答えない。"
           (kill-new "hi")
           (spectreshell-feed term "\x1b]52;c;?\x07")
           (let ((inhibit-quit t))
-            (spectreshell--clipboard-run))
+            (spectreshell-test--clipboard-drain))
           (should (= (length asks) 1))
           (should (equal responses (list reply)))
           (should (null quit-flag)))))))
@@ -1156,13 +1174,13 @@ UTF-8 の base64 にして答える。feed の中では答えない。"
       (let ((spectreshell-clipboard-read 'allow))
         (spectreshell-feed term "\x1b]52;c;?\x07")
         (spectreshell-finalize term)
-        (spectreshell--clipboard-run)
+        (spectreshell-test--clipboard-drain)
         (should (null responses)))))
   (spectreshell-test--with-terminal (term 1 10 responses)
     (spectreshell-test--with-clipboard (_cuts asks (progn (spectreshell-finalize term) 'allow))
       (let ((spectreshell-clipboard-read 'ask))
         (spectreshell-feed term "\x1b]52;c;?\x07")
-        (spectreshell--clipboard-run)
+        (spectreshell-test--clipboard-drain)
         (should (= (length asks) 1))
         (should (null responses))))))
 
@@ -1190,7 +1208,7 @@ OSC 5522 の書き込みに EPERM で答える。ask と allow は先に DONE �
           (spectreshell-feed term spectreshell-test--kitty-write)
           (should (equal responses
                          (list (format "\e]5522;type=write:status=%s\a" status))))
-          (spectreshell--clipboard-run)
+          (spectreshell-test--clipboard-drain)
           (should (equal kill-ring (and (eq policy 'allow) '("hi")))))))))
 
 (ert-deftest spectreshell-test-kitty-read-answers-kill-ring ()
@@ -1200,7 +1218,7 @@ OSC 5522 の書き込みに EPERM で答える。ask と allow は先に DONE �
       (let ((spectreshell-clipboard-read 'allow))
         (kill-new "hi")
         (spectreshell-feed term "\e]5522;type=read:id=7;dGV4dC9wbGFpbg==\a")
-        (spectreshell--clipboard-run)
+        (spectreshell-test--clipboard-drain)
         (should (equal responses
                        (list (concat "\e]5522;type=read:status=OK:id=7\a"
                                      "\e]5522;type=read:status=DATA:id=7:mime=dGV4dC9wbGFpbg==;aGk=\a"
@@ -1217,7 +1235,7 @@ OSC 5522 の書き込みに EPERM で答える。ask と allow は先に DONE �
       (spectreshell-test--with-clipboard (_cuts asks 'deny)
         (let ((spectreshell-clipboard-read policy))
           (spectreshell-feed term "\e]5522;type=read;Lg==\a")
-          (spectreshell--clipboard-run)
+          (spectreshell-test--clipboard-drain)
           (should (null asks))
           (should (equal responses (list reply))))))))
 
@@ -1237,13 +1255,13 @@ OSC 5522 の書き込みに EPERM で答える。ask と allow は先に DONE �
           (kill-new "x")
           (spectreshell-feed term (concat spectreshell-test--kitty-read
                                           spectreshell-test--kitty-write))
-          (spectreshell--clipboard-run)
+          (spectreshell-test--clipboard-drain)
           (should (= (length asks) 2))
           (should (equal remembers '(t t)))
           (setq responses nil)
           (spectreshell-feed term (concat spectreshell-test--kitty-read
                                           spectreshell-test--kitty-write))
-          (spectreshell--clipboard-run)
+          (spectreshell-test--clipboard-drain)
           (should (= (length asks) 2))
           (should (equal (car kill-ring) "hi"))
           ;; 書き込みの DONE は feed の中で、読み取りの答えは後で送る。
@@ -1256,7 +1274,7 @@ OSC 5522 の書き込みに EPERM で答える。ask と allow は先に DONE �
       (let ((spectreshell-clipboard-read 'ask))
         ;; 名前は "p\e[31mx\n"。
         (spectreshell-feed term "\e]5522;type=read:name=cBtbMzFteAo=;dGV4dC9wbGFpbg==\a")
-        (spectreshell--clipboard-run)
+        (spectreshell-test--clipboard-drain)
         (should (= (length asks) 1))
         (should (string-match-p "p\\[31mx" (car asks)))
         (should-not (string-match-p "[\e\n]" (car asks)))))))
@@ -1283,7 +1301,7 @@ paste イベントを送り、続く読み取りには ask でも確認せずに
           (setq responses nil)
           (spectreshell-feed
            term (format "\e]5522;type=read:name=UGFzdGUgZXZlbnQ=:pw=%s;dGV4dC9wbGFpbg==\a" pw))
-          (spectreshell--clipboard-run)
+          (spectreshell-test--clipboard-drain)
           (should (null asks))
           (should (string-match-p "status=DATA:mime=dGV4dC9wbGFpbg==;aGk=" (car responses))))))))
 
@@ -1298,6 +1316,164 @@ paste イベントを送り、続く読み取りには ask でも確認せずに
         (spectreshell-feed term "\e[?5522h")
         (spectreshell-yank)
         (should (equal responses '("hi")))))))
+
+;; ---------------------------------------------------------------------
+;; クリップボードの要求の順序・上限・後始末
+;; ---------------------------------------------------------------------
+
+(ert-deftest spectreshell-test-clipboard-prompt-does-not-hold-other-terminals ()
+  "ある端末の確認の間も、ほかの端末の確認の要らない要求は待たずに処理する。"
+  (spectreshell-test--with-terminal (a 1 10)
+    (spectreshell-test--with-terminal (b 1 10)
+      (let ((seen 'unset))
+        (spectreshell-test--with-clipboard (_cuts asks (progn
+                                                         (spectreshell-feed b "\e]52;c;aGk=\a")
+                                                         (spectreshell--clipboard-run)
+                                                         (setq seen (copy-sequence kill-ring))
+                                                         'deny))
+          (let ((spectreshell-clipboard-read 'ask)
+                (spectreshell-clipboard-write 'allow))
+            (spectreshell-feed a "\e]52;c;?\a")
+            (spectreshell-test--clipboard-drain)
+            (should (= (length asks) 1))
+            (should (equal seen '("hi")))))))))
+
+(ert-deftest spectreshell-test-clipboard-prompts-are-one-at-a-time-across-terminals ()
+  "確認は全端末で一度に 1 つ。ある端末の確認の間に別の端末が確認の要る要求を
+出しても、前の確認が終わってから出す。"
+  (spectreshell-test--with-terminal (a 1 10)
+    (spectreshell-test--with-terminal (b 1 10)
+      (let ((depths nil))
+        (spectreshell-test--with-clipboard (_cuts asks (progn
+                                                         (when (= (length asks) 1)
+                                                           (spectreshell-feed b "\e]52;c;?\a")
+                                                           (spectreshell--clipboard-run)
+                                                           (spectreshell--clipboard-ask-next))
+                                                         (push (length asks) depths)
+                                                         'deny))
+          (let ((spectreshell-clipboard-read 'ask))
+            (spectreshell-feed a "\e]52;c;?\a")
+            (spectreshell-test--clipboard-drain)
+            (should (equal depths '(2 1)))))))))
+
+(ert-deftest spectreshell-test-clipboard-queue-is-limited-per-terminal ()
+  "1 つの端末の処理を待つ要求は 64 件まで。超えた分は待たせずに断りで答える。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts asks 'allow)
+      (let ((spectreshell-clipboard-read 'ask)
+            (spectreshell-clipboard-write 'ask)
+            (kill-ring-max 100))
+        (spectreshell-feed term (concat (apply #'concat (make-list 64 "\e]52;c;aGk=\a"))
+                                        "\e]52;c;?\a"))
+        (should (equal responses '("\e]52;c;\a")))
+        (spectreshell-test--clipboard-drain)
+        (should (= (length asks) 64))
+        (should (= (length kill-ring) 64))))))
+
+(ert-deftest spectreshell-test-clipboard-quit-denies-the-terminals-waiting-prompts ()
+  "確認で C-g を押すと、その端末で確認を待つ要求もすべて断る。確認の要らない
+要求と、ほかの端末の要求はそのまま処理する。"
+  (spectreshell-test--with-terminal (a 1 10 a-responses)
+    (spectreshell-test--with-terminal (b 1 10 b-responses)
+      (spectreshell-test--with-clipboard (_cuts asks (if (= (length asks) 1)
+                                                         (progn (setq quit-flag t) (ignore) 'allow)
+                                                       'allow))
+        (let ((spectreshell-clipboard-read 'ask)
+              (spectreshell-clipboard-write 'allow))
+          (kill-new "x")
+          (spectreshell-feed a "\e]52;c;?\a\e]52;c;aGk=\a\e]52;c;?\a")
+          (spectreshell-feed b "\e]52;c;?\a")
+          (let ((inhibit-quit t))
+            (spectreshell-test--clipboard-drain))
+          (should (= (length asks) 2))
+          (should (equal a-responses '("\e]52;c;\a" "\e]52;c;\a")))
+          (should (equal b-responses '("\e]52;c;aGk=\a")))
+          (should (equal kill-ring '("hi" "x")))
+          (should (null quit-flag)))))))
+
+(ert-deftest spectreshell-test-clipboard-write-is-answered-even-when-writing-fails ()
+  "書き込みを断ったときも、書き込みがエラーになったときも、覚えるかの答えを
+返して記録を残さない。後から覚えると答えても、次の同じパスワードの書き込みは
+確認する。"
+  (dolist (answer '(deny allow))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-test--with-clipboard (_cuts asks answer)
+        (let ((spectreshell-clipboard-write 'ask)
+              (orig (symbol-function 'spectreshell--clipboard-reply))
+              (ids nil))
+          (cl-letf (((symbol-function 'spectreshell--clipboard-reply)
+                     (lambda (term id result &optional remember)
+                       (push id ids)
+                       (funcall orig term id result remember)))
+                    ((symbol-function 'kill-new)
+                     (lambda (&rest _) (error "Boom")))
+                    ((symbol-function 'message) #'ignore))
+            (spectreshell-feed term spectreshell-test--kitty-write)
+            (spectreshell-test--clipboard-drain))
+          (should (= (length ids) 1))
+          (funcall orig (spectreshell-term term) (car ids) nil t)
+          (spectreshell-feed term spectreshell-test--kitty-write)
+          (spectreshell-test--clipboard-drain)
+          (should (= (length asks) 2)))))))
+
+(ert-deftest spectreshell-test-clipboard-read-is-answered-when-asking-exits-non-locally ()
+  "確認から throw などで抜けても、取り出した読み取りには断りで答え、残りの
+要求のために timer を張り直す。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (let ((thrown nil))
+      (spectreshell-test--with-clipboard (_cuts asks (if thrown
+                                                         'allow
+                                                       (setq thrown t)
+                                                       (throw 'escape nil)))
+        (let ((spectreshell-clipboard-read 'ask))
+          (kill-new "hi")
+          (spectreshell-feed term "\e]52;c;?\a\e]52;c;?\a")
+          (catch 'escape (spectreshell-test--clipboard-drain))
+          (should (equal responses '("\e]52;c;\a")))
+          (should (or spectreshell--clipboard-timer spectreshell--clipboard-ask-timer))
+          (spectreshell-test--clipboard-drain)
+          (should (= (length asks) 2))
+          (should (equal responses '("\e]52;c;aGk=\a" "\e]52;c;\a"))))))))
+
+(ert-deftest spectreshell-test-kitty-always-after-reset-is-not-remembered ()
+  "確認の間に子が RIS (\\ec) を出したら、その前の読み取りに always と答えても
+パスワードを覚えず、答えも送らない。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts asks (progn
+                                                     (when (= (length asks) 1)
+                                                       (spectreshell-feed term "\ec"))
+                                                     'always))
+      (let ((spectreshell-clipboard-read 'ask))
+        (kill-new "hi")
+        (spectreshell-feed term spectreshell-test--kitty-read)
+        (spectreshell-test--clipboard-drain)
+        (should (null responses))
+        (spectreshell-feed term spectreshell-test--kitty-read)
+        (spectreshell-test--clipboard-drain)
+        (should (= (length asks) 2))))))
+
+(ert-deftest spectreshell-test-osc52-write-keeps-line-ends ()
+  "書き込みの本文の CRLF は書き換えずに kill-ring に入れる。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (_cuts _asks 'allow)
+      (let ((spectreshell-clipboard-write 'allow))
+        (spectreshell-feed term "\e]52;c;YQ0KYg==\a")
+        (spectreshell-test--clipboard-drain)
+        (should (equal kill-ring '("a\r\nb")))))))
+
+(ert-deftest spectreshell-test-osc52-write-breaks-kill-and-yank-sequences ()
+  "子の書き込みを kill-ring に入れたら `last-command' を nil にする。続く
+コマンドが、利用者の kill に子の本文を連結したり (`kill-append')、yank の
+続きとして扱ったり (`yank-pop') しないため。"
+  (dolist (command '(kill-region yank))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-test--with-clipboard (_cuts _asks 'allow)
+        (let ((spectreshell-clipboard-write 'allow)
+              (last-command command))
+          (spectreshell-feed term "\e]52;c;aGk=\a")
+          (spectreshell-test--clipboard-drain)
+          (should (equal kill-ring '("hi")))
+          (should (null last-command)))))))
 
 ;; ---------------------------------------------------------------------
 ;; デスクトップ通知の中継 (L-41)
