@@ -2,6 +2,7 @@ const std = @import("std");
 const ghostty_vt = @import("ghostty-vt");
 const ghostty_terminfo = @import("ghostty-terminfo");
 const relay = @import("relay.zig");
+const clipboard = @import("clipboard.zig");
 const build_options = @import("build_options");
 
 /// 子の明暗の問い合わせ (CSI ? 996 n) に答える値。Ghostty と同じく
@@ -46,6 +47,7 @@ pub const Handler = struct {
     responses: *std.ArrayList(u8),
     title: *?[]u8,
     relay: *std.ArrayList(relay.Event),
+    clipboard: *clipboard.State,
     color_scheme: *?ColorScheme,
     colors: *const Colors,
     /// DCS 系アクションは ghostty_vt.Stream が状態を持たず生バイトで
@@ -61,15 +63,19 @@ pub const Handler = struct {
         responses: *std.ArrayList(u8),
         title: *?[]u8,
         relay_events: *std.ArrayList(relay.Event),
+        clipboard_state: *clipboard.State,
         color_scheme: *?ColorScheme,
         colors: *const Colors,
     ) Handler {
+        var inner = terminal.vtHandler();
+        inner.effects.clipboard_write = &clipboardWrite;
         return .{
-            .inner = terminal.vtHandler(),
+            .inner = inner,
             .alloc = alloc,
             .responses = responses,
             .title = title,
             .relay = relay_events,
+            .clipboard = clipboard_state,
             .color_scheme = color_scheme,
             .colors = colors,
         };
@@ -117,7 +123,7 @@ pub const Handler = struct {
             .dcs_put => try self.dcsPut(value),
             .dcs_unhook => try self.dcsUnhook(),
             .window_title => try self.setTitle(value.title),
-            .clipboard_contents => try self.clipboardContents(value.kind, value.data),
+            .clipboard_contents => try self.innerVtWithPty(action, value),
             .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
             .progress_report => try self.progressReport(value),
             .bell => try self.relay.append(self.alloc, .bell),
@@ -154,6 +160,42 @@ pub const Handler = struct {
             self.inner.semantic_failure = false;
             return error.OutOfMemory;
         }
+    }
+
+    /// 上流の handler に PTY への応答を書かせる。write_pty は常には立てない:
+    /// 立てると、ここで答えている colorOperation などにも上流が答え始め、
+    /// 応答が二重になる。
+    fn innerVtWithPty(
+        self: *Handler,
+        comptime action: ghostty_vt.StreamAction.Tag,
+        value: ghostty_vt.StreamAction.Value(action),
+    ) !void {
+        self.inner.effects.write_pty = &writePty;
+        defer self.inner.effects.write_pty = null;
+        try self.innerVt(action, value);
+    }
+
+    fn fromInner(inner: *ghostty_vt.TerminalStream.Handler) *Handler {
+        return @fieldParentPtr("inner", inner);
+    }
+
+    fn writePty(inner: *ghostty_vt.TerminalStream.Handler, data: []const u8) void {
+        const self = fromInner(inner);
+        self.responses.appendSlice(self.alloc, data) catch |err| {
+            if (self.failure == null) self.failure = err;
+        };
+    }
+
+    /// 書き込みは記録するだけで、kill-ring への書き込みや確認は Elisp が
+    /// feed の後に行う。
+    fn clipboardWrite(inner: *ghostty_vt.TerminalStream.Handler, write: ghostty_vt.clipboard.Write) void {
+        const self = fromInner(inner);
+        self.clipboard.recordWrite(self.alloc, write) catch |err| {
+            if (self.failure == null) self.failure = err;
+            write.reply(.io_error);
+            return;
+        };
+        write.reply(.{ .success = .{} });
     }
 
     /// 応答値は ghostty 本体の termio ハンドラ (src/termio/stream_handler.zig)
@@ -328,14 +370,6 @@ pub const Handler = struct {
         }
     }
 
-    fn clipboardContents(self: *Handler, kind: u8, data: []const u8) !void {
-        // 読み取り (?) は扱わない (docs/design.org の端末機能の範囲)。
-        if (std.mem.eql(u8, data, "?")) return;
-        const owned = try self.alloc.dupe(u8, data);
-        errdefer self.alloc.free(owned);
-        try self.relay.append(self.alloc, .{ .clipboard = .{ .kind = kind, .data = owned } });
-    }
-
     fn showDesktopNotification(self: *Handler, title: []const u8, body: []const u8) !void {
         const n = try relay.Notification.init(self.alloc, title, body);
         errdefer n.deinit(self.alloc);
@@ -374,6 +408,7 @@ test "setTitle は dupe 失敗時に旧タイトルを dangling にしない" {
         .responses = undefined,
         .title = &title,
         .relay = undefined,
+        .clipboard = undefined,
         .color_scheme = undefined,
         .colors = undefined,
     };

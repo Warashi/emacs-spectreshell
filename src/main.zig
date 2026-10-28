@@ -80,4 +80,5 @@ test {
     _ = @import("emacs.zig");
     _ = @import("module.zig");
     _ = @import("relay.zig");
+    _ = @import("clipboard.zig");
 }

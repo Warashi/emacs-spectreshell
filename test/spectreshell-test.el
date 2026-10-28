@@ -851,10 +851,8 @@ initial (daemon の初期フレーム)。batch では tty フレームを作れ�
       (should (equal sent '(("busy" . t1)))))))
 
 ;; ---------------------------------------------------------------------
-;; OSC 52 の書き込みの中継 (M-24)
+;; 外側の端末への中継の差し替え
 ;; ---------------------------------------------------------------------
-
-(defvar xterm-max-cut-length)
 
 (defmacro spectreshell-test--with-relay-terminals (terminals selection sent &rest body)
   "外側の端末を TERMINALS として BODY を実行する.
@@ -878,31 +876,199 @@ SENT には `send-string-to-terminal' に渡った (STRING . TERMINAL) が
                   (setq ,sent (append ,sent (list (cons string terminal)))))))
        ,@body)))
 
-(ert-deftest spectreshell-test-osc52-write-reaches-selection-terminals ()
-  "子の OSC 52 の書き込みは、xterm.el が OSC 52 を使うと判定した外側の
-端末にだけ同じ形で届く。外側の書き込みの可否は外側の設定に従う。"
-  (spectreshell-test--with-terminal (term 1 10)
-    (spectreshell-test--with-relay-terminals '(t1 t2) '(t1) sent
-      (spectreshell-feed term "\x1b]52;c;aGk=\x07")
-      (should (equal sent '(("\e]52;c;aGk=\a" . t1)))))))
+;; ---------------------------------------------------------------------
+;; クリップボード (OSC 52)
+;; ---------------------------------------------------------------------
 
-(ert-deftest spectreshell-test-osc52-write-reaches-terminal-while-synchronized ()
-  "mode 2026 の中でも OSC 52 の書き込みは待たずに届く。"
-  (spectreshell-test--with-terminal (term 1 10)
-    (spectreshell-test--with-relay-terminals '(t1) '(t1) sent
-      (spectreshell-feed term "\x1b[?2026h\x1b]52;c;aGk=\x07")
-      (should (equal sent '(("\e]52;c;aGk=\a" . t1)))))))
+(defvar xterm-max-cut-length)
 
-(ert-deftest spectreshell-test-osc52-write-drops-unsafe-or-long-data ()
-  "base64 以外の文字を含む書き込みと、`xterm-max-cut-length' を超える
-書き込みは外側へ送らない。前者は子に外側の端末へ任意の文字列を書かせないため、
-後者は xterm.el 自身の書き込みと同じ上限に揃えるため。"
+(defmacro spectreshell-test--with-clipboard (spec &rest body)
+  "空の kill-ring と差し替えたクリップボードの口で BODY を実行する.
+SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
+渡った文字列が渡った順に溜まる。確認の関数は確認のたびに式 ANSWER を
+評価して返し、ASKS にはそのときのプロンプトが溜まる。batch では
+ミニバッファを使えないので、確認できるかの判定は常に真にする。
+要求の処理は timer を待たず `spectreshell--clipboard-run' を呼んで進める。"
+  (declare (indent 1))
+  (pcase-let ((`(,cuts ,asks ,answer) spec))
+    `(let ((,cuts nil)
+           (,asks nil)
+           (kill-ring nil)
+           (kill-ring-yank-pointer nil)
+           (interprogram-paste-function nil)
+           (spectreshell--clipboard-queue nil)
+           (spectreshell--clipboard-timer nil)
+           (spectreshell--clipboard-busy nil))
+       (let ((interprogram-cut-function
+              (lambda (text) (setq ,cuts (append ,cuts (list text)))))
+             (spectreshell--clipboard-ask-function
+              (lambda (_obj _request prompt)
+                (setq ,asks (append ,asks (list prompt)))
+                ,answer)))
+         (cl-letf (((symbol-function 'spectreshell--clipboard-can-ask-p)
+                    (lambda (_) t)))
+           (unwind-protect (progn ,@body)
+             (when spectreshell--clipboard-timer
+               (cancel-timer spectreshell--clipboard-timer))))))))
+
+(ert-deftest spectreshell-test-osc52-write-goes-to-kill-ring-after-feed ()
+  "子の OSC 52 の書き込みは feed の後の timer で、UTF-8 として kill-ring に
+入る。外側への反映は `interprogram-cut-function' に 1 回だけ任せ、外側の
+端末へ直接は送らない。feed の中では kill-ring に触らない。"
   (spectreshell-test--with-terminal (term 1 10)
-    (spectreshell-test--with-relay-terminals '(t1) '(t1) sent
-      (let ((xterm-max-cut-length 4))
-        (spectreshell-feed term "\x1b]52;c;aG;k=\x07")
-        (spectreshell-feed term "\x1b]52;c;aGk=aGk=\x07")
-        (should (null sent))))))
+    (spectreshell-test--with-clipboard (cuts asks 'allow)
+      (spectreshell-test--with-relay-terminals '(t1) '(t1) sent
+        (let ((spectreshell-clipboard-write 'allow))
+          (spectreshell-feed term "\x1b]52;c;44GC\x07")
+          (should (null kill-ring))
+          (should spectreshell--clipboard-timer)
+          (spectreshell--clipboard-run)
+          (should (equal kill-ring '("あ")))
+          (should (equal cuts '("あ")))
+          (should (null asks))
+          (should (null sent)))))))
+
+(ert-deftest spectreshell-test-osc52-write-goes-to-kill-ring-while-synchronized ()
+  "mode 2026 の中の書き込みも、描画を待たずに kill-ring に入る。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (cuts _asks 'allow)
+      (let ((spectreshell-clipboard-write 'allow))
+        (spectreshell-feed term "\x1b[?2026h\x1b]52;c;aGk=\x07")
+        (spectreshell--clipboard-run)
+        (should (equal kill-ring '("hi")))
+        (should (equal cuts '("hi")))))))
+
+(ert-deftest spectreshell-test-osc52-write-to-primary-sets-primary-only ()
+  "p と s への書き込みは PRIMARY に入れ、kill-ring には入れない。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (cuts _asks 'allow)
+      (let ((spectreshell-clipboard-write 'allow)
+            (selections nil))
+        (cl-letf (((symbol-function 'gui-set-selection)
+                   (lambda (type data)
+                     (setq selections (append selections (list (list type data)))))))
+          (spectreshell-feed term "\x1b]52;p;aGk=\x07\x1b]52;s;eW8=\x07")
+          (spectreshell--clipboard-run))
+        (should (equal selections '((PRIMARY "hi") (PRIMARY "yo"))))
+        (should (null kill-ring))
+        (should (null cuts))))))
+
+(ert-deftest spectreshell-test-osc52-write-denied-is-dropped-without-asking ()
+  "`spectreshell-clipboard-write' が deny なら、確認せずに捨てる。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (cuts asks 'allow)
+      (let ((spectreshell-clipboard-write 'deny))
+        (spectreshell-feed term "\x1b]52;c;aGk=\x07")
+        (spectreshell--clipboard-run)
+        (should (null kill-ring))
+        (should (null cuts))
+        (should (null asks))))))
+
+(ert-deftest spectreshell-test-osc52-write-ask-yes-and-no ()
+  "ask では確認し、許したときだけ kill-ring に入れる。"
+  (dolist (answer '(allow deny))
+    (spectreshell-test--with-terminal (term 1 10)
+      (spectreshell-test--with-clipboard (_cuts asks answer)
+        (let ((spectreshell-clipboard-write 'ask))
+          (spectreshell-feed term "\x1b]52;c;aGk=\x07")
+          (spectreshell--clipboard-run)
+          (should (= (length asks) 1))
+          (should (equal kill-ring (and (eq answer 'allow) '("hi")))))))))
+
+(ert-deftest spectreshell-test-osc52-write-ask-quit-is-denial ()
+  "確認中の C-g は拒否として扱い、quit を外へ漏らさない。timer の中
+\(`inhibit-quit' が t) から呼ばれても C-g が効く。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (_cuts asks (progn (setq quit-flag t)
+                                                         (ignore)
+                                                         'allow))
+      (let ((spectreshell-clipboard-write 'ask))
+        (spectreshell-feed term "\x1b]52;c;aGk=\x07")
+        (let ((inhibit-quit t))
+          (spectreshell--clipboard-run))
+        (should (= (length asks) 1))
+        (should (null kill-ring))
+        (should (null quit-flag))))))
+
+(ert-deftest spectreshell-test-clipboard-requests-are-asked-one-at-a-time ()
+  "要求は来た順に処理し、確認中に timer がまた走っても次の確認を重ねない。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (let ((depths nil))
+      (spectreshell-test--with-clipboard (_cuts asks (progn
+                                                       (spectreshell--clipboard-run)
+                                                       (push (length asks) depths)
+                                                       'allow))
+        (let ((spectreshell-clipboard-write 'ask))
+          (spectreshell-feed term "\x1b]52;c;aGk=\x07\x1b]52;c;eW8=\x07")
+          (spectreshell--clipboard-run)
+          (should (equal depths '(2 1)))
+          (should (equal kill-ring '("yo" "hi"))))))))
+
+(ert-deftest spectreshell-test-clipboard-request-of-finalized-terminal-is-dropped ()
+  "処理する前に端末が finalize されていたら、要求を捨てる。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (cuts _asks 'allow)
+      (let ((spectreshell-clipboard-write 'allow))
+        (spectreshell-feed term "\x1b]52;c;aGk=\x07")
+        (spectreshell-finalize term)
+        (spectreshell--clipboard-run)
+        (should (null kill-ring))
+        (should (null cuts))))))
+
+(ert-deftest spectreshell-test-clipboard-ask-is-denied-when-nobody-can-answer ()
+  "確認できない状況では、ask でも確認せずに拒否する。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (_cuts asks 'allow)
+      (let ((spectreshell-clipboard-write 'ask))
+        (cl-letf (((symbol-function 'spectreshell--clipboard-can-ask-p)
+                   (lambda (_) nil)))
+          (spectreshell-feed term "\x1b]52;c;aGk=\x07")
+          (spectreshell--clipboard-run))
+        (should (null asks))
+        (should (null kill-ring))))))
+
+(ert-deftest spectreshell-test-clipboard-can-ask-only-with-a-frame-showing-buffer ()
+  "確認できるのは、batch でなく、初期フレーム以外のフレームがバッファを
+表示しているときだけ。クライアントのいない daemon には初期フレームしか無い。"
+  (with-temp-buffer
+    (let ((buffer (current-buffer)))
+      (should-not (spectreshell--clipboard-can-ask-p buffer))
+      (let ((noninteractive nil)
+            (frames nil))
+        (cl-letf (((symbol-function 'frame-list) (lambda () (mapcar #'car frames)))
+                  ((symbol-function 'frame-initial-p)
+                   (lambda (&optional frame) (eq (cdr (assq frame frames)) 'initial)))
+                  ((symbol-function 'get-buffer-window)
+                   (lambda (_buffer frame) (memq (cdr (assq frame frames)) '(shows initial)))))
+          (setq frames '((f0 . initial)))
+          (should-not (spectreshell--clipboard-can-ask-p buffer))
+          (setq frames '((f0 . initial) (f1 . other)))
+          (should-not (spectreshell--clipboard-can-ask-p buffer))
+          (setq frames '((f0 . initial) (f1 . other) (f2 . shows)))
+          (should (spectreshell--clipboard-can-ask-p buffer)))))))
+
+(ert-deftest spectreshell-test-osc52-write-too-long-for-tty-stays-in-kill-ring ()
+  "tty で xterm.el が OSC 52 で書く端末に `xterm-max-cut-length' を超える
+書き込みが来たら、外側へは送らず kill-ring にだけ入れて知らせる。xterm.el
+の `sit-for' で待たせないため。上限以下なら外側へも送る。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (cuts _asks 'allow)
+      (let ((spectreshell-clipboard-write 'allow)
+            (xterm-max-cut-length 7)
+            (messages nil)
+            (orig (symbol-function 'terminal-parameter)))
+        (spectreshell-feed term "\x1b]52;c;aGVsbG8=\x07\x1b]52;c;aGk=\x07")
+        (cl-letf (((symbol-function 'display-graphic-p) #'ignore)
+                  ((symbol-function 'terminal-parameter)
+                   (lambda (terminal parameter)
+                     (or (eq parameter 'xterm--set-selection)
+                         (funcall orig terminal parameter))))
+                  ((symbol-function 'message)
+                   (lambda (&rest args) (push (apply #'format args) messages))))
+          (spectreshell--clipboard-run))
+        (should (equal kill-ring '("hi" "hello")))
+        (should (equal cuts '("hi")))
+        (should (= (length messages) 1))))))
 
 ;; ---------------------------------------------------------------------
 ;; デスクトップ通知の中継 (L-41)

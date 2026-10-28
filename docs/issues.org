@@ -667,6 +667,29 @@ base64 の文字以外を含むものは外側へ書かずに捨てる。
 クリップボードに入ること、Claude Code / Copilot CLI がコピー操作で
 OSC 52 を出すこと。実環境の確認は未実施。
 
+追記 (2026-10-28): 中継を kill-ring に置き換えた。中継では GUI フレーム
+や OSC 52 を書けない端末に届かず、Emacs で貼ることもできなかった。
+
+- 上流の =clipboard_write= effect で書き込みを受け、Term に記録して
+  update の =:clipboard= に =(:op write :loc LOC :text TEXT)= で出す。
+  =:relay= の =clipboard= と =spectreshell--relay-clipboard= は消した
+  (残すと tty では xterm.el の分と 2 回送られる)。
+- Elisp は feed の後の timer で、clipboard は =kill-new= で kill-ring に、
+  primary (=p= / =s=) は =gui-set-selection= に入れる。外側への反映は
+  =interprogram-cut-function= に任せ、tty では xterm.el が選択中の
+  フレームの端末へ OSC 52 を送る。=xterm-max-cut-length= を超えるものは
+  =interprogram-cut-function= を nil にして kill-ring にだけ入れ、
+  =message= で知らせる (xterm.el の =sit-for 2= を避ける)。
+- 可否は =spectreshell-clipboard-write= (=allow= / =ask= / =deny=)。
+  feed の中で Elisp を呼ばない理由は design.org の判断 19。
+
+確認 (batch): Zig で書き込み先と base64 を解いた text が載ること、空と
+不正な base64 は載らないこと、mode 2026 の中でも保留しないことを固定した。
+ERT で kill-ring に入り =interprogram-cut-function= が 1 回だけ呼ばれ
+外側の端末へは直接送らないこと、primary、deny・ask の yes / no / C-g、
+確認を重ねないこと、finalize 後の要求を捨てること、長すぎる書き込みを
+固定した。実際の GUI・tty での確認は未実施。
+
 ** DONE M-23: 子が外側の端末へ向けて出す OSC 52 / 777 / 9;4 / タイトル / BEL を中継する経路が無い
 対象: =src/handler.zig= / =src/module.zig= / =spectreshell.el=
 

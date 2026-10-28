@@ -65,6 +65,26 @@ alternate screen で実行し、クリックでのカーソル移動・ドラッ
 (~spectreshell-mouse-down~ / ~spectreshell-mouse-wheel~ の
 ~mouse-set-point~ / ~mwheel-scroll~ フォールバック)。
 
+** クリップボード
+
+子のクリップボード操作は、GUI と tty で外側への届き方が違うので両方で
+確かめる。書き込みは次のコマンドで出せる。
+
+#+begin_src sh
+printf '\e]52;c;%s\a' "$(printf 'こんにちは' | base64)"
+#+end_src
+
+- GUI フレーム: 実行後に ~C-y~ (emacs モード) で「こんにちは」が貼れ、
+  ほかのアプリケーションにもシステムのクリップボードから貼れること。
+- tty フレーム (Ghostty の中の ~emacs -nw~ や ~emacsclient -t~ ): 外側の
+  Ghostty の ~clipboard-write~ が既定の ~allow~ のとき、Ghostty の外の
+  アプリケーションに貼れること。spectreshell 自身は外側へ送らず、
+  xterm.el が 1 回だけ送ること。
+- ~(setq spectreshell-clipboard-write 'ask)~ で同じコマンドを実行すると
+  ミニバッファで確認され、 ~y~ で kill-ring に入り、 ~n~ と ~C-g~ では
+  入らないこと。 ~C-g~ の後もエコー領域に「Quit」が残らず、子の出力が
+  続けて描かれること。
+
 ** eshell コマンドライン編集での ddskk
 
 ddskk 有効化 (~skk-mode~) した状態で、プロセスを実行していない
@@ -84,7 +104,7 @@ eshell のコマンドライン (プロンプトの後ろ) で日本語入力を
 - *プロセス実行中への IME 直接入力は対象外* (design.org 参照)。
   ~C-y~ (kill-ring からの bracketed paste) 経由での日本語送信は可能。
 - *OSC 52 クリップボードの読み取り・画像 (kitty graphics/sixel) は未実装*
-  (Phase 6 の将来拡張)。書き込みは外側の端末へ送る。
+  (Phase 6 の将来拡張)。書き込みは kill-ring で受ける。
 - Emacs が新規に開く pty は既定で ~-echo -onlcr~ (~stty -a~ で確認可能)
   になっており、素の LF だけの出力が階段状にずれてしまう。
   ~spectreshell-eshell--wrap-command-for-pty~ が ~term.el~ と同じ

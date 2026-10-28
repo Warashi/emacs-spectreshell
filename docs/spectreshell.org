@@ -128,6 +128,33 @@ Emacs が 256 色で描くとき ( ~COLORTERM~ の無い ~TERM=xterm-256color~
 色番号で出るので、外側のテーマの色で見える。問い合わせには Emacs の
 色で答えるので、見える色とは違うことがある。
 
+** クリップボード
+
+子 (Claude Code ・ Copilot CLI など) がクリップボードへ書く OSC 52 は、
+外側の端末へは中継せず Emacs のクリップボードで受ける。
+
+- ~spectreshell-clipboard-write~ :: 子の書き込みを許すか。 ~allow~
+  (既定) は確認せずに書き、 ~ask~ はミニバッファで確認してから書き、
+  ~deny~ は捨てる。確認で ~C-g~ を押すと拒否になる。batch・クライアント
+  のいない daemon・端末のバッファを表示しているフレームが無いときは、
+  ~ask~ でも確認せずに捨てる
+
+書き込みは、子が出力した直後ではなく、出力を描いた後に処理する。
+clipboard への書き込みは ~kill-new~ で kill-ring に入るので、 ~C-y~ で
+貼れる。外側への反映は ~interprogram-cut-function~ に任せるので、GUI
+フレームではシステムのクリップボードに入り、tty フレームでは xterm.el が
+OSC 52 で外側の端末へ送る。xterm.el が送る先は、端末のバッファを表示して
+いるフレームではなく、そのとき選択中のフレームの端末で、Emacs が外側の
+端末の DA1 で OSC 52 を書けると判断した端末 (端末パラメータ
+~xterm--set-selection~ が ~t~ ) に限る。外側の端末が書き込みを許して
+いなければ (Ghostty の ~clipboard-write = deny~ ) 外側には入らない。
+
+xterm.el は base64 にして ~xterm-max-cut-length~ を超える書き込みを
+送らず、警告して 2 秒待つ。その場合は外側へは送らず kill-ring にだけ入れ、
+エコー領域で知らせる。primary (OSC 52 の ~p~ ・ ~s~ ) への書き込みは
+~gui-set-selection~ で ~PRIMARY~ に入れ、kill-ring には入れない。長すぎる
+primary への書き込みは捨てて知らせる。
+
 * 使い方
 
 外部プロセスの実行中、eshell バッファは端末として振る舞う。プロセスが
@@ -285,12 +312,8 @@ less や vim などの alternate screen アプリの画面は確定化されず�
   GUI フレームには送らない。どの tty フレームも表示していない間
   (daemon にクライアントがつながっていないときなど) に出たものは捨て、
   後から送り直さない
-- OSC 52 によるクリップボードへの書き込みは、Emacs (xterm.el) が
-  OSC 52 で選択範囲を書ける端末 (端末パラメータ
-  ~xterm--set-selection~ が ~t~ ) にだけ送る。Emacs は外側の端末の DA1
-  でこれを決めるので、外側が書き込みを許していなければ (Ghostty の
-  ~clipboard-write = deny~ ) 送らない。 ~xterm-max-cut-length~ を超える
-  書き込みは送らない
+- 子の OSC 52 によるクリップボードへの書き込みは、Emacs のクリップ
+  ボードで受ける (「設定」のクリップボードを参照)
 - デスクトップ通知 (OSC 777 / OSC 9) は OSC 777 にして送る。タイトルと
   本文から制御文字を除き、タイトルからは ~;~ も除く。通知を出すかは
   外側の端末の設定 (Ghostty の ~desktop-notifications~ ) に従う

@@ -138,6 +138,8 @@ nix ビルドと同様に自動検出される:
   (グローバルなモードを勝手に切り替えないため spectreshell 側では
   有効にしない)
 - OSC 8 ハイパーリンク (クリック可能な button として描画)
+- 子の OSC 52 によるクリップボードへの書き込みを kill-ring で受ける
+  (~spectreshell-clipboard-write~ で許可・確認・拒否を選ぶ)
 - ~xterm-ghostty~ の terminfo をビルド時生成・同梱し、 ~TERM~ / ~TERMINFO~
   として子プロセスに自動注入 (未検出時は ~xterm-256color~ に自動
   フォールバック)

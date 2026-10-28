@@ -308,12 +308,16 @@ eat-eshell-mode と同様の接続方式:
   ~xterm-mouse-mode~ は spectreshell 側では有効にしない。グローバルな
   モードを利用者に断りなく切り替えないため、有効化は利用者に任せる
 - OSC 8 ハイパーリンク
-- OSC 52 クリップボードへの書き込みと、子が外側の端末へ向けて出す
-  通知類 (OSC 777 / OSC 9;4 / タイトル / BEL) の外側の tty への中継
-  (issues.org の M-23)。ssh 先の daemon に ~emacsclient -t~ でつなぎ、
-  tmux の代わりに使ったときに直結と区別がつかないようにするため。
-  書き込みの可否は外側の端末の設定 (Ghostty の ~clipboard-write~) に
-  従う
+- OSC 52 クリップボードへの書き込みを Emacs のクリップボードで受ける。
+  clipboard は ~kill-new~ で kill-ring に入れ、外側への反映は
+  ~interprogram-cut-function~ に任せる (tty では xterm.el が OSC 52 を
+  送る)。primary は ~gui-set-selection~ に入れる。可否は
+  ~spectreshell-clipboard-write~ (~allow~ / ~ask~ / ~deny~) で決める
+  (判断 18・19)
+- 子が外側の端末へ向けて出す通知類 (OSC 777 / OSC 9;4 / タイトル /
+  BEL) の外側の tty への中継 (issues.org の M-23)。ssh 先の daemon に
+  ~emacsclient -t~ でつなぎ、tmux の代わりに使ったときに直結と区別が
+  つかないようにするため
 
 含まない (将来拡張):
 
@@ -383,7 +387,7 @@ CLAUDE.md の方針どおり、実装と同じ粒度でテストを書き、
 | 6 | スクロールバックは Emacs バッファに確定化 | eshell の「バッファ=履歴」モデルと整合。Emacs の全機能が効く | ghostty-vt 側で保持 |
 | 7 | semi-char + emacs の 2 モード | eshell 用途で実用十分。char モードは将来拡張 | eat 完全同等の 3 モード |
 | 8 | キーエンコードはモジュール側 | 端末モード (DECCKM 等) 追従が自動で正しくなる | Elisp でエスケープ列対応表 |
-| 9 | v1 機能はマウス + OSC 8 + OSC 52 の書き込みと外側の端末への中継 | eat-eshell 同等の体験に加え、ssh 先で tmux の代わりに使うときに直結と区別がつかない範囲 | OSC 52 の読み取り / 画像も含める |
+| 9 | v1 機能はマウス + OSC 8 + OSC 52 の書き込み (kill-ring 経由) と通知類の外側の端末への中継 | eat-eshell 同等の体験に加え、ssh 先で tmux の代わりに使うときに直結と区別がつかない範囲 | OSC 52 の読み取り / 画像も含める |
 | 10 | TERM=xterm-ghostty + terminfo 同梱 | エミュレータ実体と能力宣言が一致 | xterm-256color / カスタム terminfo |
 | 11 | Emacs 31+ | 互換コードゼロ。自分用途で最新版のみ | 29+ / 30+ |
 | 12 | コア + eshell の 2 層 Elisp | 描画エンジンが eshell 非依存で単体テスト可能 | 単一ファイル |
@@ -392,3 +396,5 @@ CLAUDE.md の方針どおり、実装と同じ粒度でテストを書き、
 | 15 | MIT ライセンス | GPL 互換要件を満たし ghostty と同一で単純 | GPL-3.0-or-later |
 | 16 | 実行中プロセスでの Emacs 側 input method は v1 対象外 | コマンドライン編集では ddskk が無条件で動くため。C-y ペーストで回避可能 | コミット捕捉ブリッジを v1 に含める |
 | 17 | tty での ~xterm-mouse-mode~ は自動有効化しない | グローバルなモードを利用者に断りなく切り替えない。マニュアルで案内する | ~spectreshell-mode~ で有効化する |
+| 18 | 子のクリップボードの書き込みは kill-ring を通し、外側へは ~interprogram-cut-function~ に任せる | Emacs のクリップボードと子のクリップボードが 1 つになり、GUI でも tty でも Emacs で貼れる。tty では xterm.el が OSC 52 を送るので、外側へ届く経路も 1 つで二重にならない | 外側の端末へ OSC 52 をそのまま中継する (GUI フレームや OSC 52 を書けない端末には届かず、kill-ring にも入らない。旧 M-24 の対応) |
+| 19 | クリップボードの要求は feed の中で処理せず、モジュールは update に載せるだけにして、Elisp が timer から 1 つずつ順に処理する | feed の中で Elisp を呼ぶと、確認しない ~allow~ でも ~kill-new~ (~save-interprogram-paste-before-kill~) や ~current-kill~ が X の選択や xterm.el の ~read-char~ を待ち、その間に同じプロセスのフィルタ・sentinel・timer が再び走って、feed の入れ子や解放済みの端末の使用が起きる (process.c はフィルタの再帰呼び出しを前提にしている)。filter の中では ~inhibit-quit~ が t なので確認で C-g も効かない | 同期の確認と再入のガード (待つ間に来た出力の扱いが要り、sentinel や timer からの finalize は防げず、C-g も効かない) / 確認の間だけプロセスの filter を t にする (同じプロセスの再入しか防げず、確認の間は子の出力も止まる) |

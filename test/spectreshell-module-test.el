@@ -62,13 +62,26 @@
     (should (equal update '(:synchronized t :responses "\x1b[1;3R")))
     (spectreshell--release term)))
 
-(ert-deftest spectreshell-module-test-osc52-write-produces-relay ()
-  "OSC 52 の書き込みは :relay に (clipboard KIND BASE64) を積む。
-種別を省いた書き込みは c になる。"
+(ert-deftest spectreshell-module-test-osc52-write-produces-clipboard-request ()
+  "OSC 52 の書き込みは :clipboard に書き込み先と base64 を解いた text を積み、
+:relay には積まない。p と s は primary、種別を省いたものは clipboard になる。"
   (let* ((term (spectreshell--create 5 10))
-         (update (spectreshell--feed term "\x1b]52;p;aGk=\x07\x1b]52;;eW8=\x07")))
-    (should (equal (plist-get update :relay)
-                   '((clipboard "p" "aGk=") (clipboard "c" "eW8="))))
+         (update (spectreshell--feed
+                  term "\x1b]52;p;aGk=\x07\x1b]52;s;44GC\x07\x1b]52;;eW8=\x07")))
+    (should (equal (plist-get update :clipboard)
+                   `((:op write :loc primary :text "hi")
+                     (:op write :loc primary :text ,(encode-coding-string "あ" 'utf-8))
+                     (:op write :loc clipboard :text "yo"))))
+    (should-not (multibyte-string-p
+                 (plist-get (nth 1 (plist-get update :clipboard)) :text)))
+    (should-not (plist-member update :relay))
+    (spectreshell--release term)))
+
+(ert-deftest spectreshell-module-test-osc52-empty-write-is-dropped ()
+  "OSC 52 の空の書き込みは :clipboard に積まない。"
+  (let* ((term (spectreshell--create 5 10))
+         (update (spectreshell--feed term "\x1b]52;c;\x07")))
+    (should-not (plist-member update :clipboard))
     (spectreshell--release term)))
 
 (ert-deftest spectreshell-module-test-osc52-read-is-ignored ()
@@ -83,8 +96,16 @@
   "mode 2026 の中で終わった feed も :relay を返す。描画ではないので
 保留しない。"
   (let* ((term (spectreshell--create 5 10))
+         (update (spectreshell--feed term "\x1b[?2026h\x1b]9;done\x07")))
+    (should (equal update '(:synchronized t :relay ((notification "" "done")))))
+    (spectreshell--release term)))
+
+(ert-deftest spectreshell-module-test-synchronized-feed-keeps-clipboard ()
+  "mode 2026 の中で終わった feed も :clipboard を返す。描画ではないので
+保留しない。"
+  (let* ((term (spectreshell--create 5 10))
          (update (spectreshell--feed term "\x1b[?2026h\x1b]52;c;aGk=\x07")))
-    (should (equal update '(:synchronized t :relay ((clipboard "c" "aGk=")))))
+    (should (equal update '(:synchronized t :clipboard ((:op write :loc clipboard :text "hi")))))
     (spectreshell--release term)))
 
 (ert-deftest spectreshell-module-test-primary-device-attributes-report-clipboard ()

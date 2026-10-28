@@ -624,31 +624,161 @@ point, so the terminals to clear are still found."
       (spectreshell--relay owner clear))))
 
 ;; ---------------------------------------------------------------------
-;; Clipboard writes (OSC 52)
+;; Clipboard (OSC 52)
 ;; ---------------------------------------------------------------------
+
+(defcustom spectreshell-clipboard-write 'allow
+  "Whether the child may write Emacs's clipboard (OSC 52).
+`allow' writes without asking, `ask' asks in the minibuffer first and
+`deny' drops the write.  A write to the clipboard goes to the kill ring
+with `kill-new', which hands it on to `interprogram-cut-function'; a
+write to the primary selection goes to `gui-set-selection' only.
+Writes are never asked about when nobody can answer
+\(`spectreshell--clipboard-can-ask-p'); they are dropped instead."
+  :type '(choice (const :tag "Allow" allow)
+                 (const :tag "Ask" ask)
+                 (const :tag "Deny" deny))
+  :group 'spectreshell)
 
 (defvar xterm-max-cut-length)
 
-(defun spectreshell--relay-clipboard (obj kind data)
-  "Relay the child's OSC 52 write of base64 DATA to selection KIND for OBJ.
-Sent only to the terminals xterm.el itself writes selections to with
-OSC 52 (`xterm--set-selection'), which it decides from the outer
-terminal's DA1, so whether the write lands is still up to the outer
-terminal's own setting.  KIND and DATA go out verbatim, so anything
-but a selection letter and base64 is dropped rather than written to the
-outer terminal; so is DATA longer than `xterm-max-cut-length', which
-xterm.el refuses for its own writes too."
-  (when (and (string-match-p "\\`[a-z0-9]\\'" kind)
-             (string-match-p "\\`[A-Za-z0-9+/=]*\\'" data)
-             (not (and (boundp 'xterm-max-cut-length)
-                       (> (length data) xterm-max-cut-length))))
-    (spectreshell--relay
-     obj (concat "\e]52;" kind ";" data "\a")
-     (lambda (terminal)
-       (eq (terminal-parameter terminal 'xterm--set-selection) t)))))
+(defvar spectreshell--clipboard-ask-function #'spectreshell--clipboard-ask
+  "Function asking the user about a clipboard request.
+Called with the `spectreshell' object, the request plist and a prompt;
+returns `allow', `deny', or `always' to allow this and later requests
+carrying the same password.")
 
-(setf (alist-get 'clipboard spectreshell--relay-handlers)
-      #'spectreshell--relay-clipboard)
+(defvar spectreshell--clipboard-queue nil
+  "Clipboard requests not yet handled, as (OBJ . REQUEST), oldest first.")
+
+(defvar spectreshell--clipboard-timer nil
+  "Timer that will run `spectreshell--clipboard-run', or nil.")
+
+(defvar spectreshell--clipboard-busy nil
+  "Non-nil while `spectreshell--clipboard-run' handles requests.")
+
+(defun spectreshell--clipboard-take (obj update)
+  "Queue the `:clipboard' requests of the module UPDATE plist for OBJ.
+Member of `spectreshell--update-functions'.  They are handled from a
+timer rather than here: this runs inside the process filter, where
+`kill-new' or `current-kill' waiting on the outer terminal or the
+window system would let the filter run again in the middle of a feed,
+and where `inhibit-quit' keeps \\[keyboard-quit] from answering a prompt."
+  (when-let* ((requests (plist-get update :clipboard)))
+    (setq spectreshell--clipboard-queue
+          (nconc spectreshell--clipboard-queue
+                 (mapcar (lambda (request) (cons obj request)) requests)))
+    (unless (or spectreshell--clipboard-timer spectreshell--clipboard-busy)
+      (setq spectreshell--clipboard-timer
+            (run-at-time 0 nil #'spectreshell--clipboard-run)))))
+
+(add-hook 'spectreshell--update-functions #'spectreshell--clipboard-take)
+
+(defun spectreshell--clipboard-run ()
+  "Handle the queued clipboard requests in order, one prompt at a time.
+Does nothing when already running: a prompt lets timers run, and the
+outer call picks up whatever was queued meanwhile."
+  (setq spectreshell--clipboard-timer nil)
+  (unless spectreshell--clipboard-busy
+    (let ((spectreshell--clipboard-busy t))
+      (while spectreshell--clipboard-queue
+        (pcase-let ((`(,obj . ,request) (pop spectreshell--clipboard-queue)))
+          (when (spectreshell--clipboard-live-p obj)
+            (condition-case err
+                (pcase (plist-get request :op)
+                  ('write (spectreshell--clipboard-handle-write obj request)))
+              (error (message "Spectreshell: clipboard request failed: %S" err)))))))))
+
+(defun spectreshell--clipboard-live-p (obj)
+  "Return non-nil if OBJ has been neither finalized nor its buffer killed."
+  (marker-buffer (spectreshell-marker obj)))
+
+(defun spectreshell--clipboard-can-ask-p (buffer)
+  "Return non-nil if the user can be asked about BUFFER's child.
+Not in batch, and only while a frame other than a daemon's initial one
+shows BUFFER: a daemon with no clients has nobody to answer, and a
+hidden buffer leaves the user guessing which program asks."
+  (and (not noninteractive)
+       (seq-some (lambda (frame)
+                   (and (not (frame-initial-p frame))
+                        (get-buffer-window buffer frame)))
+                 (frame-list))
+       t))
+
+(defun spectreshell--clipboard-decide (obj policy request prompt)
+  "Return `allow', `deny' or `always' for OBJ's clipboard REQUEST.
+POLICY is `allow', `ask' or `deny'; `ask' asks with PROMPT unless
+REQUEST is already granted.  \\[keyboard-quit] at the prompt, and any
+error, count as `deny'."
+  (cond
+   ((eq policy 'deny) 'deny)
+   ((or (eq policy 'allow) (plist-get request :granted)) 'allow)
+   ((not (spectreshell--clipboard-can-ask-p (spectreshell-buffer obj))) 'deny)
+   (t
+    ;; Not `with-local-quit': it sets `quit-flag' again on the way out,
+    ;; which would quit whatever runs the timer.
+    (condition-case nil
+        (let ((inhibit-quit nil))
+          (funcall spectreshell--clipboard-ask-function obj request prompt))
+      (quit 'deny)
+      (error 'deny)))))
+
+(defun spectreshell--clipboard-ask (_obj request prompt)
+  "Ask with PROMPT about REQUEST; return `allow', `deny' or `always'.
+`always' is offered only when REQUEST can be remembered."
+  (pcase (car (read-multiple-choice
+               prompt
+               `((?y "yes" "Allow this time")
+                 (?n "no" "Deny")
+                 ,@(and (plist-get request :remember)
+                        '((?a "always" "Allow this and later requests from the program"))))))
+    (?y 'allow)
+    (?a 'always)
+    (_ 'deny)))
+
+(defun spectreshell--clipboard-handle-write (obj request)
+  "Write the text of OBJ's write REQUEST, if `spectreshell-clipboard-write' allows."
+  (let ((text (decode-coding-string (plist-get request :text) 'utf-8))
+        (primary (eq (plist-get request :loc) 'primary)))
+    (when (and (> (length text) 0)
+               (memq (spectreshell--clipboard-decide
+                      obj spectreshell-clipboard-write request
+                      (format "Let the program in %s copy %d characters to the %s? "
+                              (buffer-name (spectreshell-buffer obj))
+                              (length text)
+                              (if primary "primary selection" "clipboard")))
+                     '(allow always)))
+      (spectreshell--clipboard-write primary text))))
+
+(defun spectreshell--clipboard-write (primary text)
+  "Put TEXT in the primary selection if PRIMARY, else in the kill ring.
+TEXT that xterm.el would refuse to send to the outer terminal
+\(`spectreshell--clipboard-too-long-p') only goes to the kill ring, or
+nowhere for the primary selection: xterm.el would warn and wait two
+seconds."
+  (let ((too-long (spectreshell--clipboard-too-long-p text)))
+    (cond
+     ((and primary too-long)
+      (message "Spectreshell: %d characters are too long for the terminal's primary selection (`xterm-max-cut-length')"
+               (length text)))
+     (primary (gui-set-selection 'PRIMARY text))
+     (t
+      (let ((interprogram-cut-function (unless too-long interprogram-cut-function)))
+        (kill-new text))
+      (when too-long
+        (message "Spectreshell: copied %d characters to the kill ring only; too long for the terminal's clipboard (`xterm-max-cut-length')"
+                 (length text)))))))
+
+(defun spectreshell--clipboard-too-long-p (text)
+  "Return non-nil if xterm.el would refuse to send TEXT to the outer terminal.
+That is when the selected frame's terminal takes selections as OSC 52
+\(`xterm--set-selection') and TEXT in base64 is longer than
+`xterm-max-cut-length', the same check xterm.el makes."
+  (and (not (display-graphic-p))
+       (eq (terminal-parameter nil 'xterm--set-selection) t)
+       (boundp 'xterm-max-cut-length)
+       (> (* 4 (/ (+ (length (encode-coding-string text 'utf-8-unix)) 2) 3))
+          xterm-max-cut-length)))
 
 ;; ---------------------------------------------------------------------
 ;; Desktop notifications (OSC 777 / OSC 9)

@@ -5,6 +5,7 @@ const core = @import("core.zig");
 const style = @import("style.zig");
 const keymap = @import("keymap.zig");
 const handler = @import("handler.zig");
+const clipboard = @import("clipboard.zig");
 
 /// Term はユーザーの Elisp コードが保持する限り生き続けるため、Term.init
 /// に渡す確保元は per-call のスコープを持たないプロセス全体の allocator
@@ -213,6 +214,7 @@ fn buildUpdatePlist(env: *emacs.Env, arena: std.mem.Allocator, update: *const co
         try items.append(arena, emacs.t(env));
         try appendResponses(env, arena, &items, update);
         try appendRelay(env, arena, &items, update);
+        try appendClipboard(env, arena, &items, update);
         try appendFocusEvent(env, arena, &items, update);
         return emacs.list(env, items.items);
     }
@@ -261,6 +263,7 @@ fn buildUpdatePlist(env: *emacs.Env, arena: std.mem.Allocator, update: *const co
 
     try appendResponses(env, arena, &items, update);
     try appendRelay(env, arena, &items, update);
+    try appendClipboard(env, arena, &items, update);
     try appendFocusEvent(env, arena, &items, update);
 
     switch (update.alt_screen) {
@@ -295,11 +298,6 @@ fn appendRelay(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayList(
     var events: std.ArrayList(*emacs.Value) = .empty;
     for (update.relay) |e| {
         try events.append(arena, switch (e) {
-            .clipboard => |c| emacs.list(env, &.{
-                emacs.intern(env, "clipboard"),
-                emacs.makeUnibyteString(env, &.{c.kind}),
-                emacs.makeUnibyteString(env, c.data),
-            }),
             .notification => |n| emacs.list(env, &.{
                 emacs.intern(env, "notification"),
                 emacs.makeUnibyteString(env, n.title),
@@ -315,6 +313,30 @@ fn appendRelay(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayList(
     }
     try items.append(arena, emacs.intern(env, ":relay"));
     try items.append(arena, emacs.list(env, events.items));
+}
+
+/// :clipboard の各要素は (:op OP ...) の plist。要素の順は子が出した順。
+fn appendClipboard(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayList(*emacs.Value), update: *const core.Update) !void {
+    if (update.clipboard.len == 0) return;
+    var requests: std.ArrayList(*emacs.Value) = .empty;
+    for (update.clipboard) |r| {
+        try requests.append(arena, switch (r) {
+            .write => |w| emacs.list(env, &.{
+                emacs.intern(env, ":op"),
+                emacs.intern(env, "write"),
+                emacs.intern(env, ":loc"),
+                locationValue(env, w.loc),
+                emacs.intern(env, ":text"),
+                emacs.makeUnibyteString(env, w.text),
+            }),
+        });
+    }
+    try items.append(arena, emacs.intern(env, ":clipboard"));
+    try items.append(arena, emacs.list(env, requests.items));
+}
+
+fn locationValue(env: *emacs.Env, loc: clipboard.Location) *emacs.Value {
+    return emacs.intern(env, @tagName(loc));
 }
 
 fn appendFocusEvent(env: *emacs.Env, arena: std.mem.Allocator, items: *std.ArrayList(*emacs.Value), update: *const core.Update) !void {

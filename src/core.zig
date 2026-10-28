@@ -4,6 +4,7 @@ const handler = @import("handler.zig");
 const row_mod = @import("row.zig");
 const style = @import("style.zig");
 const relay = @import("relay.zig");
+const clipboard = @import("clipboard.zig");
 
 pub const Color = style.Color;
 pub const Underline = style.Underline;
@@ -115,6 +116,9 @@ pub const Update = struct {
     title: ?[]u8,
     /// 描画とは別に外側の端末へ中継するもの。mode 2026 の中でも保留しない。
     relay: []relay.Event,
+    /// 子のクリップボード操作。Elisp が feed の後に処理する。mode 2026 の
+    /// 中でも保留しない。
+    clipboard: []clipboard.Request,
     /// この update で初出のスタイル。ID は styles_first_id からの連番。
     /// Term のテーブルからの借用 (Term の方が長生きする) なので解放しない。
     styles: []const Style,
@@ -136,6 +140,7 @@ pub const Update = struct {
         self.alloc.free(self.responses);
         if (self.title) |t| self.alloc.free(t);
         relay.deinitAll(self.alloc, self.relay);
+        clipboard.deinitAll(self.alloc, self.clipboard);
         self.* = undefined;
     }
 };
@@ -151,6 +156,7 @@ pub const Term = struct {
     responses: std.ArrayList(u8) = .empty,
     pending_title: ?[]u8 = null,
     pending_relay: std.ArrayList(relay.Event) = .empty,
+    clipboard: clipboard.State = .{},
     color_scheme: ?handler.ColorScheme = null,
     colors: handler.Colors = .{},
     in_alt_screen: bool = false,
@@ -183,6 +189,7 @@ pub const Term = struct {
                 &self.responses,
                 &self.pending_title,
                 &self.pending_relay,
+                &self.clipboard,
                 &self.color_scheme,
                 &self.colors,
             ),
@@ -201,6 +208,7 @@ pub const Term = struct {
         if (self.pending_title) |t| alloc.free(t);
         for (self.pending_relay.items) |*e| e.deinit(alloc);
         self.pending_relay.deinit(alloc);
+        self.clipboard.deinit(alloc);
         self.* = undefined;
         alloc.destroy(self);
     }
@@ -226,6 +234,8 @@ pub const Term = struct {
     fn deferredUpdate(self: *Term, alloc: std.mem.Allocator) !Update {
         const relay_events = try relay.take(&self.pending_relay, self.alloc, alloc);
         errdefer relay.deinitAll(alloc, relay_events);
+        const clipboard_requests = try self.clipboard.take(self.alloc, alloc);
+        errdefer clipboard.deinitAll(alloc, clipboard_requests);
         return .{
             .alloc = alloc,
             .dirty = &.{},
@@ -233,6 +243,7 @@ pub const Term = struct {
             .cursor = .{ .row = 0, .col = 0, .index = 0, .visible = false },
             .responses = try self.takeResponses(alloc),
             .relay = relay_events,
+            .clipboard = clipboard_requests,
             .alt_screen = .unchanged,
             .styles = &.{},
             .styles_first_id = @intCast(self.styles.count()),
@@ -521,6 +532,9 @@ pub const Term = struct {
         const relay_events = try relay.take(&self.pending_relay, self.alloc, alloc);
         errdefer relay.deinitAll(alloc, relay_events);
 
+        const clipboard_requests = try self.clipboard.take(self.alloc, alloc);
+        errdefer clipboard.deinitAll(alloc, clipboard_requests);
+
         var title: ?[]u8 = null;
         errdefer if (title) |t| alloc.free(t);
         if (self.pending_title) |t| {
@@ -546,6 +560,7 @@ pub const Term = struct {
             .cursor = cursor,
             .responses = responses,
             .relay = relay_events,
+            .clipboard = clipboard_requests,
             .alt_screen = alt_screen,
             .styles = self.styles.since(styles_mark),
             .styles_first_id = @intCast(styles_mark),
@@ -1159,20 +1174,6 @@ test "OSC 2 はタイトル変更を通知する" {
     try testing.expectEqualStrings("hello", update.title.?);
 }
 
-test "OSC 52 の書き込みは中継に種別と base64 を積む" {
-    const alloc = testing.allocator;
-    const t = try Term.init(alloc, 5, 10);
-    defer t.deinit();
-
-    var update = try t.feed(alloc, "\x1b]52;p;aGk=\x07\x1b]52;;eW8=\x07");
-    defer update.deinit();
-    try testing.expectEqual(@as(usize, 2), update.relay.len);
-    try testing.expectEqual(@as(u8, 'p'), update.relay[0].clipboard.kind);
-    try testing.expectEqualStrings("aGk=", update.relay[0].clipboard.data);
-    try testing.expectEqual(@as(u8, 'c'), update.relay[1].clipboard.kind);
-    try testing.expectEqualStrings("eW8=", update.relay[1].clipboard.data);
-}
-
 test "OSC 52 の読み取りは無視する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);
@@ -1226,7 +1227,7 @@ test "mode 2026 の中でも中継するものは保留しない" {
     const t = try Term.init(alloc, 5, 10);
     defer t.deinit();
 
-    var update = try t.feed(alloc, "\x1b[?2026h\x1b]52;c;aGk=\x07");
+    var update = try t.feed(alloc, "\x1b[?2026h\x1b]9;done\x07");
     defer update.deinit();
     try testing.expect(update.synchronized);
     try testing.expectEqual(@as(usize, 1), update.relay.len);
@@ -1235,7 +1236,7 @@ test "mode 2026 の中でも中継するものは保留しない" {
 test "中継するものを渡す前に Term を捨ててもリークしない" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);
-    try t.feedWithoutDel("\x1b]52;c;aGk=\x07");
+    try t.feedWithoutDel("\x1b]9;done\x07");
     t.deinit();
 }
 

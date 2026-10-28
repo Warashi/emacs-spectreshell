@@ -44,6 +44,7 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
  :cursor-visible t-or-nil
  :responses "raw-bytes-or-omitted"
  :relay ((SYMBOL ARGS...) ...)
+ :clipboard ((:op OP ...) ...)
  :focus-event t-or-omitted
  :alt-screen entered-or-left-or-omitted
  :title "title-or-omitted")
@@ -75,9 +76,6 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
 - *~:relay~*: 子が外側の端末へ向けて出したもの。描画とは別に Elisp が
   外側の tty へ中継する。子が出した順に並び、何もなければキーごと
   省略される。
-  - ~(clipboard KIND DATA)~: OSC 52 の書き込み。KIND は種別の 1 文字
-    (省略時は ~"c"~)、DATA は子が送った base64 のまま。読み取り
-    (DATA が ~?~) は載せない。
   - ~(notification TITLE BODY)~: OSC 777 (~notify;TITLE;BODY~) と、
     ConEmu 拡張でない OSC 9 (BODY のみ。TITLE は ~""~) の通知。どちらも
     子が送ったままのバイト列。
@@ -86,6 +84,14 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
     0〜100 の整数か ~nil~ 。ghostty-vt の解釈どおり、0 と 3 の VALUE は
     常に ~nil~ で、1 の VALUE を省くと 0 になる。
   - ~(bell)~: BEL。OSC などの終端の BEL は含まない。
+- *~:clipboard~*: 子のクリップボード操作の要求。子が出した順に並び、
+  何もなければキーごと省略される。Elisp は feed の中では処理せず、後で
+  順に処理する (design.org の判断 19)。各要素は ~:op~ で種類が分かる
+  plist で、LOC は ~clipboard~ か ~primary~ (OSC 52 の ~p~ と ~s~ は
+  ~primary~ 、それ以外は ~clipboard~)。
+  - ~(:op write :loc LOC :text TEXT)~: 書き込み。TEXT は base64 を解いた
+    バイト列 (unibyte。UTF-8 として解くのは受け手)。空の書き込みと
+    base64 として不正な書き込みは載せない。
 - *~:focus-event~*: 子がフォーカスの報告 (mode 1004) を有効にしている
   間は ~t~ 。無効ならキーごと省略される。
 - *~:alt-screen~*: このバッチで alternate screen への出入りが
@@ -96,8 +102,8 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
 ** 描画の保留 (mode 2026)
 
 ~--feed~ が mode 2026 (synchronized output) の中で終わると、戻り値は
-~(:synchronized t :responses "raw-bytes-or-omitted" :relay ... :focus-event ...)~
-だけになる (~:relay~ と ~:focus-event~ は描画ではないので保留しない)。
+~(:synchronized t :responses "raw-bytes-or-omitted" :relay ... :clipboard ... :focus-event ...)~
+だけになる (~:relay~ ・ ~:clipboard~ ・ ~:focus-event~ は描画ではないので保留しない)。
 保留した変更は、mode 2026 が閉じた ~--feed~ の戻り値にまとめて載る。
 ~--resize~ と ~--flush~ は mode 2026 を解除してから通常の plist を返す。
 ~--flush~ はアプリが mode 2026 を閉じないまま止まったときに使う。
@@ -241,6 +247,7 @@ OSC 4 の 0〜15 (PALETTE) に Ghostty と同じく
   (~make_unibyte_string~) として返す。
 - *~:relay~ の文字列*: 外側の端末へ書くバイト列の材料なので unibyte
   文字列として返す。
+- *~:clipboard~ の TEXT*: 子が書いたバイト列のままの unibyte 文字列。
 - *~--encode-key~ / ~--encode-paste~ の戻り値*: PTY にそのまま書き込む
   前提のバイト列なので unibyte 文字列。
 
