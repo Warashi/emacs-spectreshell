@@ -13,7 +13,15 @@ pub fn build(b: *std.Build) void {
     // target/optimize を渡さないと ghostty 側の standardTargetOptions が
     // ホスト向けの既定値になり、クロスコンパイル時に simdutf/highway の
     // 静的ライブラリだけホスト向けに作られてリンクに失敗する。
-    if (b.lazyDependency("ghostty", .{ .target = target, .optimize = optimize })) |dep| {
+    //
+    // APC で届く kitty graphics と glyph protocol は描画しないので、
+    // ghostty-vt 側で無効にして読み捨てさせる。有効のままだと送られた
+    // 画像やグリフが Terminal に溜まる。
+    if (b.lazyDependency("ghostty", .{
+        .target = target,
+        .optimize = optimize,
+        .@"vt-features" = "-kitty-graphics,-glyph-protocol",
+    })) |dep| {
         mod.addImport("ghostty-vt", dep.module("ghostty-vt"));
         mod.addImport("ghostty-terminfo", terminfoModule(b, dep));
         installTerminfo(b, dep);
@@ -27,11 +35,11 @@ pub fn build(b: *std.Build) void {
         .name = "spectreshell",
         .root_module = mod,
         .linkage = .dynamic,
-        // Debug の既定 (zig 0.15 自前 x86_64 バックエンド) に任せない:
-        // 自前バックエンドが生成した .so は Emacs から dlopen して呼ぶと
-        // SmpAllocator.getCpuCount 内の未初期化レジスタ参照で segfault
-        // する (x86_64 のみ、ReleaseSafe/LLVM では発生しない)。自前
-        // バックエンドが shared library でも安定したら外してよい。
+        // Debug の既定 (zig の自前 x86_64 バックエンド) に任せない:
+        // zig 0.15.2 の自前バックエンドが生成した .so は Emacs から dlopen
+        // して呼ぶと SmpAllocator.getCpuCount 内の未初期化レジスタ参照で
+        // segfault する (x86_64 のみ、ReleaseSafe/LLVM では発生しない)。
+        // 0.17.0 では ERT が通るので外せる (docs/issues.org の B-1)。
         .use_llvm = true,
     });
     b.installArtifact(lib);
@@ -63,21 +71,24 @@ pub fn build(b: *std.Build) void {
 /// 見ずにこの版を名乗る (src/build/Config.zig) ので、XTVERSION の応答を
 /// 同じ ghostty を組み込んだ Ghostty アプリと揃えられる。
 fn ghosttyVersion(b: *std.Build, ghostty_dep: *std.Build.Dependency) []const u8 {
-    const source = ghostty_dep.builder.build_root.handle.readFileAllocOptions(
+    const root = ghostty_dep.builder.root;
+    const zon_path = root.join(b.allocator, "build.zig.zon") catch @panic("OOM");
+    const source = zon_path.root_dir.handle.readFileAllocOptions(
+        b.graph.io,
+        zon_path.sub_path,
         b.allocator,
-        "build.zig.zon",
-        1024 * 1024,
-        null,
+        .limited(1024 * 1024),
         .of(u8),
         0,
     ) catch |err| std.debug.panic("unable to read ghostty's build.zig.zon: {s}", .{@errorName(err)});
-    const zon = std.zon.parse.fromSlice(
-        struct { version: []const u8 },
-        b.allocator,
-        source,
-        null,
-        .{ .ignore_unknown_fields = true },
-    ) catch |err| std.debug.panic("unable to parse ghostty's build.zig.zon: {s}", .{@errorName(err)});
+    var diagnostics: std.zon.parse.Diagnostics = undefined;
+    const zon = std.zon.parse.fromSlice(struct { version: []const u8 }, .{
+        .gpa = b.allocator,
+        .arena = b.allocator,
+        .source = source,
+        .diagnostics = &diagnostics,
+        .ignore_unknown_fields = true,
+    }) catch |err| std.debug.panic("unable to parse ghostty's build.zig.zon: {s}", .{@errorName(err)});
     return zon.version;
 }
 
@@ -114,13 +125,25 @@ fn installTerminfo(b: *std.Build, ghostty_dep: *std.Build.Dependency) void {
     });
 
     const run_gen = b.addRunArtifact(gen_exe);
-    const terminfo_source = run_gen.captureStdOut();
+    const terminfo_source = run_gen.captureStdOut(.{});
 
     const tic = b.addSystemCommand(&.{ "tic", "-x", "-o" });
     const terminfo_dir = tic.addOutputFileArg("terminfo");
     tic.addFileArg(terminfo_source);
 
-    const install = InstallTerminfo.create(b, terminfo_dir, "share/terminfo");
+    const install_exe = b.addExecutable(.{
+        .name = "spectreshell-terminfo-install",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/terminfo_install.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    const install = b.addRunArtifact(install_exe);
+    install.addDirectoryArg(terminfo_dir);
+    install.addDirectoryArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "share/terminfo" } });
+    // 引数のパスしかキャッシュの鍵にならず、install 先が消えても再実行
+    // されないので、毎回複製する。
+    install.has_side_effects = true;
     b.getInstallStep().dependOn(&install.step);
 }
 
@@ -135,129 +158,3 @@ fn terminfoModule(b: *std.Build, ghostty_dep: *std.Build.Dependency) *std.Build.
     const dir = copy.addCopyDirectory(ghostty_dep.path("src/terminfo"), "", .{});
     return b.createModule(.{ .root_source_file = dir.path(b, "main.zig") });
 }
-
-/// `tic` が生成した terminfo データベースのディレクトリを install
-/// prefix へ複製するステップ。`std.Build.Step.InstallDir` を使わないの
-/// は、tic が別名 `ghostty` を `x/xterm-ghostty` へのシンボリックリンク
-/// として出力するのに対し、InstallDir の make はディレクトリと通常ファ
-/// イル以外のエントリを読み飛ばす (zig 0.15.2) ため、リンクが install
-/// されず TERM=ghostty を引けなくなるから。
-const InstallTerminfo = struct {
-    step: std.Build.Step,
-    source_dir: std.Build.LazyPath,
-    install_subdir: []const u8,
-
-    fn create(
-        b: *std.Build,
-        source_dir: std.Build.LazyPath,
-        install_subdir: []const u8,
-    ) *InstallTerminfo {
-        const install = b.allocator.create(InstallTerminfo) catch @panic("OOM");
-        install.* = .{
-            .step = .init(.{
-                .id = .custom,
-                .name = b.fmt("install terminfo to {s}", .{install_subdir}),
-                .owner = b,
-                .makeFn = make,
-            }),
-            .source_dir = source_dir.dupe(b),
-            .install_subdir = b.dupePath(install_subdir),
-        };
-        source_dir.addStepDependencies(&install.step);
-        return install;
-    }
-
-    fn make(step: *std.Build.Step, options: std.Build.Step.MakeOptions) !void {
-        _ = options;
-        const b = step.owner;
-        const install: *InstallTerminfo = @fieldParentPtr("step", step);
-        step.clearWatchInputs();
-        _ = try step.addDirectoryWatchInput(install.source_dir);
-
-        const dest_prefix = b.getInstallPath(.prefix, install.install_subdir);
-        const src_dir_path = install.source_dir.getPath3(b, step);
-        var src_dir = src_dir_path.root_dir.handle.openDir(
-            src_dir_path.subPathOrDot(),
-            .{ .iterate = true },
-        ) catch |err| {
-            return step.fail("unable to open terminfo directory '{f}': {s}", .{
-                src_dir_path, @errorName(err),
-            });
-        };
-        defer src_dir.close();
-
-        var all_cached = true;
-        var entry_count: usize = 0;
-        var it = try src_dir.walk(b.allocator);
-        while (try it.next()) |entry| {
-            const dest_path = b.pathJoin(&.{ dest_prefix, entry.path });
-            switch (entry.kind) {
-                .directory => {
-                    const prev = try step.installDir(dest_path);
-                    all_cached = all_cached and prev == .existed;
-                },
-                .file => {
-                    const src_path = try install.source_dir.join(b.allocator, entry.path);
-                    const prev = try step.installFile(src_path, dest_path);
-                    all_cached = all_cached and prev == .fresh;
-                    entry_count += 1;
-                },
-                .sym_link => {
-                    var buf: [std.fs.max_path_bytes]u8 = undefined;
-                    const target = src_dir.readLink(entry.path, &buf) catch |err| {
-                        return step.fail("unable to read symlink '{f}/{s}': {s}", .{
-                            src_dir_path, entry.path, @errorName(err),
-                        });
-                    };
-                    // `and` は短絡するので、リンクの作成を先に済ませて
-                    // から結果を畳み込む。
-                    const cached = try installSymLink(step, target, dest_path);
-                    all_cached = all_cached and cached;
-                    entry_count += 1;
-                },
-                else => continue,
-            }
-        }
-
-        // tic は terminfo ソースの解析に失敗しても終了コード 0 を返し、
-        // 空の出力ディレクトリを残す。ここで気付かないと terminfo 抜きの
-        // 成果物が黙って出来上がるので、install するものが無ければ失敗
-        // させる。
-        if (entry_count == 0) {
-            return step.fail("terminfo database '{f}' is empty", .{src_dir_path});
-        }
-
-        step.result_cached = all_cached;
-    }
-
-    /// 既に同じ内容のリンクがあれば true (キャッシュ済み) を返す。リンク
-    /// 先を解決せずそのまま複製するのは、tic が出す
-    /// `.././x/xterm-ghostty` が相対リンクで、install prefix 内で自己完結
-    /// させたいため。
-    fn installSymLink(
-        step: *std.Build.Step,
-        target: []const u8,
-        dest_path: []const u8,
-    ) !bool {
-        const cwd = std.fs.cwd();
-
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
-        if (cwd.readLink(dest_path, &buf)) |existing| {
-            if (std.mem.eql(u8, existing, target)) return true;
-        } else |_| {}
-
-        _ = try step.installDir(std.fs.path.dirname(dest_path) orelse ".");
-        cwd.deleteFile(dest_path) catch |err| switch (err) {
-            error.FileNotFound => {},
-            else => return step.fail("unable to remove '{s}': {s}", .{
-                dest_path, @errorName(err),
-            }),
-        };
-        cwd.symLink(target, dest_path, .{}) catch |err| {
-            return step.fail("unable to create symlink '{s}' -> '{s}': {s}", .{
-                dest_path, target, @errorName(err),
-            });
-        };
-        return false;
-    }
-};

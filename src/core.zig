@@ -11,18 +11,16 @@ pub const Style = style.Style;
 pub const Span = style.Span;
 pub const StyleId = style.StyleId;
 
-/// history (scrollback) の上限を実質無制限にする値。ghostty の既定
+/// history (scrollback) の上限を無制限 (null) にする値。ghostty の既定
 /// 10_000 バイトでは 80 桁で 2 ページ程度しか持てず、1 回の feed や
 /// resize で積まれた行が buildUpdate に届く前に PageList.grow の枝刈り
 /// で捨てられて、確定テキストからまとまって欠落していた (M-14)。
-/// Terminal.Options.max_scrollback は 0 が「scrollback なし」の意味な
-/// ので、無制限は最大値で表す。
 ///
 /// buildUpdate は毎回 history を全部取り出して eraseDisplay(.scrollback)
 /// するため、ここを無制限にしても常駐量が増え続けることはない。ピークは
 /// 「1 回の feed / resize が積む行数」に比例するだけで、Emacs へ渡した
 /// 時点でページは解放される。
-const unlimited_scrollback: usize = std.math.maxInt(usize);
+const unlimited_scrollback: ?usize = null;
 
 /// スタイルテーブルの既定の上限。truecolor を細かく変える出力
 /// (グラデーション等) は理屈上いくらでも新しいスタイルを作れるので、
@@ -166,10 +164,10 @@ pub const Term = struct {
 
         self.* = .{
             .alloc = alloc,
-            .terminal = try .init(alloc, .{
+            .terminal = try .init(ghostty_vt.TinyIo.init.io(), alloc, .{
                 .rows = rows,
                 .cols = cols,
-                .max_scrollback = unlimited_scrollback,
+                .max_scrollback_bytes = unlimited_scrollback,
                 // Ghostty アプリ (termio/Termio.zig) と同じ既定。modes.set で
                 // 立てるだけだと RIS で無効に戻ってしまう。
                 .default_modes = .{ .grapheme_cluster = true },
@@ -177,15 +175,18 @@ pub const Term = struct {
             .stream = undefined,
             .styles = .init(alloc),
         };
-        self.stream = .initAlloc(alloc, .init(
-            &self.terminal,
-            alloc,
-            &self.responses,
-            &self.pending_title,
-            &self.pending_relay,
-            &self.color_scheme,
-            &self.colors,
-        ));
+        self.stream = .init(.{
+            .allocator = alloc,
+            .handler = .init(
+                &self.terminal,
+                alloc,
+                &self.responses,
+                &self.pending_title,
+                &self.pending_relay,
+                &self.color_scheme,
+                &self.colors,
+            ),
+        });
 
         return self;
     }
@@ -257,10 +258,15 @@ pub const Term = struct {
     fn feedWithoutDel(self: *Term, bytes: []const u8) !void {
         var rest = bytes;
         while (std.mem.indexOfScalar(u8, rest, 0x7f)) |i| {
-            if (i > 0) try self.stream.nextSlice(rest[0..i]);
+            if (i > 0) try self.nextSlice(rest[0..i]);
             rest = rest[i + 1 ..];
         }
-        try self.stream.nextSlice(rest);
+        try self.nextSlice(rest);
+    }
+
+    fn nextSlice(self: *Term, bytes: []const u8) !void {
+        self.stream.nextSlice(bytes);
+        if (self.stream.handler.takeFailure()) |err| return err;
     }
 
     /// 子が明暗の変化の通知 (mode 2031) を求めていて、明暗が変わったときは
@@ -277,7 +283,7 @@ pub const Term = struct {
     }
 
     pub fn resize(self: *Term, alloc: std.mem.Allocator, rows: u16, cols: u16) !Update {
-        try self.terminal.resize(self.alloc, cols, rows);
+        try self.terminal.resize(self.alloc, .{ .cols = cols, .rows = rows });
         // ghostty 本体も resize で mode 2026 を解除する (termio/Termio.zig)。
         // 保留したままだと、新しいサイズで描き直す機会がアプリ次第になる。
         self.terminal.modes.set(.synchronized_output, false);
@@ -439,8 +445,8 @@ pub const Term = struct {
             break :alt if (now_alt) .entered else .left;
         };
 
-        // alternate screen は max_scrollback=0 で初期化されるため
-        // (ghostty ScreenSet.getInit)、active が primary のときだけ見ればよい。
+        // alternate screen は max_scrollback_bytes=0 で初期化されるため
+        // (ghostty Terminal.switchScreen)、active が primary のときだけ見ればよい。
         var scrolled_off: std.ArrayList(Row) = .empty;
         errdefer {
             for (scrolled_off.items) |*r| r.deinit(alloc);
@@ -918,17 +924,14 @@ test "書記素クラスタ (?2027) は既定で有効で、RIS で既定に戻�
     try testing.expectEqualStrings("\x1b[?2027;1$y\x1b[?2027;2$y\x1b[?2027;1$y", update.responses);
 }
 
-test "ANSI 形式の DECRQM (CSI Ps $ p) には応答しない" {
+test "ANSI 形式の DECRQM (CSI Ps $ p) は ? なしの DECRPM で応答する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);
     defer t.deinit();
 
-    // ghostty 1.3.1 の stream.zig は CSI p を intermediates 2 個
-    // (?$) の場合しか DECRQM として dispatch しないため、IRM (4) の
-    // ANSI 形式はハンドラまで届かない。上流が直ったらこのテストが落ちる。
     var update = try t.feed(alloc, "\x1b[4h\x1b[4$p");
     defer update.deinit();
-    try testing.expectEqualStrings("", update.responses);
+    try testing.expectEqualStrings("\x1b[4;1$y", update.responses);
 }
 
 test "DECRQM は未知のモードに 0 (認識せず) で応答する" {
@@ -951,6 +954,57 @@ test "DECRQM は SGR pixel 座標 (?1016) に設定の前後とも 0 (未対応)
     try testing.expectEqualStrings("\x1b[?1016;0$y\x1b[?1016;0$y", update.responses);
 }
 
+test "DECRQM は可視性の報告 (?2033) と kitty の paste イベント (?5522) に 0 (未対応) で応答する" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[?2033h\x1b[?2033$p\x1b[?5522h\x1b[?5522$p");
+    defer update.deinit();
+    try testing.expectEqualStrings("\x1b[?2033;0$y\x1b[?5522;0$y", update.responses);
+}
+
+test "DECXCPR (CSI ? 6 n) と可視性の問い合わせ (CSI ? 998 n) には応答しない" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 5, 10);
+    defer t.deinit();
+
+    var update = try t.feed(alloc, "\x1b[?6n\x1b[?998n");
+    defer update.deinit();
+    try testing.expectEqualStrings("", update.responses);
+}
+
+test "APC の kitty graphics と glyph protocol は読み捨て、続く文字は描く" {
+    const alloc = testing.allocator;
+    const t = try Term.init(alloc, 1, 10);
+    defer t.deinit();
+
+    var update = try t.feed(
+        alloc,
+        "\x1b_Ga=t,t=d,f=24,i=1,s=1,v=2,c=10,r=1;////////\x1b\\" ++
+            "\x1b_25a1;r;cp=e0a0;AAAAAAAAAAAAAA==\x1b\\ab",
+    );
+    defer update.deinit();
+    try testing.expectEqualStrings("", update.responses);
+    try testing.expectEqualStrings("ab        ", update.dirty[0].text);
+    try testing.expectEqual(0, @sizeOf(@TypeOf(t.terminal.screens.active.kitty_images)));
+    try testing.expect(!t.terminal.glyph_glossary.contains(0xE0A0));
+}
+
+test "feed は端末状態の更新や応答の組み立てで確保に失敗したら OutOfMemory を返す" {
+    var failing = std.testing.FailingAllocator.init(testing.allocator, .{});
+    const t = try Term.init(failing.allocator(), 1, 10);
+    defer t.deinit();
+
+    // OSC 8 のハイパーリンクは Terminal 側、OSC 2 のタイトルは Handler
+    // 側で確保する。
+    for ([_][]const u8{ "\x1b]8;;http://a\x1b\\x", "\x1b]2;hi\x07" }) |bytes| {
+        failing.fail_index = failing.alloc_index;
+        try testing.expectError(error.OutOfMemory, t.feed(testing.allocator, bytes));
+        failing.fail_index = std.math.maxInt(usize);
+    }
+}
+
 test "XTVERSION は同梱する ghostty の版で Ghostty と同じ形で応答する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);
@@ -959,7 +1013,7 @@ test "XTVERSION は同梱する ghostty の版で Ghostty と同じ形で応答�
     var update = try t.feed(alloc, "\x1b[>q\x1b[>0q");
     defer update.deinit();
     try testing.expectEqualStrings(
-        "\x1bP>|ghostty 1.3.1\x1b\\\x1bP>|ghostty 1.3.1\x1b\\",
+        "\x1bP>|ghostty 1.4.0\x1b\\\x1bP>|ghostty 1.4.0\x1b\\",
         update.responses,
     );
 }
@@ -1575,7 +1629,7 @@ const SeqCollector = struct {
 
     fn take(self: *SeqCollector, update: *Update) !void {
         for (update.scrolled_off) |row| {
-            const trimmed = std.mem.trimRight(u8, row.text, " ");
+            const trimmed = std.mem.trimEnd(u8, row.text, " ");
             if (trimmed.len == 0) continue;
             const n = std.fmt.parseInt(usize, trimmed, 10) catch continue;
             try self.nums.append(self.alloc, n);
@@ -1614,7 +1668,7 @@ test "1 回の大きな feed でも先頭の行が落ちない" {
     var seq: SeqCollector = .{ .alloc = alloc };
     defer seq.deinit();
 
-    // 80 桁ではページ 1 枚が 576 行ぶんなので、既定の max_scrollback
+    // 80 桁ではページ 1 枚が 576 行ぶんなので、既定の max_scrollback_bytes
     // (10000 バイト) では 1200 行を 1 回で流すと先頭 576 行が捨てられる。
     try feedLines(t, alloc, 1, 1200, &seq);
     try seq.expectContiguousFromOne();

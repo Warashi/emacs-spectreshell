@@ -32,7 +32,7 @@ info:
   emacs -Q --batch docs/spectreshell.org --eval '(progn (require (quote ox-texinfo)) (org-texinfo-export-to-texinfo))'
 
 zon2nix:
-  zon2nix --15 --nix=build.zig.zon.nix build.zig.zon
+  zon2nix --17 --nix=build.zig.zon.nix build.zig.zon
   nixfmt build.zig.zon.nix
 
 # nix build の成果物 (so + el + terminfo + Info マニュアル + 許諾表示)

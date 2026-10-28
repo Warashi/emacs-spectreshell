@@ -37,14 +37,14 @@
       formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);
       devShells = forAllSystems (pkgs: {
         default = pkgs.callPackage ./nix/devShell.nix {
-          zig = pkgs.zig_0_15;
+          zig = pkgs.zig_0_17;
           zon2nix = zon2nix.packages.${pkgs.stdenv.hostPlatform.system}.zon2nix;
         };
       });
       packages = forAllSystems (pkgs: rec {
         default = emacs-spectreshell;
         emacs-spectreshell = pkgs.callPackage ./nix/emacs-spectreshell.nix {
-          zig = pkgs.zig_0_15;
+          zig = pkgs.zig_0_17;
         };
       });
       checks = forAllSystems (

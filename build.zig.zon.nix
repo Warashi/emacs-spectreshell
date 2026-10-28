@@ -4,8 +4,8 @@
   fetchgit,
   fetchurl,
   fetchzip,
-  runCommandLocal,
-  zig_0_15,
+  runCommand,
+  zig_0_17,
   zstd,
   name ? "zig-packages",
   # Accepted and ignored. Expressions from zon2nix before 0.8 built the
@@ -39,6 +39,12 @@ let
 
   # Every package, by the hash Zig knows it by, as Nix fetches it.
   packages = {
+    "aro-0.0.0-JSD1QtuBNwCASyBtNF3pqTl_W3oAJQGEVyFAtrBSE_Pa" = fetchZigGit {
+      name = "aro";
+      url = "https://codeberg.org/ziglang/arocc";
+      rev = "d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b";
+      hash = "sha256-dXITkdmanCYe4DpTzBDRtL0JdEeAyV4Qwlon5ndznHM=";
+    };
     "N-V-__8AANT61wB--nJ95Gj_ctmzAtcjloZ__hRqNw5lC1Kr" = fetchurl {
       url = "https://deps.files.ghostty.org/DearBindings_v0.17_ImGui_v1.92.5-docking.tar.gz";
       hash = "sha256-i/7FAOAJJvZ5hT7iPWfMOS08MYFzPKRwRzhlHT9wuqM=";
@@ -48,10 +54,10 @@ let
       url = "https://deps.files.ghostty.org/breakpad-b99f444ba5f6b98cac261cbb391d8766b34a5918.tar.gz";
       hash = "sha256-Pro7cOujfdYAc3REK6HDyi/tlyH+Sq5Yt/OjQ0lg4FE=";
     };
-    "N-V-__8AAIrfdwARSa-zMmxWwFuwpXf1T3asIN7s5jqi9c1v" = fetchzip {
+    "N-V-__8AAOgqbADacob-q2_DMQlmgaG4xKHRuW-6PJ4oJzMZ" = fetchzip {
       name = "fontconfig";
-      url = "https://deps.files.ghostty.org/fontconfig-2.14.2.tar.gz";
-      hash = "sha256-TmDanBHYpKnBO74wZOV6fYReO/hhjzBhYfO7mHJjVlw=";
+      url = "https://deps.files.ghostty.org/N-V-__8AAOgqbADacob-q2_DMQlmgaG4xKHRuW-6PJ4oJzMZ.tar.xz";
+      hash = "sha256-fAe2C2MdhrVb12K8LBaUPU/OyWpulHpMsnarkuLHWS4=";
     };
     "N-V-__8AAKLKpwC4H27Ps_0iL3bPkQb-z6ZVSrB-x_3EEkub" = fetchzip {
       name = "freetype";
@@ -63,20 +69,20 @@ let
       url = "https://deps.files.ghostty.org/gettext-0.24.tar.gz";
       hash = "sha256-FBb80LX5WtgB9O32HRhg9g8aQSyOmsFW8qonySSlaO4=";
     };
-    "ghostty-1.3.1-5UdBCwYm-gQeBa4bu1-sMooCQS4KVriv5wWSIJ_sI-Cb" = fetchzip {
+    "ghostty-1.4.0-5UdBC-qohwWqLS0BImOz05t4hVyTwbaKslyTPvKYvAtE" = fetchzip {
       name = "ghostty";
-      url = "https://github.com/ghostty-org/ghostty/archive/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28.tar.gz";
-      hash = "sha256-+ddMmUe9Jjkun4qqW8XFXVgwVZdVHsGWcQzndgIlBjQ=";
+      url = "https://github.com/ghostty-org/ghostty/archive/83fb95624b0439ee660c2679b43b38c8b63769cd.tar.gz";
+      hash = "sha256-ywmIjwix0P5TC8kD/zTmt82CNrLXMFETaWZj0NirpoM=";
     };
     "N-V-__8AABzkUgISeKGgXAzgtutgJsZc0-kkeqBBscJgMkvy" = fetchzip {
       name = "glslang";
       url = "https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz";
       hash = "sha256-B6jVCeoFjd2H6+7tIses+Kj8DgHS6E2dkVzQAIzDHEc=";
     };
-    "gobject-0.3.0-Skun7ANLnwDvEfIpVmohcppXgOvg_I6YOJFmPIsKfXk-" = fetchzip {
+    "gobject-0.3.2-Skun7LuIogBbEh-6WrLeEzMaRCnOMB3eOf__RaPYSMCZ" = fetchzip {
       name = "gobject";
-      url = "https://deps.files.ghostty.org/gobject-2025-11-08-23-1.tar.zst";
-      hash = "sha256-OxS9/XC5aMJj1KhOcFP1ZZN7PI4ADw4f7ocx6V64mOc=";
+      url = "https://deps.files.ghostty.org/gobject-2026-10-02-38-1.tar.zst";
+      hash = "sha256-6ZoDkMCK8ytMLp+Ha9b2jJXwIXDxixuZwy+lEzdMwak=";
       nativeBuildInputs = [ zstd ];
     };
     "N-V-__8AALiNBAA-_0gprYr92CjrMj1I5bqNu0TSJOnjFNSr" = fetchzip {
@@ -96,13 +102,13 @@ let
     };
     "N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI" = fetchzip {
       name = "imgui";
-      url = "https://github.com/ocornut/imgui/archive/refs/tags/v1.92.5-docking.tar.gz";
+      url = "https://deps.files.ghostty.org/N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI.tar.gz";
       hash = "sha256-/jVT7+874LCeSF/pdNVTFoSOfRisSqxCJnt5/SGCXPQ=";
     };
-    "N-V-__8AABVbAwBwDRyZONfx553tvMW8_A2OKUoLzPUSRiLF" = fetchzip {
+    "N-V-__8AAJ3vBQAq1fLMh5J8uWLkeDLS6WAdR2x5KcrmEyz6" = fetchzip {
       name = "iterm2_themes";
-      url = "https://deps.files.ghostty.org/ghostty-themes-release-20260216-151611-fc73ce3.tgz";
-      hash = "sha256-XWG1Y90nnkK2zA/okHg4i6Qqb17oQqB8CCcrNDnQhIQ=";
+      url = "https://deps.files.ghostty.org/ghostty-themes-release-20261019-151001-86a776d.tgz";
+      hash = "sha256-x/hcGF3iiHl9ZF3AWsASJS8biQdTL1vFHf1CvHU7KOE=";
     };
     "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x" = fetchurl {
       url = "https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz";
@@ -113,10 +119,10 @@ let
       url = "https://deps.files.ghostty.org/libpng-1220aa013f0c83da3fb64ea6d327f9173fa008d10e28bc9349eac3463457723b1c66.tar.gz";
       hash = "sha256-Mo1M8TuVaoSIb7Hy2u6zgjZ1DKgpmgNmGRP6dGg/aTs=";
     };
-    "libxev-0.0.0-86vtc4IcEwCqEYxEYoN_3KXmc6A9VLcm22aVImfvecYs" = fetchzip {
+    "libxev-0.0.0-86vtc8QQFACz0sVc7U-VDiDIgH-XfBuEY5JpABLjHNpn" = fetchzip {
       name = "libxev";
-      url = "https://deps.files.ghostty.org/libxev-34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz";
-      hash = "sha256-1B9oJExVyOWRj+Y9d9eHkOBTlOYuEkcwGBUKdlgRhkg=";
+      url = "https://deps.files.ghostty.org/libxev-819ffa180ca20e31c7eded74e2e1aceb1eab557f.tar.gz";
+      hash = "sha256-NQjVkejI44YRsXZoQeOfhb6Wb5+NMPXaA3VwmNaQM5c=";
     };
     "N-V-__8AAG3RoQEyRC2Vw7Qoro5SYBf62IHn3HjqtNVY6aWK" = fetchzip {
       name = "libxml2";
@@ -152,71 +158,71 @@ let
       url = "https://deps.files.ghostty.org/spirv_cross-1220fb3b5586e8be67bc3feb34cbe749cf42a60d628d2953632c2f8141302748c8da.tar.gz";
       hash = "sha256-7unyC2qPiuyaotRKCVC8HRT+3Kfj9qIxEKVyBlmpMds=";
     };
-    "N-V-__8AAHffAgDU0YQmynL8K35WzkcnMUmBVQHQ0jlcKpjH" = fetchzip {
-      name = "utfcpp";
-      url = "https://deps.files.ghostty.org/utfcpp-1220d4d18426ca72fc2b7e56ce47273149815501d0d2395c2a98c726b31ba931e641.tar.gz";
-      hash = "sha256-oKVFUjCvkHjqifZe98aUe68IBUaAZYWU2S2rxyAA9Cg=";
+    "translate_c-2.0.0-Q_BUWltOBwBYABF84EUL208pIFeUIwbBs29FmVBaafN5" = fetchzip {
+      name = "translate_c";
+      url = "https://deps.files.ghostty.org/translate_c-02ff0c523fb92a38939b04d0145c4a9602a74d56.tar.gz";
+      hash = "sha256-13iPyWXUhBQXhF7AKbzKwrVdIrDQrMBNL8OfMyFdde0=";
     };
-    "uucode-0.1.0-ZZjBPj96QADXyt5sqwBJUnhaDYs_qBeeKijZvlRa0eqM" = fetchZigGit {
+    "uucode-0.2.0-ZZjBPoGFVgCiflJNFc6Io8xzC67B6PA5bUkk4LT0kCxg" = fetchzip {
       name = "uucode";
-      url = "https://github.com/jacobsandlund/uucode";
-      rev = "5f05f8f83a75caea201f12cc8ea32a2d82ea9732";
-      hash = "sha256-sHPh+TQSdUGus/QTbj7KSJJkTuNTrK4VNmQDjS30Lf8=";
+      url = "https://deps.files.ghostty.org/uucode-ea62149739404a73c202b48a33bf6dd2af4bd9b0.tar.gz";
+      hash = "sha256-dKrRJhFThGSdv5k6pEF2adGZIKxUQssAO30XAtLOFQ8=";
     };
-    "uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9" = fetchzip {
-      name = "uucode";
-      url = "https://deps.files.ghostty.org/uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9.tar.gz";
-      hash = "sha256-jLrhrmCXQ1T+LQP1JTBBB3Jn+1hCZfODbC4SdlfNdKg=";
-    };
-    "vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS" = fetchzip {
+    "vaxis-0.6.0-BWNV_MafDAAEzkVUvrW9NFUqnnMUoeHqrs2mecnD6D7w" = fetchzip {
       name = "vaxis";
-      url = "https://deps.files.ghostty.org/vaxis-7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz";
-      hash = "sha256-zTyrZrIffM+GJIt973tKDeWHmOCwbn7KLDdQxSiK00Y=";
+      url = "https://deps.files.ghostty.org/vaxis-6fd944a27fb3d6f596e981076381a3131f2448b4.tar.gz";
+      hash = "sha256-jXHnvLMpER4Z1FmiN1NBnHlYJH6vQ2XB8CSyTPezYwY=";
     };
     "N-V-__8AAKrHGAAs2shYq8UkE6bGcR1QJtLTyOE_lcosMn6t" = fetchzip {
       name = "wayland";
       url = "https://deps.files.ghostty.org/wayland-9cb3d7aa9dc995ffafdbdef7ab86a949d0fb0e7d.tar.gz";
       hash = "sha256-swXtymMipE7vmifM5HmhXHhxfxBLE66NBAeTcywBiIg=";
     };
+    "N-V-__8AAFdWDwA0ktbNUi9pFBHCRN4weXIgIfCrVjfGxqgA" = fetchzip {
+      name = "wayland_protocols";
+      url = "https://deps.files.ghostty.org/N-V-__8AAFdWDwA0ktbNUi9pFBHCRN4weXIgIfCrVjfGxqgA.tar.gz";
+      hash = "sha256-vD7Nj9iLeS52Et3gcX1m9Zmp05A+VV3J3hkPcM11YEQ=";
+    };
     "N-V-__8AAKw-DAAaV8bOAAGqA0-oD7o-HNIlPFYKRXSPT03S" = fetchzip {
       name = "wayland_protocols";
       url = "https://deps.files.ghostty.org/wayland-protocols-258d8f88f2c8c25a830c6316f87d23ce1a0f12d9.tar.gz";
       hash = "sha256-93X0dLoCgQcJzjBCBS9YHb4fPVa3wC2lixXcxoLuBtM=";
     };
-    "N-V-__8AAAzZywE3s51XfsLbP9eyEw57ae9swYB9aGB6fCMs" = fetchzip {
+    "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI" = fetchzip {
       name = "wuffs";
-      url = "https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz";
-      hash = "sha256-XbupK4QYnPudUlO5tRWrQRncGHITzJL//Yk/E7WNxYk=";
+      url = "https://deps.files.ghostty.org/wuffs-7411f488fe2e2c205c3d3b3d28638b7356522930.tar.gz";
+      hash = "sha256-sOuwt3R6xG7oqXaA66QGUjFHrEjGnTXjwYs6rSRb+7I=";
     };
-    "z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ" = fetchzip {
+    "z2d-0.13.0-j5P_HgsRFABzZDH54gI35P0OSrg7HFyJwS2bXX5uBdU4" = fetchzip {
       name = "z2d";
-      url = "https://deps.files.ghostty.org/z2d-0.10.0-j5P_Hu-6FgBsZNgwphIqh17jDnj8_yPtD8yzjO6PpHRQ.tar.gz";
-      hash = "sha256-qD+XexnAjSanRAwr5ZIaPY1aQhNW5DFVJ4PYLwhIr2E=";
+      url = "https://deps.files.ghostty.org/z2d-40af3e84a4e15a9f31d126b3f281f23ce6a3dae5.tar.gz";
+      hash = "sha256-3fpPl8dvDhqJMa4xreFSKHSqaXSNdP+22kQUQobTOEY=";
     };
-    "zf-0.10.3-OIRy8RuJAACKA3Lohoumrt85nRbHwbpMcUaLES8vxDnh" = fetchzip {
+    "zf-0.11.0-OIRy8XCRAAB6FiMwIrtD6FqlagnFwpI6YyOu7bXeYH5J" = fetchzip {
       name = "zf";
-      url = "https://deps.files.ghostty.org/zf-3c52637b7e937c5ae61fd679717da3e276765b23.tar.gz";
-      hash = "sha256-BfAZILill3I/nBf1oWwol77N34Jcpm4hudC+XSeMgZY=";
+      url = "https://deps.files.ghostty.org/zf-87153bb86b75d21fbac897b738f316d449f5d0c9.tar.gz";
+      hash = "sha256-ekfl/d+RAdCAjYC75bbAn/srS7RlfE2cuUGZLYg1ACw=";
     };
-    "zig_js-0.0.0-rjCAV-6GAADxFug7rDmPH-uM_XcnJ5NmuAMJCAscMjhi" = fetchzip {
+    "zig_js-0.0.0-rjCAV7-GAADvMTBL7lPMuvDk7xgS9PCMIZWiOUXLZSlj" = fetchzip {
       name = "zig_js";
-      url = "https://deps.files.ghostty.org/zig_js-04db83c617da1956ac5adc1cb9ba1e434c1cb6fd.tar.gz";
-      hash = "sha256-r6GdXwrv+jTu0AkTlyN/FuO+N4X+l20gsbS59wrE7V4=";
+      url = "https://deps.files.ghostty.org/zig_js-3c23860e47fdcdc5af805efb7fd0bdac5fd3e9bc.tar.gz";
+      hash = "sha256-Q1643wb/MCX0QkPa9QEY9xeQbqpC2IOrjER0ZyL3mH0=";
     };
-    "zig_objc-0.0.0-Ir_Sp5gTAQCvxxR7oVIrPXxXwsfKgVP7_wqoOQrZjFeK" = fetchzip {
+    "zig_objc-0.0.0-Ir_Sp_4tAQDXtPi51nW_jD9LOEzBvU9lofwO9Pzi6IB4" = fetchzip {
       name = "zig_objc";
-      url = "https://deps.files.ghostty.org/zig_objc-f356ed02833f0f1b8e84d50bed9e807bf7cdc0ae.tar.gz";
-      hash = "sha256-jWFQ5BrV880qqa9KypltWuRLqNSh21rDxt6Jxp0EoMM=";
+      url = "https://deps.files.ghostty.org/zig_objc-3352c12a868f8787ab71bf2ca6eab9fcfb635c52.tar.gz";
+      hash = "sha256-aapY5DWn7QITFfMKc04bwH2a6sersRXvOhvkHE6t8LQ=";
     };
-    "wayland-0.5.0-dev-lQa1khrMAQDJDwYFKpdH3HizherB7sHo5dKMECfvxQHe" = fetchzip {
+    "wayland-0.7.0-dev-lQa1klz9AQB87V0pMKMdm8JvyOx32XR9FxcWnw9wh6XZ" = fetchzip {
       name = "zig_wayland";
-      url = "https://deps.files.ghostty.org/zig_wayland-1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea.tar.gz";
-      hash = "sha256-1wRkixysjdFMyrATxlXdukAc34MwfNj0B6ydYVn+UKw=";
+      url = "https://deps.files.ghostty.org/zig_wayland-27dda01712ddf3cb46ebd93380d88b01a7c828f8.tar.gz";
+      hash = "sha256-rtPmYAd+suOBW9bPmP42Tv1NGK+U5W0EDqpkakD8gtY=";
     };
-    "zigimg-0.1.0-8_eo2vHnEwCIVW34Q14Ec-xUlzIoVg86-7FU2ypPtxms" = fetchzip {
+    "zigimg-0.1.0-8_eo2ri_FwBqF5UYiggLz4IGjHJO_n9-B6gT9Ayqg8G4" = fetchZigGit {
       name = "zigimg";
-      url = "https://github.com/ivanstepanovftw/zigimg/archive/d7b7ab0ba0899643831ef042bd73289510b39906.tar.gz";
-      hash = "sha256-vkcTloGX+vRw7e6GYJLO9eocYaEOYjXYE0dT7jscZ4A=";
+      url = "https://github.com/sergot/zigimg";
+      rev = "c701c9f99779d7ddf594dcc6da8f858fd277d61f";
+      hash = "sha256-E98GBI7t+CtgEyJjdIVEomXN+3Kn7to2XtZKixsPILk=";
     };
     "N-V-__8AAB0eQwD-0MdOEBmz7intriBReIsIDNlukNVoNu6o" = fetchzip {
       name = "zlib";
@@ -225,16 +231,20 @@ let
     };
   };
 
-  # The packages whose own manifest declares a dependency by `.path`, which
-  # Zig 0.16.0 cannot build through `zig build --system`. Listed here too so
-  # that the two versions' expressions offer the same things; see the README.
+  # The packages whose own manifest declares a dependency by `.path`. Zig
+  # 0.17.0 cannot build these through `zig build --system`: it roots the system
+  # package directory at its absolute store path, so a `.path` dependency
+  # inside one of these resolves to an absolute path, which it refuses with
+  # "expected path relative to build root; found absolute path". A package
+  # that wants `--system` copies each of these into its build root and passes
+  # `--fork=` with a relative path; see the README.
   pathDependencyPackages = [
-    "ghostty-1.3.1-5UdBCwYm-gQeBa4bu1-sMooCQS4KVriv5wWSIJ_sI-Cb"
+    "ghostty-1.4.0-5UdBC-qohwWqLS0BImOz05t4hVyTwbaKslyTPvKYvAtE"
   ];
 in
 # One directory holding every package the way Zig unpacks it -- filtered by
-# its manifest's `.paths` and checked against its hash -- which is what Zig
-# wants in its global cache's `p/`, or from `zig build --system`.
+# its manifest's `.paths` and checked against its hash -- which is what
+# `zig build --system` wants.
 #
 # They have to be real directories holding real files, not links into each
 # package's own store path. Zig runs a dependency's build steps from inside
@@ -243,22 +253,39 @@ in
 # what the directory walk calls a file, so symlinked headers are skipped
 # without a word. Building them all in one derivation gives real files from
 # the start, without a second copy of everything.
-runCommandLocal name
+#
+# `runCommand` and not `runCommandLocal`: the result is worth taking from a
+# binary cache. Building it locally means first fetching a whole Zig, and
+# under 0.17 compiling its fetch build runner too, which is minutes on a small
+# CI machine; `runCommandLocal` forbids substituting it, so every job that
+# wants the packages builds them again even when a cache already holds them.
+runCommand name
   {
-    nativeBuildInputs = [ zig_0_15 ];
+    nativeBuildInputs = [ zig_0_17 ];
     passthru = { inherit pathDependencyPackages; };
   }
   ''
     mkdir "$out"
 
-    # Each package gets a cache of its own to unpack into, so that several
-    # can be unpacked at once. Zig 0.15 leaves one in `p/<hash>`.
+    # Zig 0.17 runs `zig fetch` in a build runner it compiles into the global
+    # cache the first time, which takes a minute or more. Every package shares
+    # one cache, then, and it is compiled once here before they are fetched
+    # several at a time, rather than by each of them at once.
+    export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/cache"
+    mkdir -p "$ZIG_GLOBAL_CACHE_DIR"
+    zig fetch --help >/dev/null
+
+    # Without `--save`, which wants a project to save into, Zig 0.17 unpacks
+    # nothing where it can be found: what it keeps is `p/<hash>.tar.gz` in
+    # the global cache, the package filtered by its manifest's `.paths` under
+    # a single directory named by its hash. Unpacking that gives the
+    # directory `zig build --system` wants.
     unpack() {
       local work="$TMPDIR/work/$1"
-      mkdir -p "$work/cache"
+      mkdir -p "$work"
 
       local hash
-      if ! hash="$(cd "$work" && zig fetch --global-cache-dir "$work/cache" "$2" 2>"$work/log")"; then
+      if ! hash="$(cd "$work" && zig fetch "$2" 2>"$work/log")"; then
         cat "$work/log" >&2
         return 1
       fi
@@ -266,16 +293,18 @@ runCommandLocal name
         echo "$2 is $hash to Zig, not $1" >&2
         return 1
       fi
-      mv "$work/cache/p/$1" "$out/$1"
-      chmod 755 "$out/$1"
+      tar -xzf "$ZIG_GLOBAL_CACHE_DIR/p/$1.tar.gz" -C "$out"
+      rm -f "$ZIG_GLOBAL_CACHE_DIR/p/$1.tar.gz"
       rm -rf "$work"
     }
     export -f unpack
 
     # Several at a time: `zig fetch` spends most of a package on one core.
+    # `-r` because otherwise xargs runs `unpack` once, with no arguments, when
+    # there are no packages at all, and the build fails.
     cores="''${NIX_BUILD_CORES:-0}"
     if [ "$cores" -le 0 ]; then cores="$(nproc)"; fi
-    xargs -P "$cores" -n 2 bash -c 'unpack "$@"' unpack <<'EOF'
+    xargs -r -P "$cores" -n 2 bash -c 'unpack "$@"' unpack <<'EOF'
     ${lib.concatStrings (lib.mapAttrsToList (hash: src: "${hash} ${src}\n") packages)}
     EOF
   ''

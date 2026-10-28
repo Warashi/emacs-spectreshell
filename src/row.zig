@@ -58,7 +58,7 @@ fn substituteC1(cp: u21) u21 {
 
 fn hyperlinkUri(pin: ghostty_vt.Pin, cell: *const ghostty_vt.Cell) ?[]const u8 {
     if (!cell.hyperlink) return null;
-    const page = &pin.node.data;
+    const page = pin.node.page();
     const id = page.lookupHyperlink(cell) orelse return null;
     const link = page.hyperlink_set.get(page.memory, id);
     return link.uri.slice(page.memory);
@@ -189,7 +189,7 @@ fn closeSpan(
 
 test "extractRow は空行から空文字列と空スパンを返す" {
     const alloc = std.testing.allocator;
-    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 5, .rows = 3 });
+    var t: ghostty_vt.Terminal = try .init(ghostty_vt.TinyIo.init.io(), alloc, .{ .cols = 5, .rows = 3 });
     defer t.deinit(alloc);
     var table: style.Table = .init(alloc);
     defer table.deinit();
@@ -204,7 +204,7 @@ test "extractRow は空行から空文字列と空スパンを返す" {
 
 test "extractRow は同じスタイルの区間に同じ ID を振る" {
     const alloc = std.testing.allocator;
-    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 8, .rows = 2 });
+    var t: ghostty_vt.Terminal = try .init(ghostty_vt.TinyIo.init.io(), alloc, .{ .cols = 8, .rows = 2 });
     defer t.deinit(alloc);
     var table: style.Table = .init(alloc);
     defer table.deinit();
@@ -230,7 +230,7 @@ test "extractRow は同じスタイルの区間に同じ ID を振る" {
 
 test "extractRow は C1 制御を幅 1 の代替文字に置き換える" {
     const alloc = std.testing.allocator;
-    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 3, .rows = 1 });
+    var t: ghostty_vt.Terminal = try .init(ghostty_vt.TinyIo.init.io(), alloc, .{ .cols = 3, .rows = 1 });
     defer t.deinit(alloc);
     var table: style.Table = .init(alloc);
     defer table.deinit();
@@ -248,7 +248,7 @@ test "extractRow は C1 制御を幅 1 の代替文字に置き換える" {
 /// テスト用: COLS 桁 1 行の端末に S を書いた行の cells を EXPECTED と比べる。
 fn expectCells(grapheme_cluster: bool, cols: u16, s: []const u8, expected: ?[]const u8) !void {
     const alloc = std.testing.allocator;
-    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = cols, .rows = 1 });
+    var t: ghostty_vt.Terminal = try .init(ghostty_vt.TinyIo.init.io(), alloc, .{ .cols = cols, .rows = 1 });
     defer t.deinit(alloc);
     var table: style.Table = .init(alloc);
     defer table.deinit();
@@ -293,7 +293,7 @@ test "extractRow の cells は mode 2027 無効の国旗を RI ごとの 2 セ�
 /// テスト用: COLS 桁の端末に S を書き、行 Y の cells の長さが text の文字数と一致するか確かめる。
 fn expectCellsCoverText(cols: u16, s: []const u8, y: u16) !void {
     const alloc = std.testing.allocator;
-    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = cols, .rows = 2 });
+    var t: ghostty_vt.Terminal = try .init(ghostty_vt.TinyIo.init.io(), alloc, .{ .cols = cols, .rows = 2 });
     defer t.deinit(alloc);
     var table: style.Table = .init(alloc);
     defer table.deinit();
@@ -321,7 +321,7 @@ test "extractRow の cells は FE0F を含む ZWJ 列でも text の文字数と
 
 test "cellToIndex は extractRow の文字数と一致する" {
     const alloc = std.testing.allocator;
-    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 10, .rows = 1 });
+    var t: ghostty_vt.Terminal = try .init(ghostty_vt.TinyIo.init.io(), alloc, .{ .cols = 10, .rows = 1 });
     defer t.deinit(alloc);
     var table: style.Table = .init(alloc);
     defer table.deinit();
@@ -338,7 +338,7 @@ test "cellToIndex は extractRow の文字数と一致する" {
 
 test "cellToIndex は結合文字ぶんも数える" {
     const alloc = std.testing.allocator;
-    var t: ghostty_vt.Terminal = try .init(alloc, .{ .cols = 10, .rows = 1 });
+    var t: ghostty_vt.Terminal = try .init(ghostty_vt.TinyIo.init.io(), alloc, .{ .cols = 10, .rows = 1 });
     defer t.deinit(alloc);
 
     // DECSET 2027 有効時、肌色修飾は 1 セルに 2 コードポイントで入る。

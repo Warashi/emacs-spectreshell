@@ -86,7 +86,7 @@ eshell 統合専用であり、 @code{M-x eat} のような汎用のスタンド
 @item
 Emacs 31 以降 (それより前のバージョンへの互換コードはない)
 @item
-ビルドには Zig 0.15.2 系と、terminfo データベース生成用の @code{tic}
+ビルドには Zig 0.17.0 系と、terminfo データベース生成用の @code{tic}
 (ncurses)、本マニュアルの Info 生成用の @code{makeinfo} (texinfo) が必要
 @item
 nix (flake) でのビルド・利用を推奨。手動での @code{zig build} にも対応
@@ -373,8 +373,10 @@ alternate screen (less・vim 等)、bracketed paste
 マウス (SGR mouse mode)
 @item
 XTVERSION ( @code{\e[>q} ) には Ghostty と同じく、同梱する ghostty の版で
-@code{ghostty 1.3.1} のように答える。マウスはセル座標でしか送れないので、
-DECRQM @code{?1016} (SGR pixel 座標) には未対応 (0) と答える
+@code{ghostty 1.4.0} のように答える。マウスはセル座標でしか送れないので、
+DECRQM @code{?1016} (SGR pixel 座標) には未対応 (0) と答える。報告や
+イベントを送らない @code{?2033} (可視性の報告) と @code{?5522} (kitty の paste
+イベント) にも 0 と答える
 @item
 書記素クラスタ (mode 2027) は Ghostty と同じく既定で有効で、RIS
 ( @code{\ec} ) 後も有効に戻る。国旗・ZWJ でつないだ絵文字・肌色修飾は

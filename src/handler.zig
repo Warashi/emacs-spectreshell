@@ -30,12 +30,12 @@ pub const Colors = struct {
     pub const Rgb16 = struct { r: u16, g: u16, b: u16 };
 };
 
-/// ReadonlyHandler は DSR/DA など応答が必要なアクションを無視する
-/// (ghostty のドキュメント通り、応答不要な再生専用ユースケース向けのため)。
-/// PTY への応答を組み立てる必要があるので、クエリ系アクションだけを
-/// 横取りし、それ以外は ReadonlyHandler に委譲する Handler を自前で書く。
+/// ghostty の TerminalStream.Handler は既定 (effects = .readonly) では
+/// DSR/DA など応答が必要なアクションを無視する。PTY への応答を組み立てる
+/// 必要があるので、クエリ系アクションだけを横取りし、それ以外は
+/// TerminalStream.Handler に委譲する Handler を自前で書く。
 pub const Handler = struct {
-    inner: ghostty_vt.ReadonlyHandler,
+    inner: ghostty_vt.TerminalStream.Handler,
     alloc: std.mem.Allocator,
     responses: *std.ArrayList(u8),
     title: *?[]u8,
@@ -45,6 +45,9 @@ pub const Handler = struct {
     /// DCS 系アクションは ghostty_vt.Stream が状態を持たず生バイトで
     /// 渡してくるので、組み立ては ghostty 本体と同じこのハンドラに任せる。
     dcs: ghostty_vt.dcs.Handler = .{},
+    /// Stream は vt の失敗を受け取らないので、最初の失敗をここに残し、
+    /// feed の側で取り出して返す。
+    failure: ?anyerror = null,
 
     pub fn init(
         terminal: *ghostty_vt.Terminal,
@@ -73,7 +76,23 @@ pub const Handler = struct {
         self.inner.deinit();
     }
 
+    /// 記録した最初の失敗を返し、記録を消す。
+    pub fn takeFailure(self: *Handler) ?anyerror {
+        defer self.failure = null;
+        return self.failure;
+    }
+
     pub fn vt(
+        self: *Handler,
+        comptime action: ghostty_vt.StreamAction.Tag,
+        value: ghostty_vt.StreamAction.Value(action),
+    ) void {
+        self.vtFallible(action, value) catch |err| {
+            if (self.failure == null) self.failure = err;
+        };
+    }
+
+    fn vtFallible(
         self: *Handler,
         comptime action: ghostty_vt.StreamAction.Tag,
         value: ghostty_vt.StreamAction.Value(action),
@@ -97,10 +116,25 @@ pub const Handler = struct {
             .progress_report => try self.progressReport(value),
             .bell => try self.relay.append(self.alloc, .bell),
             .color_operation => {
-                try self.inner.vt(action, value);
+                try self.innerVt(action, value);
                 try self.colorReports(&value.requests, value.terminator);
             },
-            else => try self.inner.vt(action, value),
+            else => try self.innerVt(action, value),
+        }
+    }
+
+    /// TerminalStream.Handler は失敗を返さず semantic_failure を立てる
+    /// だけで原因を残さない。失敗の大半は確保の失敗なので、OutOfMemory
+    /// として扱う。
+    fn innerVt(
+        self: *Handler,
+        comptime action: ghostty_vt.StreamAction.Tag,
+        value: ghostty_vt.StreamAction.Value(action),
+    ) !void {
+        self.inner.vt(action, value);
+        if (self.inner.semantic_failure) {
+            self.inner.semantic_failure = false;
+            return error.OutOfMemory;
         }
     }
 
@@ -132,6 +166,9 @@ pub const Handler = struct {
             .color_scheme => if (self.color_scheme.*) |scheme| {
                 try self.responses.appendSlice(self.alloc, scheme.report());
             },
+            // DECXCPR (CSI ? 6 n) と可視性 (CSI ? 998 n) には答えない。
+            // 可視性は Emacs 側のウィンドウの状態で、ここでは分からない。
+            .cursor_position_extended, .visibility => {},
         }
     }
 
@@ -165,7 +202,7 @@ pub const Handler = struct {
                     };
                     const rgb = color orelse continue;
                     break :report try std.fmt.bufPrint(&buf, "\x1b]{d};rgb:{x:0>4}/{x:0>4}/{x:0>4}{s}", .{
-                        @intFromEnum(dynamic), rgb.r, rgb.g, rgb.b, terminator.string(),
+                        @backingInt(dynamic), rgb.r, rgb.g, rgb.b, terminator.string(),
                     });
                 },
                 .special => continue,
@@ -194,10 +231,18 @@ pub const Handler = struct {
     /// と同じく 3 (permanently set) / 4 (permanently reset) は使わず、
     /// 既知モードは現在値の 1 / 2 のみで答える。
     fn requestMode(self: *Handler, mode: ghostty_vt.Mode) !void {
-        const tag: ghostty_vt.modes.ModeTag = @bitCast(@intFromEnum(mode));
+        const tag: ghostty_vt.modes.ModeTag = @bitCast(@backingInt(mode));
         // マウス報告はピクセル座標を出せず ?1016 でもセル座標を送るので、
-        // 子がピクセル座標を前提にしないよう未対応として答える。
-        if (mode == .mouse_format_sgr_pixels) return self.requestModeUnknown(tag.value, tag.ansi);
+        // 子がピクセル座標を前提にしないよう未対応として答える。可視性の
+        // 報告 (?2033) と kitty の paste イベント (?5522) も、立てられても
+        // 報告やイベントを送らないので同じく未対応として答える。
+        switch (mode) {
+            .mouse_format_sgr_pixels,
+            .report_visibility,
+            .kitty_paste_events,
+            => return self.requestModeUnknown(tag.value, tag.ansi),
+            else => {},
+        }
         const code: u8 = if (self.inner.terminal.modes.get(mode)) 1 else 2;
         var buf: [32]u8 = undefined;
         const resp = try std.fmt.bufPrint(&buf, "\x1b[{s}{d};{d}$y", .{
@@ -220,7 +265,7 @@ pub const Handler = struct {
     /// kitty keyboard protocol の問い合わせ (CSI ? u) には、アクティブ
     /// 画面のフラグスタック先頭を CSI ? flags u で返す
     /// (ghostty 本体 queryKittyKeyboard と同じ)。push/pop/set 自体は
-    /// ReadonlyHandler が Terminal に反映しているので、ここは読むだけ。
+    /// TerminalStream.Handler が Terminal に反映しているので、ここは読むだけ。
     fn queryKittyKeyboard(self: *Handler) !void {
         var buf: [16]u8 = undefined;
         const resp = try std.fmt.bufPrint(&buf, "\x1b[?{d}u", .{
@@ -283,7 +328,7 @@ pub const Handler = struct {
 
     fn progressReport(self: *Handler, report: ghostty_vt.osc.Command.ProgressReport) !void {
         try self.relay.append(self.alloc, .{ .progress = .{
-            .state = @intCast(@intFromEnum(report.state)),
+            .state = @intCast(@backingInt(report.state)),
             .value = report.progress,
         } });
     }

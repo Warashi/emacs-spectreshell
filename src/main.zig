@@ -13,7 +13,7 @@ pub const std_options: std.Options = .{ .logFn = discardLog };
 
 fn discardLog(
     comptime _: std.log.Level,
-    comptime _: @Type(.enum_literal),
+    comptime _: @EnumLiteral(),
     comptime _: []const u8,
     _: anytype,
 ) void {}

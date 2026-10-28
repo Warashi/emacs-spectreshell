@@ -19,7 +19,7 @@ eat-eshell-mode と同等の eshell 統合を、ghostty の端末エミュレー
 
 * 前提: ghostty-vt の調査結果
 
-依存は build.zig.zon でピン留めした ghostty (v1.3.1 系) を使う。
+依存は build.zig.zon でピン留めした ghostty (v1.4.0 系) を使う。
 
 - *libghostty-vt の C API* (~include/ghostty/vt.h~) は現時点で
   OSC/SGR パーサ・key/paste エンコードのみを公開しており、

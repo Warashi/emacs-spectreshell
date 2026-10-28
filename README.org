@@ -29,7 +29,7 @@ less/vim のような alternate screen アプリの出力を eshell バッファ
 * 必要環境
 
 - *Emacs 31 以降* (それより前のバージョンへの互換コードは書いていない)
-- ビルドには *Zig 0.15.2* 系と、terminfo データベース生成用の
+- ビルドには *Zig 0.17.0* 系と、terminfo データベース生成用の
   ~tic~ (ncurses)、Info マニュアル生成用の ~makeinfo~ (texinfo) が必要
 - *nix* (flake) でのビルド・利用を推奨。手動での ~zig build~ にも対応
 

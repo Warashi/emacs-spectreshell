@@ -7,9 +7,9 @@
 const std = @import("std");
 const ghostty_terminfo = @import("ghostty-terminfo");
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    var stdout_writer = std.Io.File.stdout().writer(init.io, &buffer);
     const writer = &stdout_writer.interface;
     try ghostty_terminfo.ghostty.encode(writer);
     try stdout_writer.end();
