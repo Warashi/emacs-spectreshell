@@ -100,6 +100,25 @@ stty -echo; printf '\e]52;c;?\a'; timeout 10 cat -v; stty echo
 - ~printf '\e]52;c;?\a\e]52;c;?\a'~ のように 2 つ続けると、確認が
   1 つずつ順に出ること。
 
+OSC 5522 の読み取りと paste イベントは次のコマンドで出せる。
+
+#+begin_src sh
+# text/plain の読み取り。名前 prog とパスワードを添える
+stty -echo; printf '\e]5522;type=read:name=cHJvZw==:pw=c2VjcmV0;dGV4dC9wbGFpbg==\a'; timeout 10 cat -v; stty echo
+# paste イベントを求めてから C-y を押す
+stty -echo; printf '\e[?5522h'; timeout 10 cat -v; printf '\e[?5522l'; stty echo
+#+end_src
+
+- 読み取りの確認に「"prog"」と ~a~ (always) が出ること。 ~a~ を選んだ後に
+  同じコマンドを実行すると、確認なしで OK ・ DATA ・ DONE が表示される
+  こと。
+- paste イベントを求めている間の ~C-y~ では、本文ではなく
+  =^[]5522;type=read:status=OK:pw=...= で始まるイベントが表示されること。
+  ~(setq spectreshell-clipboard-read 'deny)~ では本文がそのまま表示される
+  こと。
+- Claude Code ・ Copilot CLI で、コピー操作が kill-ring に入り、 ~C-y~ で
+  kill-ring の中身が貼れること。
+
 ** eshell コマンドライン編集での ddskk
 
 ddskk 有効化 (~skk-mode~) した状態で、プロセスを実行していない

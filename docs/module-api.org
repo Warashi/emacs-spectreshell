@@ -18,14 +18,17 @@ Phase 3 (spectreshell.el) 以降はこのドキュメントを参照する。
 | ~(spectreshell--encode-mouse TERM BUTTON ACTION ROW COL MODIFIERS)~ | TERM、BUTTON、ACTION、ROW/COL: 整数、MODIFIERS | unibyte 文字列 or nil |
 | ~(spectreshell--set-color-scheme TERM SCHEME)~ | TERM、SCHEME: ~dark~ / ~light~ | unibyte 文字列 or nil |
 | ~(spectreshell--set-colors TERM FG BG PALETTE)~ | TERM、FG/BG: 色 or nil、PALETTE: 色 or nil の 16 要素のリスト | nil (副作用のみ) |
-| ~(spectreshell--clipboard-reply TERM ID RESULT)~ | TERM、ID: 読み取りの ~:id~ 、RESULT: 文字列 or nil | unibyte 文字列 or nil |
+| ~(spectreshell--clipboard-reply TERM ID RESULT &optional REMEMBER)~ | TERM、ID: 要求の ~:id~ 、RESULT: 文字列 or nil | unibyte 文字列 or nil |
+| ~(spectreshell--set-clipboard-write TERM POLICY)~ | TERM、POLICY: ~allow~ / ~ask~ / ~deny~ | nil (副作用のみ) |
+| ~(spectreshell--encode-paste-event TERM)~ | TERM | unibyte 文字列 or nil |
 | ~(spectreshell--release TERM)~ | TERM | nil (副作用のみ) |
 
 TERM は ~spectreshell--create~ が返す user-ptr。他のモジュールの
 user-ptr や整数など、うちの Term でない値を渡すと
 ~wrong-type-argument~ が signal される。 ~spectreshell--release~ 済みの
 TERM に ~--feed~ / ~--resize~ / ~--flush~ / ~--encode-key~ / ~--encode-paste~ /
-~--encode-mouse~ / ~--set-color-scheme~ / ~--set-colors~ / ~--clipboard-reply~ を呼ぶと ~spectreshell-terminal-released~ (~error~ の
+~--encode-mouse~ / ~--set-color-scheme~ / ~--set-colors~ / ~--clipboard-reply~ /
+~--set-clipboard-write~ / ~--encode-paste-event~ を呼ぶと ~spectreshell-terminal-released~ (~error~ の
 子コンディション) が signal される。 ~--release~ 自体は二重に呼んでも
 安全 (2回目は no-op)。
 
@@ -90,13 +93,24 @@ ROWS/COLS に整数以外を渡すと Emacs 本体の型検査により
   順に処理する (design.org の判断 19)。各要素は ~:op~ で種類が分かる
   plist で、LOC は ~clipboard~ か ~primary~ (OSC 52 の ~p~ と ~s~ は
   ~primary~ 、それ以外は ~clipboard~)。
-  - ~(:op write :loc LOC :text TEXT)~: 書き込み。TEXT は base64 を解いた
-    バイト列 (unibyte。UTF-8 として解くのは受け手)。空の書き込みと
-    base64 として不正な書き込みは載せない。
-  - ~(:op read :id ID :loc clipboard)~: OSC 52 の読み取り (~?~)。feed では
-    答えず、ID で ~--clipboard-reply~ に答えを求める。種別によらず
-    clipboard を読む。答えていない読み取りが 64 件を超えると、それ以上は
-    載せずに空で答える。
+  - ~(:op write [:id ID] :loc LOC :text TEXT ...)~: OSC 52 / OSC 5522 の
+    書き込み。TEXT は base64 を解いたバイト列 (unibyte。UTF-8 として解く
+    のは受け手)。OSC 5522 では最初の text の表現 (~text/plain~ と上流の
+    ~isTextMime~ の別名)。空の書き込み、base64 として不正な書き込み、
+    ~--set-clipboard-write~ が ~deny~ の間の書き込みは載せない。ID は
+    パスワードを覚えられるときだけ付き、受け手は ~--clipboard-reply~ で
+    覚えるかを答える (RESULT は ~nil~ 、戻り値は常に ~nil~ )。
+  - ~(:op read :id ID :loc LOC ...)~: OSC 52 の読み取り (~?~) と OSC 5522
+    の読み取り。feed では答えず、ID で ~--clipboard-reply~ に答えを求める。
+    OSC 52 は種別によらず clipboard を読む。答えていない読み取りが 64 件を
+    超えると、それ以上は載せずに断る (OSC 52 は空、OSC 5522 は EBUSY)。
+  - どちらにも OSC 5522 の名前とパスワードから次のキーが付く。既定値なら
+    キーごと省く。 ~:name NAME~ は子が名乗った名前 (UTF-8 の unibyte
+    文字列)、 ~:granted t~ は覚えたパスワード (paste イベントの一度きりの
+    ものを含む) の要求で、確認しなくてよい。 ~:remember t~ はパスワードが
+    あり覚えられる。読み取りの ~:no-text t~ は text を求めていない (種類の
+    一覧だけ、または text 以外の MIME だけ) ことで、答えても中身を明かさ
+    ない。
 - *~:focus-event~*: 子がフォーカスの報告 (mode 1004) を有効にしている
   間は ~t~ 。無効ならキーごと省略される。
 - *~:alt-screen~*: このバッチで alternate screen への出入りが
@@ -213,15 +227,36 @@ unibyte 文字列。
 戻り値は、子が mode 2031 を有効にしていて SCHEME が前回と違うときだけ、
 子へ送る同じ形の通知 (unibyte 文字列)。それ以外は ~nil~ 。
 
-* ~--clipboard-reply~ の ID / RESULT
+* ~--clipboard-reply~ の ID / RESULT / REMEMBER
 
-~:clipboard~ の読み取りの ID に答える。RESULT は答える中身の文字列
+~:clipboard~ の要求の ID に答える。REMEMBER が non-nil なら要求の
+パスワードを覚え、以後同じパスワードの要求は ~:granted t~ で来る
+(読み取りを断ったときは覚えない)。RESULT は答える中身の文字列
 (UTF-8 として base64 にする。unibyte ならそのままのバイト列)、 ~nil~ なら
 断る。戻り値は子へ送るバイト列で、OSC 52 なら要求と同じ種別の文字
 (~s~ ・ ~p~ 以外は ~c~ ) と終端 (BEL / ST) の =\e]52;c;BASE64= 。断った
 ときは中身を空にする (上流の ghostty-vt と同じ。子を待たせない)。答えて
 いない ID (答え済み・未知) には ~nil~ を返す。1 つの ID に答えるのは 1 回
 だけ。
+
+OSC 5522 の読み取りには、上流の ~ReadSuccess~ と同じ形で、要求と同じ
+終端の OK ・ DATA (要求された text の別名ごとに、その名前で同じ中身。
+4096 バイトごと) ・ DONE を返す。種類の一覧 (~.~) を求められていれば、
+中身によらず ~text/plain~ を一覧に答える。断ったときは EPERM を返す。
+
+* ~--set-clipboard-write~ の POLICY
+
+子の書き込みを受けるか。 ~deny~ なら書き込みを ~:clipboard~ に載せず、
+OSC 5522 の書き込みに EPERM と答える。 ~allow~ と ~ask~ は同じ扱いで、
+OSC 5522 には feed の中で DONE と答える (確認は受け手が後で行う)。
+渡す前は ~allow~ 。
+
+* ~--encode-paste-event~
+
+子が kitty の paste イベント (mode 5522) を有効にしていれば、貼り付けの
+代わりに送るイベント (上流の ~PasteEvent~: 種類の一覧 ~text/plain~ と
+一度きりのパスワード) を返し、そのパスワードを一度だけ使える許可として
+覚える。続く読み取りは ~:granted t~ で来る。mode 5522 でなければ ~nil~ 。
 
 * ~--set-colors~ の FG / BG / PALETTE
 

@@ -1167,6 +1167,139 @@ UTF-8 の base64 にして答える。feed の中では答えない。"
         (should (null responses))))))
 
 ;; ---------------------------------------------------------------------
+;; kitty のクリップボード (OSC 5522) と paste イベント (mode 5522)
+;; ---------------------------------------------------------------------
+
+(defconst spectreshell-test--kitty-write
+  (concat "\e]5522;type=write:name=cHJvZw==:pw=c2VjcmV0\a"
+          "\e]5522;type=wdata:mime=dGV4dC9wbGFpbg==;aGk=\a"
+          "\e]5522;type=wdata\a")
+  "名前 prog とパスワードの付いた、text/plain の hi の書き込み。")
+
+(defconst spectreshell-test--kitty-read
+  "\e]5522;type=read:name=cHJvZw==:pw=c2VjcmV0;dGV4dC9wbGFpbg==\a"
+  "名前 prog とパスワードの付いた、text/plain の読み取り。")
+
+(ert-deftest spectreshell-test-kitty-write-policy-reaches-module-before-feed ()
+  "`spectreshell-clipboard-write' は feed の前にモジュールへ渡り、deny なら
+OSC 5522 の書き込みに EPERM で答える。ask と allow は先に DONE で答える。"
+  (pcase-dolist (`(,policy . ,status) '((deny . "EPERM") (ask . "DONE") (allow . "DONE")))
+    (spectreshell-test--with-terminal (term 1 10 responses)
+      (spectreshell-test--with-clipboard (_cuts _asks 'deny)
+        (let ((spectreshell-clipboard-write policy))
+          (spectreshell-feed term spectreshell-test--kitty-write)
+          (should (equal responses
+                         (list (format "\e]5522;type=write:status=%s\a" status))))
+          (spectreshell--clipboard-run)
+          (should (equal kill-ring (and (eq policy 'allow) '("hi")))))))))
+
+(ert-deftest spectreshell-test-kitty-read-answers-kill-ring ()
+  "OSC 5522 の読み取りには、kill-ring の先頭で OK・DATA・DONE を答える。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts _asks 'allow)
+      (let ((spectreshell-clipboard-read 'allow))
+        (kill-new "hi")
+        (spectreshell-feed term "\e]5522;type=read:id=7;dGV4dC9wbGFpbg==\a")
+        (spectreshell--clipboard-run)
+        (should (equal responses
+                       (list (concat "\e]5522;type=read:status=OK:id=7\a"
+                                     "\e]5522;type=read:status=DATA:id=7:mime=dGV4dC9wbGFpbg==;aGk=\a"
+                                     "\e]5522;type=read:status=DONE:id=7\a"))))))))
+
+(ert-deftest spectreshell-test-kitty-listing-is-answered-without-asking ()
+  "一覧だけの要求には、ask でも確認せずに text/plain を答える。deny なら EPERM。"
+  (pcase-dolist (`(,policy . ,reply)
+                 `((ask . ,(concat "\e]5522;type=read:status=OK\a"
+                                   "\e]5522;type=read:status=DATA:mime=Lg==;dGV4dC9wbGFpbgo=\a"
+                                   "\e]5522;type=read:status=DONE\a"))
+                   (deny . "\e]5522;type=read:status=EPERM\a")))
+    (spectreshell-test--with-terminal (term 1 10 responses)
+      (spectreshell-test--with-clipboard (_cuts asks 'deny)
+        (let ((spectreshell-clipboard-read policy))
+          (spectreshell-feed term "\e]5522;type=read;Lg==\a")
+          (spectreshell--clipboard-run)
+          (should (null asks))
+          (should (equal responses (list reply))))))))
+
+(ert-deftest spectreshell-test-kitty-always-skips-later-asks ()
+  "確認で always を選ぶと、同じパスワードの以後の読み取り・書き込みは
+確認しない。always は覚えられる要求でだけ選べる。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (let ((remembers nil))
+      (spectreshell-test--with-clipboard (_cuts asks 'always)
+        (let ((spectreshell-clipboard-read 'ask)
+              (spectreshell-clipboard-write 'ask)
+              (spectreshell--clipboard-ask-function
+               (lambda (_obj request prompt)
+                 (push (plist-get request :remember) remembers)
+                 (setq asks (append asks (list prompt)))
+                 'always)))
+          (kill-new "x")
+          (spectreshell-feed term (concat spectreshell-test--kitty-read
+                                          spectreshell-test--kitty-write))
+          (spectreshell--clipboard-run)
+          (should (= (length asks) 2))
+          (should (equal remembers '(t t)))
+          (setq responses nil)
+          (spectreshell-feed term (concat spectreshell-test--kitty-read
+                                          spectreshell-test--kitty-write))
+          (spectreshell--clipboard-run)
+          (should (= (length asks) 2))
+          (should (equal (car kill-ring) "hi"))
+          ;; 書き込みの DONE は feed の中で、読み取りの答えは後で送る。
+          (should (string-match-p "status=DATA:mime=dGV4dC9wbGFpbg==;aGk=" (car responses))))))))
+
+(ert-deftest spectreshell-test-kitty-ask-shows-name-without-control-characters ()
+  "確認には子が名乗った名前を、制御文字を除いて出す。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (spectreshell-test--with-clipboard (_cuts asks 'deny)
+      (let ((spectreshell-clipboard-read 'ask))
+        ;; 名前は "p\e[31mx\n"。
+        (spectreshell-feed term "\e]5522;type=read:name=cBtbMzFteAo=;dGV4dC9wbGFpbg==\a")
+        (spectreshell--clipboard-run)
+        (should (= (length asks) 1))
+        (should (string-match-p "p\\[31mx" (car asks)))
+        (should-not (string-match-p "[\e\n]" (car asks)))))))
+
+(defun spectreshell-test--paste-event-pw (event)
+  "EVENT (paste イベント) の base64 のパスワードを返す。"
+  (and (string-match ":pw=\\([A-Za-z0-9+/=]+\\)" event)
+       (match-string 1 event)))
+
+(ert-deftest spectreshell-test-yank-sends-paste-event-and-serves-follow-up-read ()
+  "子が mode 5522 を立てている間の `spectreshell-yank' は本文の代わりに
+paste イベントを送り、続く読み取りには ask でも確認せずに答える。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts asks 'deny)
+      (let ((spectreshell-clipboard-read 'ask)
+            (spectreshell--current term))
+        (kill-new "hi")
+        (spectreshell-feed term "\e[?5522h")
+        (spectreshell-yank)
+        (let* ((event (car responses))
+               (pw (spectreshell-test--paste-event-pw event)))
+          (should (string-prefix-p "\e]5522;type=read:status=OK:pw=" event))
+          (should-not (string-search "aGk=" event))
+          (setq responses nil)
+          (spectreshell-feed
+           term (format "\e]5522;type=read:name=UGFzdGUgZXZlbnQ=:pw=%s;dGV4dC9wbGFpbg==\a" pw))
+          (spectreshell--clipboard-run)
+          (should (null asks))
+          (should (string-match-p "status=DATA:mime=dGV4dC9wbGFpbg==;aGk=" (car responses))))))))
+
+(ert-deftest spectreshell-test-yank-sends-text-when-reads-are-denied ()
+  "`spectreshell-clipboard-read' が deny なら、mode 5522 でも本文をそのまま
+送る。イベントにすると続く読み取りが拒否されて貼り付けが消える。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts _asks 'deny)
+      (let ((spectreshell-clipboard-read 'deny)
+            (spectreshell--current term))
+        (kill-new "hi")
+        (spectreshell-feed term "\e[?5522h")
+        (spectreshell-yank)
+        (should (equal responses '("hi")))))))
+
+;; ---------------------------------------------------------------------
 ;; デスクトップ通知の中継 (L-41)
 ;; ---------------------------------------------------------------------
 

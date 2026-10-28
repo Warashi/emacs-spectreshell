@@ -43,7 +43,9 @@
 (declare-function spectreshell--encode-key "libspectreshell" (term key modifiers))
 (declare-function spectreshell--encode-paste "libspectreshell" (term text))
 (declare-function spectreshell--encode-mouse "libspectreshell" (term button action row col modifiers))
-(declare-function spectreshell--clipboard-reply "libspectreshell" (term id result))
+(declare-function spectreshell--clipboard-reply "libspectreshell" (term id result &optional remember))
+(declare-function spectreshell--set-clipboard-write "libspectreshell" (term policy))
+(declare-function spectreshell--encode-paste-event "libspectreshell" (term))
 
 ;; ---------------------------------------------------------------------
 ;; Module loading
@@ -625,7 +627,7 @@ point, so the terminals to clear are still found."
       (spectreshell--relay owner clear))))
 
 ;; ---------------------------------------------------------------------
-;; Clipboard (OSC 52)
+;; Clipboard (OSC 52 / OSC 5522)
 ;; ---------------------------------------------------------------------
 
 (defcustom spectreshell-clipboard-read 'ask
@@ -723,11 +725,15 @@ hidden buffer leaves the user guessing which program asks."
 (defun spectreshell--clipboard-decide (obj policy request prompt)
   "Return `allow', `deny' or `always' for OBJ's clipboard REQUEST.
 POLICY is `allow', `ask' or `deny'; `ask' asks with PROMPT unless
-REQUEST is already granted.  \\[keyboard-quit] at the prompt, and any
-error, count as `deny'."
+REQUEST is already granted (a password remembered with `always', or a
+paste event's) or asks for nothing but the list of types.
+\\[keyboard-quit] at the prompt, and any error, count as `deny'."
   (cond
    ((eq policy 'deny) 'deny)
-   ((or (eq policy 'allow) (plist-get request :granted)) 'allow)
+   ((or (eq policy 'allow)
+        (plist-get request :granted)
+        (plist-get request :no-text))
+    'allow)
    ((not (spectreshell--clipboard-can-ask-p (spectreshell-buffer obj))) 'deny)
    (t
     ;; Not `with-local-quit': it sets `quit-flag' again on the way out,
@@ -751,19 +757,39 @@ error, count as `deny'."
     (?a 'always)
     (_ 'deny)))
 
+(defun spectreshell--clipboard-program (obj request)
+  "Describe who sent OBJ's REQUEST, for a prompt.
+The name the child gave, if any, has its control characters removed so
+that it cannot redraw the prompt."
+  (let ((name (replace-regexp-in-string
+               "[[:cntrl:]\177\u0080-\u009f]" ""
+               (decode-coding-string (or (plist-get request :name) "") 'utf-8))))
+    (format "%s in %s"
+            (if (string-empty-p name) "the program" (format "\"%s\"" name))
+            (buffer-name (spectreshell-buffer obj)))))
+
 (defun spectreshell--clipboard-handle-write (obj request)
-  "Write the text of OBJ's write REQUEST, if `spectreshell-clipboard-write' allows."
-  (let ((text (decode-coding-string (plist-get request :text) 'utf-8))
-        (primary (eq (plist-get request :loc) 'primary)))
-    (when (and (> (length text) 0)
-               (memq (spectreshell--clipboard-decide
-                      obj spectreshell-clipboard-write request
-                      (format "Let the program in %s copy %d characters to the %s? "
-                              (buffer-name (spectreshell-buffer obj))
-                              (length text)
-                              (if primary "primary selection" "clipboard")))
-                     '(allow always)))
-      (spectreshell--clipboard-write primary text))))
+  "Write the text of OBJ's write REQUEST, if `spectreshell-clipboard-write' allows.
+A REQUEST with an `:id' is answered whether to remember its password.
+An OSC 5522 write was already told it succeeded (the module answers
+during the feed), so a write denied here is dropped silently."
+  (let* ((text (decode-coding-string (plist-get request :text) 'utf-8))
+         (primary (eq (plist-get request :loc) 'primary))
+         (decision
+          (if (> (length text) 0)
+              (spectreshell--clipboard-decide
+               obj spectreshell-clipboard-write request
+               (format "Let %s copy %d characters to the %s? "
+                       (spectreshell--clipboard-program obj request)
+                       (length text)
+                       (if primary "primary selection" "clipboard")))
+            'deny)))
+    (when (memq decision '(allow always))
+      (spectreshell--clipboard-write primary text))
+    (when-let* ((id (plist-get request :id)))
+      (when (spectreshell--clipboard-live-p obj)
+        (spectreshell--clipboard-reply (spectreshell-term obj) id nil
+                                       (eq decision 'always))))))
 
 (defun spectreshell--clipboard-handle-read (obj request)
   "Answer OBJ's read REQUEST as `spectreshell-clipboard-read' allows.
@@ -771,21 +797,28 @@ Anything going wrong before the answer denies the read rather than
 leaving the child waiting.  A terminal finalized while asking gets no
 answer."
   (let* ((primary (eq (plist-get request :loc) 'primary))
+         (decision 'deny)
          (result
           (condition-case err
-              (and (memq (spectreshell--clipboard-decide
-                          obj spectreshell-clipboard-read request
-                          (format "Let the program in %s read the %s? "
-                                  (buffer-name (spectreshell-buffer obj))
-                                  (if primary "primary selection" "clipboard")))
-                         '(allow always))
-                   (encode-coding-string (spectreshell--clipboard-read primary)
-                                         'utf-8-unix))
+              (progn
+                (setq decision
+                      (spectreshell--clipboard-decide
+                       obj spectreshell-clipboard-read request
+                       (format "Let %s read the %s? "
+                               (spectreshell--clipboard-program obj request)
+                               (if primary "primary selection" "clipboard"))))
+                (cond
+                 ((not (memq decision '(allow always))) nil)
+                 ;; Only the list of types: nothing to read.
+                 ((plist-get request :no-text) "")
+                 (t (encode-coding-string (spectreshell--clipboard-read primary)
+                                          'utf-8-unix))))
             (error (message "Spectreshell: clipboard read failed: %S" err)
                    nil))))
     (when (spectreshell--clipboard-live-p obj)
       (when-let* ((bytes (spectreshell--clipboard-reply
-                          (spectreshell-term obj) (plist-get request :id) result)))
+                          (spectreshell-term obj) (plist-get request :id) result
+                          (and result (eq decision 'always)))))
         (funcall (spectreshell-send-fn obj) bytes)))))
 
 (defun spectreshell--clipboard-read (primary)
@@ -816,6 +849,25 @@ seconds."
       (when too-long
         (message "Spectreshell: copied %d characters to the kill ring only; too long for the terminal's clipboard (`xterm-max-cut-length')"
                  (length text)))))))
+
+(defun spectreshell--track-clipboard-write (obj)
+  "Tell OBJ's module `spectreshell-clipboard-write'.
+Member of `spectreshell--before-feed-functions'.  The module answers an
+OSC 5522 write during the feed, before any prompt can be shown: `deny'
+with EPERM, the others with success."
+  (spectreshell--set-clipboard-write
+   (spectreshell-term obj)
+   (if (memq spectreshell-clipboard-write '(allow ask)) spectreshell-clipboard-write 'deny)))
+
+(add-hook 'spectreshell--before-feed-functions #'spectreshell--track-clipboard-write)
+
+(defun spectreshell--clipboard-paste-event (obj)
+  "Return OBJ's kitty paste event for a yank, or nil to paste the text.
+An event only while the child has asked for them (mode 5522), and not
+when `spectreshell-clipboard-read' is `deny': the child reads the text
+after the event, and a denied read would lose the paste."
+  (unless (eq spectreshell-clipboard-read 'deny)
+    (spectreshell--encode-paste-event (spectreshell-term obj))))
 
 (defun spectreshell--clipboard-too-long-p (text)
   "Return non-nil if xterm.el would refuse to send TEXT to the outer terminal.
@@ -2015,9 +2067,15 @@ other input commands."
 (defun spectreshell-yank ()
   "Send the front of the kill ring to `spectreshell--current' as a paste.
 Bound to `C-y' in `spectreshell-semi-char-mode-map' instead of ordinary
-`yank'."
+`yank'.  While the child asks for kitty paste events (mode 5522), it is
+sent an event instead and reads the text itself
+\(`spectreshell--clipboard-paste-event')."
   (interactive)
-  (spectreshell--send-paste (current-kill 0)))
+  (let ((text (current-kill 0)))
+    (if-let* ((obj spectreshell--current)
+              (event (spectreshell--clipboard-paste-event obj)))
+        (funcall (spectreshell-send-fn obj) event)
+      (spectreshell--send-paste text))))
 
 (defun spectreshell-xterm-paste (event)
   "Send EVENT's pasted text to `spectreshell--current' as one paste.

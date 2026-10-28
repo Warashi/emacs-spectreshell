@@ -131,7 +131,10 @@ Emacs が 256 色で描くとき ( ~COLORTERM~ の無い ~TERM=xterm-256color~
 ** クリップボード
 
 子 (Claude Code ・ Copilot CLI など) がクリップボードを読み書きする
-OSC 52 は、外側の端末へは中継せず Emacs のクリップボードで受ける。
+OSC 52 と OSC 5522 (kitty のクリップボード) は、外側の端末へは中継せず
+Emacs のクリップボードで受ける。扱うのは text だけで、 ~text/plain~ と
+その別名 ( ~text/plain;charset=utf-8~ ・ ~UTF8_STRING~ ・ ~TEXT~ ・
+~STRING~ ) を同じものとして扱う。
 
 - ~spectreshell-clipboard-write~ :: 子の書き込みを許すか。 ~allow~
   (既定) は確認せずに書き、 ~ask~ はミニバッファで確認してから書き、
@@ -140,13 +143,35 @@ OSC 52 は、外側の端末へは中継せず Emacs のクリップボードで
   ~ask~ でも確認せずに捨てる
 - ~spectreshell-clipboard-read~ :: 子の読み取りに答えるか。 ~ask~ (既定)
   は確認してから答え、 ~allow~ は確認せずに答え、 ~deny~ は空で答える。
-  確認できないときと ~C-g~ は、 ~ask~ でも拒否になる
+  確認できないときと ~C-g~ は、 ~ask~ でも拒否になる。OSC 5522 で
+  種類の一覧だけを求める読み取りには、 ~ask~ でも確認せずに
+  ~text/plain~ と答える (中身を明かさないので)
+
+OSC 5522 で子が名前とパスワードを添えたときは、確認に名前 (制御文字は
+除く) を出し、 ~y~ ・ ~n~ に加えて ~a~ (以後も許す) を選べる。 ~a~ を
+選ぶと、同じパスワードの以後の要求は確認しない。覚えたパスワードは子の
+RIS ( ~\ec~ ) で消える。
+
+OSC 5522 の書き込みは、子が出力した時点で成否を答える。 ~deny~ なら
+EPERM と答えるが、 ~ask~ でも先に成功 (DONE) と答えるので、後の確認で
+断った書き込みは、子には成功と見えたまま捨てられる。text の無い書き込み
+(画像だけなど) には ENOSYS と答える。
+
+子が kitty の paste イベント (mode 5522) を求めている間の ~C-y~
+( ~spectreshell-yank~ ) は、本文の代わりに paste イベント (種類の一覧
+~text/plain~ と一度きりのパスワード) を送り、子はそれを使って kill-ring
+を読む。この読み取りには ~ask~ でも確認せずに答える。
+~spectreshell-clipboard-read~ が ~deny~ のときは、読み取りが断られて
+貼り付けが消えるので、イベントにせず本文をそのまま送る。端末側の
+貼り付け ( ~xterm-paste~ ) と ~eshell-send-input~ で送るものは、mode
+5522 でも本文のまま送る。DECRQM ~?5522~ には今の値 (1 / 2) で答える
 
 読み書きは、子が出力した直後ではなく、出力を描いた後に来た順に処理し、
 確認は一度に 1 つだけ出す。読み取りには、 ~current-kill~ で見た kill-ring
 の先頭 (ほかのアプリケーションが新しく選択したものがあればそれ) で、
 Ghostty と同じく要求の種別によらず clipboard を読んで答える。答えるまでに
 ジョブが終わったら答えない。
+
 clipboard への書き込みは ~kill-new~ で kill-ring に入るので、 ~C-y~ で
 貼れる。外側への反映は ~interprogram-cut-function~ に任せるので、GUI
 フレームではシステムのクリップボードに入り、tty フレームでは xterm.el が
@@ -304,8 +329,7 @@ less や vim などの alternate screen アプリの画面は確定化されず�
 - マウス (SGR mouse mode)
 - XTVERSION ( ~\e[>q~ ) には Ghostty と同じく、同梱する ghostty の版で
   ~ghostty 1.4.0~ のように答える。マウスはセル座標でしか送れないので、
-  DECRQM ~?1016~ (SGR pixel 座標) には未対応 (0) と答える。イベントを
-  送らない ~?5522~ (kitty の paste イベント) にも 0 と答える
+  DECRQM ~?1016~ (SGR pixel 座標) には未対応 (0) と答える
 - カーソル位置の問い合わせ ( ~\e[6n~ ) には ~\e[行;桁R~ で、DECXCPR
   ( ~\e[?6n~ ) には Ghostty と同じくページ番号 1 を添えた
   ~\e[?行;桁;1R~ で答える。DECOM ではスクロール領域からの相対位置

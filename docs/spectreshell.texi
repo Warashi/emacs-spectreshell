@@ -206,7 +206,10 @@ Emacs が 256 色で描くとき ( @code{COLORTERM} の無い @code{TERM=xterm-2
 @unnumberedsec クリップボード
 
 子 (Claude Code ・ Copilot CLI など) がクリップボードを読み書きする
-OSC 52 は、外側の端末へは中継せず Emacs のクリップボードで受ける。
+OSC 52 と OSC 5522 (kitty のクリップボード) は、外側の端末へは中継せず
+Emacs のクリップボードで受ける。扱うのは text だけで、 @code{text/plain} と
+その別名 ( @code{text/plain;charset=utf-8} ・ @code{UTF8_STRING} ・ @code{TEXT} ・
+@code{STRING} ) を同じものとして扱う。
 
 @table @asis
 @item @code{spectreshell-clipboard-write}
@@ -218,14 +221,36 @@ OSC 52 は、外側の端末へは中継せず Emacs のクリップボードで
 @item @code{spectreshell-clipboard-read}
 子の読み取りに答えるか。 @code{ask} (既定)
 は確認してから答え、 @code{allow} は確認せずに答え、 @code{deny} は空で答える。
-確認できないときと @code{C-g} は、 @code{ask} でも拒否になる
+確認できないときと @code{C-g} は、 @code{ask} でも拒否になる。OSC 5522 で
+種類の一覧だけを求める読み取りには、 @code{ask} でも確認せずに
+@code{text/plain} と答える (中身を明かさないので)
 @end table
+
+OSC 5522 で子が名前とパスワードを添えたときは、確認に名前 (制御文字は
+除く) を出し、 @code{y} ・ @code{n} に加えて @code{a} (以後も許す) を選べる。 @code{a} を
+選ぶと、同じパスワードの以後の要求は確認しない。覚えたパスワードは子の
+RIS ( @code{\ec} ) で消える。
+
+OSC 5522 の書き込みは、子が出力した時点で成否を答える。 @code{deny} なら
+EPERM と答えるが、 @code{ask} でも先に成功 (DONE) と答えるので、後の確認で
+断った書き込みは、子には成功と見えたまま捨てられる。text の無い書き込み
+(画像だけなど) には ENOSYS と答える。
+
+子が kitty の paste イベント (mode 5522) を求めている間の @code{C-y}
+( @code{spectreshell-yank} ) は、本文の代わりに paste イベント (種類の一覧
+@code{text/plain} と一度きりのパスワード) を送り、子はそれを使って kill-ring
+を読む。この読み取りには @code{ask} でも確認せずに答える。
+@code{spectreshell-clipboard-read} が @code{deny} のときは、読み取りが断られて
+貼り付けが消えるので、イベントにせず本文をそのまま送る。端末側の
+貼り付け ( @code{xterm-paste} ) と @code{eshell-send-input} で送るものは、mode
+5522 でも本文のまま送る。DECRQM @code{?5522} には今の値 (1 / 2) で答える
 
 読み書きは、子が出力した直後ではなく、出力を描いた後に来た順に処理し、
 確認は一度に 1 つだけ出す。読み取りには、 @code{current-kill} で見た kill-ring
 の先頭 (ほかのアプリケーションが新しく選択したものがあればそれ) で、
 Ghostty と同じく要求の種別によらず clipboard を読んで答える。答えるまでに
 ジョブが終わったら答えない。
+
 clipboard への書き込みは @code{kill-new} で kill-ring に入るので、 @code{C-y} で
 貼れる。外側への反映は @code{interprogram-cut-function} に任せるので、GUI
 フレームではシステムのクリップボードに入り、tty フレームでは xterm.el が
@@ -421,8 +446,7 @@ alternate screen (less・vim 等)、bracketed paste
 @item
 XTVERSION ( @code{\e[>q} ) には Ghostty と同じく、同梱する ghostty の版で
 @code{ghostty 1.4.0} のように答える。マウスはセル座標でしか送れないので、
-DECRQM @code{?1016} (SGR pixel 座標) には未対応 (0) と答える。イベントを
-送らない @code{?5522} (kitty の paste イベント) にも 0 と答える
+DECRQM @code{?1016} (SGR pixel 座標) には未対応 (0) と答える
 @item
 カーソル位置の問い合わせ ( @code{\e[6n} ) には @code{\e[行;桁R} で、DECXCPR
 ( @code{\e[?6n} ) には Ghostty と同じくページ番号 1 を添えた

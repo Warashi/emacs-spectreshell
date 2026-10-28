@@ -129,6 +129,18 @@ pub const Handler = struct {
                 try self.clipboard.recordOsc52Read(self.alloc, self.responses, value.kind, value.terminator)
             else
                 try self.innerVtWithPty(action, value),
+            // 書き込みのチャンク分けや状態の応答は上流に任せる。
+            .kitty_clipboard => if (ghostty_vt.kitty.clipboard.Metadata.operation(value.metadata) == .read)
+                try self.clipboard.recordKittyRead(
+                    self.alloc,
+                    self.responses,
+                    &self.inner.kitty_clipboard_grants,
+                    value.metadata,
+                    value.payload,
+                    value.terminator,
+                )
+            else
+                try self.innerVtWithPty(action, value),
             .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
             .progress_report => try self.progressReport(value),
             .bell => try self.relay.append(self.alloc, .bell),
@@ -192,15 +204,22 @@ pub const Handler = struct {
     }
 
     /// 書き込みは記録するだけで、kill-ring への書き込みや確認は Elisp が
-    /// feed の後に行う。
+    /// feed の後に行う。そのため ask でも先に成功と答える。
     fn clipboardWrite(inner: *ghostty_vt.TerminalStream.Handler, write: ghostty_vt.clipboard.Write) void {
         const self = fromInner(inner);
-        self.clipboard.recordWrite(self.alloc, write) catch |err| {
+        if (self.clipboard.write_policy == .deny) return write.reply(.denied);
+        // 上流は覚えるためのパスワードを Write に載せず、reply の remember
+        // でだけ覚える。覚えるかは後で決まるので、まだ上流が持っている
+        // 書き込み中の状態から取る。
+        const pw: []const u8 = if (!write.can_remember) "" else if (inner.kitty_clipboard_write) |state| state.pw else "";
+        const recorded = self.clipboard.recordWrite(self.alloc, write, pw) catch |err| {
             if (self.failure == null) self.failure = err;
-            write.reply(.io_error);
-            return;
+            return write.reply(.io_error);
         };
-        write.reply(.{ .success = .{} });
+        write.reply(switch (recorded) {
+            .recorded, .empty => .{ .success = .{} },
+            .no_text => .unsupported,
+        });
     }
 
     /// 応答値は ghostty 本体の termio ハンドラ (src/termio/stream_handler.zig)
@@ -297,13 +316,9 @@ pub const Handler = struct {
     fn requestMode(self: *Handler, mode: ghostty_vt.Mode) !void {
         const tag: ghostty_vt.modes.ModeTag = @bitCast(@backingInt(mode));
         // マウス報告はピクセル座標を出せず ?1016 でもセル座標を送るので、
-        // 子がピクセル座標を前提にしないよう未対応として答える。kitty の
-        // paste イベント (?5522) も、立てられてもイベントを送らないので
-        // 同じく未対応として答える。
+        // 子がピクセル座標を前提にしないよう未対応として答える。
         switch (mode) {
-            .mouse_format_sgr_pixels,
-            .kitty_paste_events,
-            => return self.requestModeUnknown(tag.value, tag.ansi),
+            .mouse_format_sgr_pixels => return self.requestModeUnknown(tag.value, tag.ansi),
             else => {},
         }
         const code: u8 = if (self.inner.terminal.modes.get(mode)) 1 else 2;

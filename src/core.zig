@@ -299,10 +299,21 @@ pub const Term = struct {
         return handler.visibilityReport(visible);
     }
 
-    /// 子のクリップボードの読み取り ID に DATA で答えるバイト列を返す。
-    /// DATA が null なら断る。答えていない ID なら null。
-    pub fn clipboardReply(self: *Term, alloc: std.mem.Allocator, id: u64, data: ?[]const u8) !?[]u8 {
-        return self.clipboard.reply(self.alloc, alloc, id, data);
+    /// 子のクリップボードの要求 ID に DATA で答えるバイト列を返す。
+    /// DATA が null なら断り、REMEMBER なら要求のパスワードを覚える。答える
+    /// バイト列が無ければ null。
+    pub fn clipboardReply(self: *Term, alloc: std.mem.Allocator, id: u64, data: ?[]const u8, remember: bool) !?[]u8 {
+        return self.clipboard.reply(self.alloc, alloc, &self.stream.handler.inner.kitty_clipboard_grants, id, data, remember);
+    }
+
+    pub fn setClipboardWrite(self: *Term, policy: clipboard.WritePolicy) void {
+        self.clipboard.write_policy = policy;
+    }
+
+    /// mode 5522 の間の貼り付けで、本文の代わりに送る paste イベント。
+    /// mode 5522 でなければ null。
+    pub fn encodePasteEvent(self: *Term, alloc: std.mem.Allocator) !?[]u8 {
+        return clipboard.pasteEvent(&self.terminal, &self.stream.handler.inner.kitty_clipboard_grants, self.alloc, alloc);
     }
 
     pub fn setColors(self: *Term, colors: handler.Colors) void {
@@ -970,14 +981,14 @@ test "DECRQM は SGR pixel 座標 (?1016) に設定の前後とも 0 (未対応)
     try testing.expectEqualStrings("\x1b[?1016;0$y\x1b[?1016;0$y", update.responses);
 }
 
-test "DECRQM は kitty の paste イベント (?5522) に設定の前後とも 0 (未対応) で応答する" {
+test "DECRQM は kitty の paste イベント (?5522) の現在値を 1 / 2 で応答する" {
     const alloc = testing.allocator;
     const t = try Term.init(alloc, 5, 10);
     defer t.deinit();
 
-    var update = try t.feed(alloc, "\x1b[?5522h\x1b[?5522$p");
+    var update = try t.feed(alloc, "\x1b[?5522$p\x1b[?5522h\x1b[?5522$p");
     defer update.deinit();
-    try testing.expectEqualStrings("\x1b[?5522;0$y", update.responses);
+    try testing.expectEqualStrings("\x1b[?5522;2$y\x1b[?5522;1$y", update.responses);
 }
 
 test "DECRQM は可視性の報告 (?2033) の現在値を 1 / 2 で応答する" {

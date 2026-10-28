@@ -105,6 +105,71 @@
       (should-not (spectreshell--clipboard-reply term first "hi")))
     (spectreshell--release term)))
 
+(ert-deftest spectreshell-module-test-kitty-clipboard-write-produces-request ()
+  "OSC 5522 の書き込みには上流が DONE で答え、:clipboard に名前とパスワード
+の有無を添えた要求を積む。パスワードがあれば覚えるための id を振る。"
+  (let* ((term (spectreshell--create 5 10))
+         (update (spectreshell--feed
+                  term (concat "\e]5522;type=write:name=cHJvZw==:pw=c2VjcmV0\a"
+                               "\e]5522;type=wdata:mime=dGV4dC9wbGFpbg==;aGk=\a"
+                               "\e]5522;type=wdata\a")))
+         (request (car (plist-get update :clipboard))))
+    (should (equal (plist-get update :responses) "\e]5522;type=write:status=DONE\a"))
+    (should (integerp (plist-get request :id)))
+    (should (equal (plist-put (copy-sequence request) :id 0)
+                   '(:op write :id 0 :loc clipboard :text "hi" :name "prog" :remember t)))
+    (should-not (spectreshell--clipboard-reply term (plist-get request :id) nil t))
+    (spectreshell--release term)))
+
+(ert-deftest spectreshell-module-test-clipboard-write-denied-by-module ()
+  "`spectreshell--set-clipboard-write' で deny にすると、書き込みを積まず、
+OSC 5522 には EPERM で答える。"
+  (let ((term (spectreshell--create 5 10)))
+    (spectreshell--set-clipboard-write term 'deny)
+    (let ((update (spectreshell--feed
+                   term (concat "\e]52;c;aGk=\a"
+                                "\e]5522;type=write\a"
+                                "\e]5522;type=wdata:mime=dGV4dC9wbGFpbg==;aGk=\a"
+                                "\e]5522;type=wdata\a"))))
+      (should (equal (plist-get update :responses) "\e]5522;type=write:status=EPERM\a"))
+      (should-not (plist-member update :clipboard)))
+    (should-error (spectreshell--set-clipboard-write term 'never))
+    (spectreshell--release term)))
+
+(ert-deftest spectreshell-module-test-kitty-clipboard-read-is-answered-by-reply ()
+  "OSC 5522 の読み取りは :clipboard に積み、`spectreshell--clipboard-reply'
+が OK・DATA・DONE で答える。text を求めない一覧だけの要求には :no-text を
+付ける。"
+  (let* ((term (spectreshell--create 5 10))
+         (update (spectreshell--feed
+                  term (concat "\e]5522;type=read:loc=primary:name=cHJvZw==:pw=c2VjcmV0;dGV4dC9wbGFpbg==\a"
+                               "\e]5522;type=read;Lg==\a")))
+         (requests (plist-get update :clipboard))
+         (read (nth 0 requests))
+         (listing (nth 1 requests)))
+    (should-not (plist-member update :responses))
+    (should (equal (plist-put (copy-sequence read) :id 0)
+                   '(:op read :id 0 :loc primary :name "prog" :remember t)))
+    (should (equal (plist-put (copy-sequence listing) :id 0)
+                   '(:op read :id 0 :loc clipboard :no-text t)))
+    (should (equal (spectreshell--clipboard-reply term (plist-get read :id) "hi" t)
+                   (concat "\e]5522;type=read:status=OK:loc=primary\a"
+                           "\e]5522;type=read:status=DATA:mime=dGV4dC9wbGFpbg==;aGk=\a"
+                           "\e]5522;type=read:status=DONE\a")))
+    (should (equal (spectreshell--clipboard-reply term (plist-get listing :id) nil)
+                   "\e]5522;type=read:status=EPERM\a"))
+    (spectreshell--release term)))
+
+(ert-deftest spectreshell-module-test-paste-event-only-in-mode-5522 ()
+  "`spectreshell--encode-paste-event' は mode 5522 の間だけ paste イベントを返す。"
+  (let ((term (spectreshell--create 5 10)))
+    (should-not (spectreshell--encode-paste-event term))
+    (spectreshell--feed term "\e[?5522h")
+    (let ((event (spectreshell--encode-paste-event term)))
+      (should (string-prefix-p "\e]5522;type=read:status=OK:pw=" event))
+      (should-not (multibyte-string-p event)))
+    (spectreshell--release term)))
+
 (ert-deftest spectreshell-module-test-synchronized-feed-keeps-relay ()
   "mode 2026 の中で終わった feed も :relay を返す。描画ではないので
 保留しない。"

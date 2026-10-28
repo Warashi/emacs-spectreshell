@@ -317,6 +317,13 @@ eat-eshell-mode と同様の接続方式:
 - OSC 52 クリップボードの読み取りに、 ~current-kill~ で見た kill-ring の
   先頭で答える。可否は ~spectreshell-clipboard-read~ (既定 ~ask~ ) で
   決める。拒否には空で答える
+- OSC 5522 (kitty のクリップボード) の読み書きと paste イベント
+  (mode 5522)。text (~text/plain~ と上流の ~isTextMime~ の別名) だけを
+  扱う。書き込みのチャンク分けや状態の応答は上流の ~clipboard_write~
+  effect に任せ、読み取りは上流の ~kittyClipboardRead~ の手順を自前で
+  持つ (判断 19 で feed の中で答えないため)。パスワードの記録は上流の
+  handler の ~kitty_clipboard_grants~ を共有し、RIS で消えるのも上流に
+  任せる
 - 子が外側の端末へ向けて出す通知類 (OSC 777 / OSC 9;4 / タイトル /
   BEL) の外側の tty への中継 (issues.org の M-23)。ssh 先の daemon に
   ~emacsclient -t~ でつなぎ、tmux の代わりに使ったときに直結と区別が
@@ -400,3 +407,4 @@ CLAUDE.md の方針どおり、実装と同じ粒度でテストを書き、
 | 17 | tty での ~xterm-mouse-mode~ は自動有効化しない | グローバルなモードを利用者に断りなく切り替えない。マニュアルで案内する | ~spectreshell-mode~ で有効化する |
 | 18 | 子のクリップボードの書き込みは kill-ring を通し、外側へは ~interprogram-cut-function~ に任せる | Emacs のクリップボードと子のクリップボードが 1 つになり、GUI でも tty でも Emacs で貼れる。tty では xterm.el が OSC 52 を送るので、外側へ届く経路も 1 つで二重にならない | 外側の端末へ OSC 52 をそのまま中継する (GUI フレームや OSC 52 を書けない端末には届かず、kill-ring にも入らない。旧 M-24 の対応) |
 | 19 | クリップボードの要求は feed の中で処理せず、モジュールは update に載せるだけにして、Elisp が timer から 1 つずつ順に処理する。読み取りはモジュールが応答に要るものを id ごとに覚え、Elisp が後で ~spectreshell--clipboard-reply~ で応答のバイト列を受け取って送る | feed の中で Elisp を呼ぶと、確認しない ~allow~ でも ~kill-new~ (~save-interprogram-paste-before-kill~) や ~current-kill~ が X の選択や xterm.el の ~read-char~ を待ち、その間に同じプロセスのフィルタ・sentinel・timer が再び走って、feed の入れ子や解放済みの端末の使用が起きる (process.c はフィルタの再帰呼び出しを前提にしている)。filter の中では ~inhibit-quit~ が t なので確認で C-g も効かない | 同期の確認と再入のガード (待つ間に来た出力の扱いが要り、sentinel や timer からの finalize は防げず、C-g も効かない) / 確認の間だけプロセスの filter を t にする (同じプロセスの再入しか防げず、確認の間は子の出力も止まる) |
+| 20 | OSC 5522 の書き込みには feed の中で成否を答え、 ~ask~ でも先に DONE と答える | 上流の ~clipboard_write~ effect はその場で答えを求め、答えないと EPERM になる。確認を待つには判断 19 と同じ非同期の仕組みを書き込みにも自前で持つことになり、チャンク分け・EFBIG・alias も上流と二重に持つ | 書き込みも横取りして確認の後に答える |
