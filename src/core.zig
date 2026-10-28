@@ -462,21 +462,6 @@ pub const Term = struct {
                 var extracted = try row_mod.extractRow(alloc, pin, &self.styles);
                 errdefer extracted.deinit(alloc);
                 try scrolled_off.append(alloc, extracted);
-
-                // ghostty の PageList.eraseRows は行を物理的に取り除かず、
-                // 残す行を前へずらして size.rows を縮めるだけで、余った
-                // 末尾の行は clearCells でセルを消す (フルページの場合は
-                // ページごとプールへ戻す)。clearCells も プールの再利用も
-                // Row.wrap / wrap_continuation を落とさないので、その行を
-                // PageList.grow が再利用すると、折り返していない行が
-                // 「折り返し中」のまま使われる。幅を広げる resize の
-                // reflow がそれを信じて次の行を同じ行へ連結し、確定
-                // テキストで 2 行が旧幅ぶんの空白を挟んで 1 行に潰れる。
-                // 消える側の行は今まさに取り出し終えたこれらなので、
-                // ここで落としておけば再利用経路のどちらも塞げる。
-                const row = pin.rowAndCell().row;
-                row.wrap = false;
-                row.wrap_continuation = false;
             }
             // 取り出した分は消して、次回 feed で重複して返さないようにする。
             if (scrolled_off.items.len > 0) {

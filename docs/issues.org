@@ -190,6 +190,12 @@ Zig test: =core.zig= の「history を捨てた後に再利用される行が折
 扱いにならない」。ERT: =spectreshell-explore-module-test-width-change-joins-lines=
 (=:expected-result :failed= を外した)。
 
+追記 (2026-10-28): ghostty v1.4.0 の b31fbc8464 ("terminal: fully reset row
+metadata when recycling row storage") で上流が直った。=PageList.eraseRows=
+が余った行を =clearCells= でなく =resetRow= で戻すようになり、wrap フラグ
+も落ちる。上記の「ghostty への issue 候補」は上流で修正済みのため不要。
+=buildUpdate= の回避策を外し、Zig test と ERT は変えずに通ることを確認した。
+
 実端末での再確認 (2026-09-05, nix shell の tmux 3.7c 上で =emacs -nw -Q= 、Emacs 31.1):
 100x30 で 1 行 129 バイト x 100 行を 0.05 秒間隔で出すスクリプトの
 実行中に 60x15 → 120x40 → 80x24 を 0.5 秒間隔で 3 周しても、L001〜L100
