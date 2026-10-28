@@ -81,9 +81,10 @@ printf '\e]52;c;%s\a' "$(printf 'こんにちは' | base64)"
   アプリケーションに貼れること。spectreshell 自身は外側へ送らず、
   xterm.el が 1 回だけ送ること。
 - ~(setq spectreshell-clipboard-write 'ask)~ で同じコマンドを実行すると
-  ミニバッファで確認され、 ~yes~ RET で kill-ring に入り、 ~no~ RET と
-  ~C-g~ では入らないこと。 ~y~ RET のような語の途中では決まらないこと。
-  ~C-g~ の後もエコー領域に「Quit」が残らず、子の出力が続けて描かれること。
+  ミニバッファで確認され、「Allow once:」の後の語を打って RET で kill-ring
+  に入り、 ~yes~ RET ・ RET だけ・ ~C-g~ では入らないこと。確認のたびに
+  語が変わること。 ~C-g~ の後もエコー領域に「Quit」が残らず、子の出力が
+  続けて描かれること。
 
 読み取りは次のコマンドで出せる (既定の ~spectreshell-clipboard-read~ は
 ~ask~ )。 ~cat -v~ が子へ届いた答えを表示する。
@@ -92,16 +93,19 @@ printf '\e]52;c;%s\a' "$(printf 'こんにちは' | base64)"
 stty -echo; printf '\e]52;c;?\a'; timeout 10 cat -v; stty echo
 #+end_src
 
-- 確認で ~yes~ RET と打つと、kill-ring の先頭 (GUI ではほかのアプリケーション
-  で新しくコピーしたもの) の base64 が =^[]52;c;...^G= で表示されること。
-  ~no~ RET と ~C-g~ では =^[]52;c;^G= になり、 ~C-g~ の後も「Quit」が
-  残らないこと。
+- 確認で「Allow once:」の後の語を打って RET と打つと、kill-ring の先頭
+  (GUI ではほかのアプリケーションで新しくコピーしたもの) の base64 が
+  =^[]52;c;...^G= で表示されること。ほかの語・ RET だけ・ ~C-g~ では
+  =^[]52;c;^G= になり、 ~C-g~ の後も「Quit」が残らないこと。
 - ~sleep 1; printf '\e]52;c;?\a'~ を実行してすぐ別のバッファで打ち続けると、
   打っている間は確認が出ず、打つのを止めて約 0.5 秒後に出ること。
+- ~sleep 3; printf '\e]52;c;?\a'~ を実行してすぐ ~M-x~ を押し、ミニバッファ
+  を開いたままにすると、確認が出ず ~M-x~ のミニバッファも閉じないこと。
+  ~C-g~ で閉じると約 0.5 秒後に確認が出ること。
 - 確認の間に ~C-x o~ などほかの操作をしても子の出力が止まらないこと。
 - ~printf '\e]52;c;?\a\e]52;c;?\a'~ のように 2 つ続けると、確認が
-  1 つずつ順に出ること (2 つ目は、1 つ目に答えた後に何かキーを押して
-  入力が止まってから出る)。1 つ目で ~C-g~ を押すと 2 つ目も確認せずに
+  1 つずつ順に出ること (2 つ目は、1 つ目に答えてから約 0.5 秒後に、
+  キーを押さなくても出る)。1 つ目で ~C-g~ を押すと 2 つ目も確認せずに
   断られ、 =^[]52;c;^G= が 2 つ表示されること。
 
 OSC 5522 の読み取りと paste イベントは次のコマンドで出せる。
@@ -113,7 +117,8 @@ stty -echo; printf '\e]5522;type=read:name=cHJvZw==:pw=c2VjcmV0;dGV4dC9wbGFpbg==
 stty -echo; printf '\e[?5522h'; timeout 10 cat -v; printf '\e[?5522l'; stty echo
 #+end_src
 
-- 読み取りの確認に「"prog"」と ~always~ が出ること。 ~always~ RET と答えた後に
+- 読み取りの確認に「"prog"」と「Always allow:」の語が出ること。その語を打って
+  RET と答えた後に
   同じコマンドを実行すると、確認なしで OK ・ DATA ・ DONE が表示される
   こと。
 - paste イベントを求めている間の ~C-y~ では、本文ではなく

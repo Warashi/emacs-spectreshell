@@ -900,6 +900,7 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
            (spectreshell--clipboard-timer nil)
            (spectreshell--clipboard-running nil)
            (spectreshell--clipboard-ask-timer nil)
+           (spectreshell--clipboard-input-seen nil)
            (spectreshell--clipboard-asking nil))
        (let ((interprogram-cut-function
               (lambda (text) (setq ,cuts (append ,cuts (list text)))))
@@ -910,14 +911,28 @@ SPEC は (CUTS ASKS ANSWER)。CUTS には `interprogram-cut-function' に
          (cl-letf (((symbol-function 'spectreshell--clipboard-can-ask-p)
                     (lambda (_) t)))
            (unwind-protect (progn ,@body)
-             (dolist (timer (list spectreshell--clipboard-timer
-                                  spectreshell--clipboard-ask-timer))
-               (when timer (cancel-timer timer)))))))))
+             (cancel-function-timers #'spectreshell--clipboard-run)
+             (cancel-function-timers #'spectreshell--clipboard-ask-tick)))))))
+
+(defun spectreshell-test--clipboard-run-timer ()
+  "張られた要求の処理の timer を止めて、その関数をすぐに呼ぶ."
+  (should spectreshell--clipboard-timer)
+  (cancel-timer spectreshell--clipboard-timer)
+  (spectreshell--clipboard-run))
+
+(defun spectreshell-test--clipboard-tick ()
+  "張られた確認の timer を止めて、その関数をすぐに呼ぶ."
+  (should spectreshell--clipboard-ask-timer)
+  (cancel-timer spectreshell--clipboard-ask-timer)
+  (spectreshell--clipboard-ask-tick))
 
 (defun spectreshell-test--clipboard-drain ()
   "クリップボードの要求を、timer を待たずに処理し尽くす.
-張られた timer を止めて、その関数をすぐに呼ぶ。呼んだ先がまた張った
-timer も同じように呼び、どちらも張られていなくなるまで繰り返す。"
+張られた timer を止めて、その関数をすぐに呼ぶ。確認の timer では、入力が
+止まるのを待たずに確認へ進む。呼んだ先がまた張った timer も同じように
+呼び、どちらも張られていなくなるまで繰り返す。"
+  (when spectreshell--clipboard-timer
+    (cancel-timer spectreshell--clipboard-timer))
   (spectreshell--clipboard-run)
   (let ((rounds 0))
     (while (and (< rounds 1000)
@@ -927,6 +942,7 @@ timer も同じように呼び、どちらも張られていなくなるまで�
           (progn (cancel-timer spectreshell--clipboard-timer)
                  (spectreshell--clipboard-run))
         (cancel-timer spectreshell--clipboard-ask-timer)
+        (setq spectreshell--clipboard-ask-timer nil)
         (spectreshell--clipboard-ask-next)))))
 
 (ert-deftest spectreshell-test-osc52-write-goes-to-kill-ring-after-feed ()
@@ -1292,66 +1308,217 @@ OSC 5522 の書き込みに EPERM で答える。ask と allow は先に DONE �
         (spectreshell-test--clipboard-drain)
         (should (= (length asks) 1))
         (let ((prompt (car asks)))
-          (should (string-match "\\`Let \\(\"[^\"]*\"\\) in " prompt))
+          (should (string-match "\\`Spectreshell: \\(\"[^\"]*\"\\) in " prompt))
           (let ((shown (read (match-string 1 prompt))))
             (should (string-prefix-p "abcd[1mxxx" shown))
             (should (<= (string-width shown) 40)))
           (should-not (string-match-p "[\u200e\u200f\u202a-\u202e\u2066-\u2069\e]" prompt)))))))
 
-(defvar yes-or-no-p-history)
+(defmacro spectreshell-test--with-read-string (spec &rest body)
+  "`read-string' を差し替えて BODY を実行する.
+SPEC は (CALLS INPUT)。`read-string' は変数 INPUT の値を返し、CALLS には
+呼ばれるたびに (PROMPT HISTORY-SYMBOL HISTORY-VALUE `use-dialog-box') が
+呼ばれた順に溜まる。"
+  (declare (indent 1))
+  (pcase-let ((`(,calls ,input) spec))
+    `(let ((,calls nil)
+           (,input nil))
+       (cl-letf (((symbol-function 'read-string)
+                  (lambda (prompt &optional _initial history &rest _)
+                    (setq ,calls (append ,calls
+                                         (list (list prompt history
+                                                     (and (symbolp history) (boundp history)
+                                                          (symbol-value history))
+                                                     use-dialog-box))))
+                    ,input)))
+         ,@body))))
 
-(ert-deftest spectreshell-test-clipboard-ask-needs-a-whole-word ()
-  "確認の答えは 1 キーでは決まらず、yes・no・always の語を打たせる。短い
-答えを受けない `read-answer' で読み、マウスの直後でもダイアログにせず、
-M-p で前の答えを呼び出せないよう履歴を空にする。always は覚えられる要求
-でだけ出す。"
-  (let ((calls nil)
-        (reply nil)
-        (yes-or-no-p-history '("always")))
-    (cl-letf (((symbol-function 'read-answer)
-               (lambda (_question answers)
-                 (push (list (mapcar #'car answers) read-answer-short use-dialog-box
-                             yes-or-no-p-history)
-                       calls)
-                 reply)))
-      (setq reply "yes")
-      (should (eq (spectreshell--clipboard-ask nil '(:remember t) "Q? ") 'allow))
-      (setq reply "always")
-      (should (eq (spectreshell--clipboard-ask nil '(:remember t) "Q? ") 'always))
-      (setq reply "no")
-      (should (eq (spectreshell--clipboard-ask nil nil "Q? ") 'deny)))
-    (should (equal (reverse calls)
-                   '((("yes" "no" "always") nil nil nil)
-                     (("yes" "no" "always") nil nil nil)
-                     (("yes" "no") nil nil nil))))
-    (should (equal yes-or-no-p-history '("always")))))
+(defun spectreshell-test--clipboard-words (&rest words)
+  "WORDS を順に返す、確認の語を作る関数を返す."
+  (lambda () (or (pop words) (error "No more words"))))
+
+(ert-deftest spectreshell-test-clipboard-ask-allows-only-the-shown-words ()
+  "確認は、表示した今回だけ許可の語と打てば allow、常に許可の語なら always
+で、それ以外 (RET だけの空・yes・always・語の一部・前後の空白・もう一方の
+語) はすべて deny になる。常に許可の語は覚えられる要求でだけ受ける。"
+  (spectreshell-test--with-read-string (_calls input)
+    (pcase-dolist (`(,typed ,remember ,expected)
+                   '(("kq7m" t allow) ("x3pd" t always)
+                     ("kq7m" nil allow) ("x3pd" nil deny)
+                     ("" t deny) ("yes" t deny) ("always" t deny) ("y" t deny)
+                     ("kq7" t deny) ("x3p" t deny) ("kq7m " t deny) ("KQ7M" t deny)))
+      (let ((spectreshell--clipboard-word-function
+             (spectreshell-test--clipboard-words "kq7m" "x3pd"))
+            (request (and remember '(:remember t))))
+        (setq input typed)
+        (should (eq (spectreshell--clipboard-ask nil request "Q.") expected))))))
+
+(ert-deftest spectreshell-test-clipboard-ask-shows-fresh-words-each-time ()
+  "確認のたびに新しい語を作って、問いの後に表示する。常に許可の語は覚え
+られる要求でだけ作って出す。"
+  (spectreshell-test--with-read-string (calls input)
+    (let ((spectreshell--clipboard-word-function
+           (spectreshell-test--clipboard-words "aaaa" "bbbb" "cccc" "dddd" "eeee")))
+      (setq input "aaaa")
+      (should (eq (spectreshell--clipboard-ask nil '(:remember t) "Q1.") 'allow))
+      (setq input "aaaa")
+      (should (eq (spectreshell--clipboard-ask nil '(:remember t) "Q2.") 'deny))
+      (setq input "eeee")
+      (should (eq (spectreshell--clipboard-ask nil nil "Q3.") 'allow)))
+    (let ((prompts (mapcar #'car calls)))
+      (should (string-prefix-p "Q1." (nth 0 prompts)))
+      (should (string-search "aaaa" (nth 0 prompts)))
+      (should (string-search "bbbb" (nth 0 prompts)))
+      (should (string-search "cccc" (nth 1 prompts)))
+      (should (string-search "dddd" (nth 1 prompts)))
+      (should-not (string-search "aaaa" (nth 1 prompts)))
+      (should (string-search "eeee" (nth 2 prompts)))
+      (should-not (string-match-p "[Aa]lways" (nth 2 prompts))))))
+
+(ert-deftest spectreshell-test-clipboard-ask-words-differ ()
+  "今回だけ許可の語と常に許可の語は、同じ語が出たら作り直して違う語にする。"
+  (spectreshell-test--with-read-string (calls input)
+    (let ((spectreshell--clipboard-word-function
+           (spectreshell-test--clipboard-words "aaaa" "aaaa" "aaaa" "bbbb")))
+      (setq input "aaaa")
+      (should (eq (spectreshell--clipboard-ask nil '(:remember t) "Q.") 'allow)))
+    (should (string-search "bbbb" (car (car calls))))))
+
+(ert-deftest spectreshell-test-clipboard-ask-reads-without-history-or-dialog ()
+  "確認は補完のない `read-string' で読み、空の履歴を使い (M-p で前の答えを
+呼べない)、マウスの直後でもダイアログにしない。"
+  (spectreshell-test--with-read-string (calls input)
+    (let ((spectreshell--clipboard-word-function
+           (spectreshell-test--clipboard-words "aaaa" "bbbb"))
+          (use-dialog-box t)
+          (minibuffer-history '("aaaa")))
+      (setq input "")
+      (spectreshell--clipboard-ask nil '(:remember t) "Q."))
+    (pcase-let ((`((,_prompt ,history ,value ,dialog)) calls))
+      (should (symbolp history))
+      (should-not (eq history 'minibuffer-history))
+      (should (null value))
+      (should (null dialog)))))
+
+(ert-deftest spectreshell-test-clipboard-random-word-uses-unambiguous-characters ()
+  "確認の語は 4 文字で、紛らわしい 0 o 1 l i を除いた英小文字と数字から作る。"
+  (dotimes (_ 200)
+    (let ((word (spectreshell--clipboard-random-word)))
+      (should (string-match-p "\\`[a-z2-9]\\{4\\}\\'" word))
+      (should-not (string-match-p "[0o1li]" word)))))
 
 (ert-deftest spectreshell-test-clipboard-prompt-waits-until-input-stops ()
-  "確認の要る要求は、処理しても確認を出さず、利用者の入力が止まってから
-動く idle timer に確認を任せる。打っている途中のキーを答えに取らないため。"
+  "確認の要る要求は、処理しても確認を出さない。定期的に確かめる (idle では
+ない) timer で、利用者の入力の数 (`num-nonmacro-input-events') が 0.5 秒
+変わらなくなってから出す。打っている途中のキーを答えに取らないため。"
   (spectreshell-test--with-terminal (term 1 10)
     (spectreshell-test--with-clipboard (_cuts asks 'deny)
-      (let ((spectreshell-clipboard-read 'ask))
-        (spectreshell-feed term "\e]52;c;?\a")
-        (spectreshell--clipboard-run)
-        (should (null asks))
-        (let ((timer spectreshell--clipboard-ask-timer))
-          (should (timer--idle-delay timer))
-          (should (memq timer timer-idle-list))
-          (should (> (float-time (timer--time timer)) 0))
-          (should (eq (timer--function timer) #'spectreshell--clipboard-ask-next)))))))
+      (let ((spectreshell-clipboard-read 'ask)
+            (num-nonmacro-input-events 10)
+            (now 100.0))
+        (cl-letf (((symbol-function 'float-time) (lambda (&optional _) now)))
+          (spectreshell-feed term "\e]52;c;?\a")
+          (spectreshell-test--clipboard-run-timer)
+          (should (null asks))
+          (let ((timer spectreshell--clipboard-ask-timer))
+            (should timer)
+            (should-not (timer--idle-delay timer))
+            (should (memq timer timer-list)))
+          (spectreshell-test--clipboard-tick)
+          (setq now 100.4)
+          (spectreshell-test--clipboard-tick)
+          (should (null asks))
+          (setq num-nonmacro-input-events 11 now 100.7)
+          (spectreshell-test--clipboard-tick)
+          (should (null asks))
+          (setq now 101.1)
+          (spectreshell-test--clipboard-tick)
+          (should (null asks))
+          (setq now 101.3)
+          (spectreshell-test--clipboard-tick)
+          (should (= (length asks) 1)))))))
 
-(ert-deftest spectreshell-test-clipboard-prompt-discards-typed-ahead-input ()
-  "確認の直前に、先に打たれていた入力を捨てる。"
+(ert-deftest spectreshell-test-clipboard-next-prompt-needs-no-further-key ()
+  "確認に答えた後の次の確認は、答えの後に入力が 0.5 秒止まれば、次のキーを
+待たずに出る (席を離れていても出る)。待っている確認が無くなったら timer
+を止める。"
   (spectreshell-test--with-terminal (term 1 10)
-    (let ((events nil))
-      (spectreshell-test--with-clipboard (_cuts _asks (progn (push 'ask events) 'deny))
+    (let ((num-nonmacro-input-events 10)
+          (now 100.0))
+      (spectreshell-test--with-clipboard (_cuts asks (progn
+                                                       ;; 答えを打つと入力の数が増える。
+                                                       (setq num-nonmacro-input-events
+                                                             (+ num-nonmacro-input-events 5))
+                                                       'deny))
+        (let ((spectreshell-clipboard-read 'ask))
+          (cl-letf (((symbol-function 'float-time) (lambda (&optional _) now)))
+            (spectreshell-feed term "\e]52;c;?\a\e]52;c;?\a")
+            (spectreshell-test--clipboard-run-timer)
+            (spectreshell-test--clipboard-tick)
+            (setq now 100.6)
+            (spectreshell-test--clipboard-tick)
+            (should (= (length asks) 1))
+            (when spectreshell--clipboard-timer
+              (spectreshell-test--clipboard-run-timer))
+            (setq now 100.7)
+            (spectreshell-test--clipboard-tick)
+            (setq now 101.0)
+            (spectreshell-test--clipboard-tick)
+            (should (= (length asks) 1))
+            (setq now 101.3)
+            (spectreshell-test--clipboard-tick)
+            (should (= (length asks) 2))
+            (when spectreshell--clipboard-timer
+              (spectreshell-test--clipboard-run-timer))
+            (when spectreshell--clipboard-ask-timer
+              (setq now 102.0)
+              (spectreshell-test--clipboard-tick))
+            (should (null spectreshell--clipboard-ask-timer))
+            (should-not (seq-find (lambda (timer)
+                                    (eq (timer--function timer)
+                                        #'spectreshell--clipboard-ask-tick))
+                                  timer-list))))))))
+
+(ert-deftest spectreshell-test-clipboard-prompt-waits-while-minibuffer-is-in-use ()
+  "利用者がミニバッファを使っている間は確認を出さず、要求を待たせたまま、
+使われなくなってから出す。使っている最中に出すと、エラーで断りになるか、
+利用者のミニバッファを終わらせるか、その上に重なる。"
+  (spectreshell-test--with-terminal (term 1 10 responses)
+    (spectreshell-test--with-clipboard (_cuts asks 'deny)
+      (let ((spectreshell-clipboard-read 'ask)
+            (num-nonmacro-input-events 10)
+            (now 100.0)
+            (depth 1))
+        (cl-letf (((symbol-function 'float-time) (lambda (&optional _) now))
+                  ((symbol-function 'minibuffer-depth) (lambda () depth)))
+          (spectreshell-feed term "\e]52;c;?\a")
+          (spectreshell-test--clipboard-run-timer)
+          (spectreshell-test--clipboard-tick)
+          (setq now 101.0)
+          (spectreshell-test--clipboard-tick)
+          (spectreshell--clipboard-ask-next)
+          (should (null asks))
+          (should (null responses))
+          (setq now 102.0)
+          (spectreshell-test--clipboard-tick)
+          (should (null asks))
+          (setq depth 0 now 103.0)
+          (spectreshell-test--clipboard-tick)
+          (should (= (length asks) 1)))))))
+
+(ert-deftest spectreshell-test-clipboard-prompt-keeps-typed-input ()
+  "確認の前に入力を捨てない (`discard-input' は記録中のキーボードマクロを
+終わらせてしまう)。打っている途中の入力は確認の語と一致しないので断りになる。"
+  (spectreshell-test--with-terminal (term 1 10)
+    (let ((discarded nil))
+      (spectreshell-test--with-clipboard (_cuts asks 'deny)
         (let ((spectreshell-clipboard-read 'ask))
           (cl-letf (((symbol-function 'discard-input)
-                     (lambda () (push 'discard events))))
+                     (lambda () (setq discarded t))))
             (spectreshell-feed term "\e]52;c;?\a")
             (spectreshell-test--clipboard-drain))
-          (should (equal events '(ask discard))))))))
+          (should (= (length asks) 1))
+          (should-not discarded))))))
 
 (ert-deftest spectreshell-test-clipboard-prompt-checks-the-buffer-is-still-shown ()
   "確認を出す直前にバッファが見えなくなっていたら、確認せずに断る。"

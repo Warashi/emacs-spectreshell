@@ -685,13 +685,19 @@ Each terminal's REQUESTS are oldest first, and handled in that order.")
   "Non-nil while `spectreshell--clipboard-run' handles requests.")
 
 (defvar spectreshell--clipboard-ask-timer nil
-  "Idle timer that will run `spectreshell--clipboard-ask-next', or nil.")
+  "Timer that will run `spectreshell--clipboard-ask-tick', or nil.")
 
 ;; Longer than the pause between keys while typing, so that a key meant
 ;; for the terminal does not land in the prompt, yet short enough not to
 ;; feel like a wait once the user stops.
 (defconst spectreshell--clipboard-ask-delay 0.5
   "Seconds without input before a clipboard prompt is shown.")
+
+(defconst spectreshell--clipboard-ask-poll 0.1
+  "Seconds between checks whether a clipboard prompt can be shown.")
+
+(defvar spectreshell--clipboard-input-seen nil
+  "(COUNT . TIME) of `num-nonmacro-input-events' last seen to change, or nil.")
 
 (defvar spectreshell--clipboard-asking nil
   "The terminal whose request is being asked about, or nil.
@@ -769,29 +775,66 @@ A finalized terminal's requests go unanswered: its module is gone."
                     spectreshell--clipboard-queues)))
 
 (defun spectreshell--clipboard-schedule-ask ()
-  "Arm the idle timer showing a prompt, if a request waits for one.
-The prompt waits until the user has stopped typing for
-`spectreshell--clipboard-ask-delay', so that the child cannot time a
-request to take a key typed for something else as the answer.  Emacs
-does not count itself idle again until it next waits for a command, so
-after one prompt the next waits for the user's next command.  Not while
-a prompt is shown: its end runs the queue again, which arms this."
+  "Start checking for a moment to show a prompt, if a request waits for one.
+Not while a prompt is shown: its end runs the queue again, which calls
+this."
   (when (and (not spectreshell--clipboard-asking)
              (not spectreshell--clipboard-ask-timer)
              spectreshell--clipboard-queues)
-    (setq spectreshell--clipboard-ask-timer
-          (run-with-idle-timer spectreshell--clipboard-ask-delay nil
-                               #'spectreshell--clipboard-ask-next))))
+    (setq spectreshell--clipboard-input-seen nil)
+    (spectreshell--clipboard-arm-ask)))
+
+(defun spectreshell--clipboard-arm-ask ()
+  "Arm the timer running `spectreshell--clipboard-ask-tick'."
+  ;; Not a repeating timer: `timer-event-handler' re-arms one before
+  ;; calling it, so it would run again in the middle of the prompt.
+  (setq spectreshell--clipboard-ask-timer
+        (run-at-time spectreshell--clipboard-ask-poll nil
+                     #'spectreshell--clipboard-ask-tick)))
+
+(defun spectreshell--clipboard-ask-tick ()
+  "Show a prompt if input has stopped, and check again while requests wait.
+The prompt waits until the user has stopped typing
+\(`spectreshell--clipboard-input-stopped-p'), so that the child cannot
+time a request to take a key typed for something else as the answer.
+The timer stops once no request is waiting, and while a prompt is shown."
+  ;; A timer checking `num-nonmacro-input-events' rather than an idle
+  ;; timer: Emacs counts itself idle again only after the next key once
+  ;; a prompt has read its answer, so the next prompt would wait for
+  ;; that key, and a user away from the keyboard would never see it.
+  (setq spectreshell--clipboard-ask-timer nil)
+  (when (spectreshell--clipboard-input-stopped-p)
+    (spectreshell--clipboard-ask-next))
+  (spectreshell--clipboard-forget-done)
+  (when (and spectreshell--clipboard-queues
+             (not spectreshell--clipboard-asking)
+             (not spectreshell--clipboard-ask-timer))
+    (spectreshell--clipboard-arm-ask)))
+
+(defun spectreshell--clipboard-input-stopped-p ()
+  "Return non-nil if no input has come for `spectreshell--clipboard-ask-delay'.
+That is, `num-nonmacro-input-events' has not changed since that long
+ago, as far as the calls to this have seen."
+  (let ((count num-nonmacro-input-events)
+        (now (float-time)))
+    (if (eql count (car spectreshell--clipboard-input-seen))
+        (>= (- now (cdr spectreshell--clipboard-input-seen))
+            spectreshell--clipboard-ask-delay)
+      (setq spectreshell--clipboard-input-seen (cons count now))
+      nil)))
 
 (defun spectreshell--clipboard-ask-next ()
   "Ask about the first request waiting for a prompt, and handle it.
 Whether the prompt is still needed, and whether anyone can answer it,
-is decided again here, just before asking.  The request is answered
-however asking ends, a denial unless the user allowed it.  \\[keyboard-quit] also denies every request of the same
-terminal still waiting for a prompt, so that a child asking again and
-again can be stopped."
-  (setq spectreshell--clipboard-ask-timer nil)
-  (unless spectreshell--clipboard-asking
+is decided again here, just before asking.  Nothing is asked while the
+minibuffer is in use: the prompt would then fail, end the user's
+minibuffer, or with `enable-recursive-minibuffers' open on top of it;
+the request waits instead.  The request is answered however asking
+ends, a denial unless the user allowed it.  \\[keyboard-quit] also
+denies every request of the same terminal still waiting for a prompt,
+so that a child asking again and again can be stopped."
+  (unless (or spectreshell--clipboard-asking
+              (> (minibuffer-depth) 0))
     (when-let* ((entry (seq-find (lambda (entry)
                                    (and (cdr entry)
                                         (spectreshell--clipboard-live-p (car entry))))
@@ -814,14 +857,11 @@ again can be stopped."
 
 (defun spectreshell--clipboard-ask-user (obj request)
   "Ask about OBJ's REQUEST; return `allow', `deny', `always' or `quit'.
-Input typed before the prompt is discarded first, so that it is not
-read as the answer.  `quit' is \\[keyboard-quit] at the prompt; an
-error is `deny'."
+`quit' is \\[keyboard-quit] at the prompt; an error is `deny'."
   ;; Not `with-local-quit': it sets `quit-flag' again on the way out,
   ;; which would quit whatever runs the timer.
   (condition-case nil
       (let ((inhibit-quit nil))
-        (discard-input)
         (funcall spectreshell--clipboard-ask-function obj request
                  (spectreshell--clipboard-prompt obj request)))
     (quit 'quit)
@@ -875,38 +915,67 @@ a prompt unless REQUEST is already granted (a password remembered with
       'allow)
      ((not (spectreshell--clipboard-can-ask-p (spectreshell-buffer obj))) 'deny))))
 
-(defvar read-answer-short)
-(defvar yes-or-no-p-history)
+(defconst spectreshell--clipboard-word-characters "abcdefghjkmnpqrstuvwxyz23456789"
+  "Characters of the words typed to answer a clipboard prompt.
+Lowercase letters and digits, without those easily taken for one
+another: 0 and o, 1, l and i.")
+
+(defconst spectreshell--clipboard-word-length 4
+  "Length of the words typed to answer a clipboard prompt.")
+
+(defvar spectreshell--clipboard-word-function #'spectreshell--clipboard-random-word
+  "Function of no arguments returning a fresh word to answer a prompt with.")
+
+(defvar spectreshell--clipboard-answer-history nil
+  "History of the answers to clipboard prompts, bound empty while asking.")
+
+;; `random' rather than a cryptographic source: the words only have to
+;; be unknown to the child, which sees neither Emacs's state nor its
+;; display, and Emacs seeds `random' from the system's entropy at
+;; startup.
+(defun spectreshell--clipboard-random-word ()
+  "Return a random word of `spectreshell--clipboard-word-characters'."
+  (let ((chars spectreshell--clipboard-word-characters))
+    (apply #'string
+           (cl-loop repeat spectreshell--clipboard-word-length
+                    collect (aref chars (random (length chars)))))))
 
 (defun spectreshell--clipboard-ask (_obj request prompt)
   "Ask with PROMPT about REQUEST; return `allow', `deny' or `always'.
-The answer is a whole word ended with RET, never a single key, nor a
-dialog after a mouse event, nor an earlier answer recalled from the
-history.  `always' is offered only when REQUEST can be remembered."
-  ;; Not `read-multiple-choice' with LONG-FORM: its `completing-read'
-  ;; completes "a" RET to "always".
-  (pcase (let ((read-answer-short nil)
-               (use-dialog-box nil)
-               (yes-or-no-p-history nil))
-           (read-answer
-            prompt
-            `(("yes" ?y "allow this time")
-              ("no" ?n "deny")
-              ,@(and (plist-get request :remember)
-                     '(("always" ?a "allow this and later requests from the program"))))))
-    ("yes" 'allow)
-    ("always" 'always)
-    (_ 'deny)))
+Each prompt shows fresh words from `spectreshell--clipboard-word-function':
+one allows this request, and another, offered only when REQUEST can be
+remembered, also allows the later ones carrying its password.  Anything
+else typed, an empty answer included, denies.  The answer is read
+without completion, history, or a dialog after a mouse event."
+  ;; Words made up for each prompt rather than fixed answers (y, yes,
+  ;; always): a child can show a question of its own and time its
+  ;; request so that what the user types for that question lands here.
+  (let* ((once (funcall spectreshell--clipboard-word-function))
+         (always (and (plist-get request :remember)
+                      (let ((word once))
+                        (while (equal word once)
+                          (setq word (funcall spectreshell--clipboard-word-function)))
+                        word)))
+         (answer (let ((use-dialog-box nil)
+                       (spectreshell--clipboard-answer-history nil))
+                   (read-string
+                    (format "%s  Allow once: %s%s / Anything else denies: "
+                            prompt once
+                            (if always (format " / Always allow: %s" always) ""))
+                    nil 'spectreshell--clipboard-answer-history))))
+    (cond ((equal answer once) 'allow)
+          ((and always (equal answer always)) 'always)
+          (t 'deny))))
 
 (defun spectreshell--clipboard-prompt (obj request)
-  "Return the prompt asking whether to allow OBJ's REQUEST."
+  "Return the question whether to allow OBJ's REQUEST, for a prompt."
   (let ((where (if (eq (plist-get request :loc) 'primary)
                    "primary selection"
                  "clipboard")))
     (if (eq (plist-get request :op) 'read)
-        (format "Let %s read the %s? "
+        (format "Spectreshell: %s wants to read the %s."
                 (spectreshell--clipboard-program obj request) where)
-      (format "Let %s copy %d characters to the %s? "
+      (format "Spectreshell: %s wants to copy %d characters to the %s."
               (spectreshell--clipboard-program obj request)
               (length (spectreshell--clipboard-text request))
               where))))
