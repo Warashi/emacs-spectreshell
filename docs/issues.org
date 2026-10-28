@@ -2946,6 +2946,26 @@ top frame を見えているとするだけ) ので、ルートのフレーム�
 - 子の書き込みの後に =last-command= を消すのは =kill-region= と =yank=
   のときだけなので、cua の =cua-paste-pop= や evil の paste の続きでは
   効かない。
+- =C-u= / =M-<数字>= の後に止まると確認が出て、最初のキーが
+  =prefix-arg= を消費し答えが壊れる (結果は拒否、 =C-u= も失われる)。
+  =prefix-arg= が non-nil の間は待たせれば塞がる。
+- 確認の間だけ =this-command= などを束縛しているので、ほかのパッケージ
+  の timer が開いたミニバッファに答えた後は =this-command= が残り、次の
+  キーまで確認が出ない。 =real-last-command= / =last-repeatable-command=
+  / =last-prefix-arg= は束縛しておらず、確認の後の =C-x z= は確認の入力
+  を繰り返す。
+- 確認の間に端末が finalize されても、許可した書き込みは kill-ring に入
+  る。
+
+** TODO L-57: 確認に出す名前の無害化が正当な名前を壊す
+対象: =spectreshell.el= (=--clipboard-clean-name=)
+
+Mn / Mc を除くのでインド系の文字が欠け ( =தமிழ்= → =தமழ= )、NFC にして
+いないので NFD の名前が化ける ( =Tiếng Việt= → =Tieng Viet= )。
+=uni-confusable-table= の規則でヘブライ文字の YOD や =ʻ= も落ちる。逆に
+U+A78B など表に無い引用符に似た文字は残る。名前は子が自由に選べるので
+偽装で得られるものは小さい。直すなら NFC にしてから判定し、結合文字は残
+したうえで括りの文字だけを確実に除く形に寄せる。
 
 * ビルド・パッケージング
 
