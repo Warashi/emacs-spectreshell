@@ -77,8 +77,8 @@ stdenv.mkDerivation (finalAttrs: {
   };
 
   # --system は使わない: zig 0.17.0 は --system で渡したパッケージのパス依存
-  # (ghostty の pkg/*) を絶対パスに解決して拒否するため、zig がソースの横で
-  # 依存を探す zig-pkg に事前配置する方式で回避する
+  # (ghostty の pkg/*) を絶対パスに解決して拒否する (zon2nix の README) ため、
+  # zig がソースの横で依存を探す zig-pkg に事前配置する方式で回避する
   # symlink ではなく実体コピーにする: ビルド時実行 exe は依存パッケージの
   # ディレクトリを cwd として相対パスで spawn されるため、zig-pkg が store への
   # symlink だと物理 cwd が /nix/store 側になり相対パス解決が壊れる
