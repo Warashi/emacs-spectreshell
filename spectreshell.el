@@ -891,17 +891,16 @@ forgotten instead."
       (setq spectreshell--visibility-terminals
             (delq obj spectreshell--visibility-terminals)))))
 
-;; Windows gaining or losing the buffer, and frames being deleted.
+;; Windows gaining or losing the buffer, frames being deleted, and focus
+;; changes.  Emacs has no hook for a frame being iconified or made
+;; visible, and special-event-map or advice would override the user's own
+;; bindings; iconifying usually loses focus, so that stands in for it.
 ;; `after-delete-frame-functions' rather than `delete-frame-functions',
 ;; which runs while the frame is still in `frame-list'.
 (add-hook 'window-buffer-change-functions #'spectreshell--report-visibility)
 (add-hook 'after-delete-frame-functions #'spectreshell--report-visibility)
-;; Frame visibility changes have no hook: a window manager's iconify and
-;; deiconify arrive as these special events, and Lisp calls are advised.
-(define-key special-event-map [iconify-frame] #'spectreshell--report-visibility)
-(define-key special-event-map [make-frame-visible] #'spectreshell--report-visibility)
-(dolist (fn '(make-frame-visible make-frame-invisible iconify-frame))
-  (advice-add fn :after #'spectreshell--report-visibility))
+(add-function :after after-focus-change-function
+              #'spectreshell--report-visibility)
 
 ;; ---------------------------------------------------------------------
 ;; Colors (OSC 10 / 11 / 4)

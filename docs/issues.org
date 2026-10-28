@@ -2891,6 +2891,17 @@ Claude Code は =TERM_PROGRAM= で次を切り替える (調査時のバンド�
 取り消し線・OSC 8・OSC 9;4 が直結と同じになること。実環境の確認は
 未実施。
 
+** TODO L-55: GUI の iconify / deiconify を可視性の報告 (mode 2033) が即座に拾えない
+対象: =spectreshell.el= (=--report-visibility=)
+
+フレームの可視性の変化には hook が無い。special-event-map の上書きや
+advice は利用者の割り当てを潰すので使わず、フォーカスの変化
+(=after-focus-change-function=) を契機にして近似している。WM がフォー
+カスを変えずにフレームを隠したり出したりした場合は、次の契機 (ウィンド
+ウのバッファの変化、フォーカスの変化、フレームの削除) まで報告が遅れる。
+
+未確認: GUI の実機での iconify / deiconify。
+
 * ビルド・パッケージング
 
 ** DONE L-13: build.zig の terminfo install が system command 直書き

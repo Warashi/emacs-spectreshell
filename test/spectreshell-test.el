@@ -1163,12 +1163,10 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
       (run-hook-with-args 'after-delete-frame-functions (selected-frame))
       (should (equal responses '("\e[?999;2n")))
       (setq responses nil visible t)
-      (funcall (lookup-key special-event-map [make-frame-visible])
-               '(make-frame-visible (nil)))
+      (funcall after-focus-change-function)
       (should (equal responses '("\e[?999;1n")))
       (setq responses nil visible nil)
-      (funcall (lookup-key special-event-map [iconify-frame])
-               '(iconify-frame (nil)))
+      (funcall after-focus-change-function)
       (should (equal responses '("\e[?999;2n")))
       (setq responses nil)
       (spectreshell-feed term "\x1b[?2033l")
@@ -1180,12 +1178,6 @@ UTF-8 のタイトルと本文はそのままのバイト列で送る。"
       (setq responses nil visible nil)
       (run-hook-with-args 'window-buffer-change-functions (selected-frame))
       (should (null responses)))))
-
-(ert-deftest spectreshell-test-visibility-is-reevaluated-by-frame-commands ()
-  "Lisp から呼ぶ `make-frame-visible' `make-frame-invisible' `iconify-frame'
-も、可視性を再評価するきっかけにする。"
-  (dolist (fn '(make-frame-visible make-frame-invisible iconify-frame))
-    (should (advice-member-p #'spectreshell--report-visibility fn))))
 
 ;; ---------------------------------------------------------------------
 ;; 明暗の問い合わせと通知 (L-50)
