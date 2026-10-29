@@ -8,53 +8,8 @@
   less,
   darwin,
   callPackage,
-  writeShellScriptBin,
-  symlinkJoin,
   emacs31-nox,
 }:
-let
-  # macOS の Nix サンドボックスには Xcode がないが、ghostty の
-  # pkg/apple-sdk (zlib/simdutf/highway 等の pkg/* がビルドグラフ構築時に
-  # 呼ぶ) は zig の LibCInstallation.findNative 経由で
-  # `xcode-select --print-path` と `xcrun --sdk <名前> --show-sdk-path` を
-  # 実行して SDK を探すため、そのままでは DarwinSdkNotFound で panic する。
-  # xcbuild (xcode-select / xcrun 同梱) では解決できない: macosx は darwin
-  # stdenv の apple-sdk から解決できるものの、ghostty の build.zig は
-  # darwin ターゲットだと XCFramework 用に iOS / iOS Simulator 向けの
-  # グラフも無条件に構築し、そこで要求される iphoneos SDK は CLT 由来の
-  # Nix apple-sdk には存在しないため。
-  # そこで --sdk の値を無視して $SDKROOT (apple-sdk setup hook が設定する
-  # macOS SDK) を返すシムで両コマンドを置き換える。zig 側が見るのは
-  # 「exit 0 かつ stdout 非空」と SDK パスだけで、iOS 向けステップは
-  # グラフに乗るだけで実行されない (このパッケージの install が依存
-  # しない) ので、macOS SDK のパスを返しても実害はない。
-  # 想定外の引数はエラーにして誤用を検知する。
-  xcodeShim = symlinkJoin {
-    name = "xcode-shim";
-    paths = [
-      (writeShellScriptBin "xcode-select" ''
-        [ -n "''${SDKROOT:-}" ] || {
-          echo "xcode-select shim: SDKROOT is not set" >&2
-          exit 1
-        }
-        echo "$SDKROOT"
-      '')
-      (writeShellScriptBin "xcrun" ''
-        [ -n "''${SDKROOT:-}" ] || {
-          echo "xcrun shim: SDKROOT is not set" >&2
-          exit 1
-        }
-        case " $* " in
-          *" --show-sdk-path "*) echo "$SDKROOT" ;;
-          *)
-            echo "xcrun shim: unsupported invocation: xcrun $*" >&2
-            exit 1
-            ;;
-        esac
-      '')
-    ];
-  };
-in
 stdenv.mkDerivation (finalAttrs: {
   pname = "emacs-spectreshell";
   # build.zig.zon の .version と spectreshell.el の Version ヘッダに合わせる。
@@ -69,8 +24,7 @@ stdenv.mkDerivation (finalAttrs: {
     zig
     ncurses
     texinfo
-  ]
-  ++ lib.optionals stdenv.hostPlatform.isDarwin [ xcodeShim ];
+  ];
 
   deps = callPackage ../build.zig.zon.nix {
     name = "${finalAttrs.pname}-cache-${finalAttrs.version}";
@@ -85,11 +39,6 @@ stdenv.mkDerivation (finalAttrs: {
   postConfigure = ''
     cp -rL ${finalAttrs.deps} zig-pkg
     chmod -R u+w zig-pkg
-  ''
-  # darwin stdenv の apple-sdk は xcbuild 製 xcrun を propagate しており
-  # PATH 上でシムより先に来る可能性があるため、シムを先頭に固定する
-  + lib.optionalString stdenv.hostPlatform.isDarwin ''
-    export PATH="${xcodeShim}/bin:$PATH"
   '';
 
   # perl は checkPhase の ERT が POSIX::setsid で「制御端末を持たない
