@@ -3015,7 +3015,7 @@ zig を更新した際は x86_64 の Debug ビルドで ERT が通るか確認�
 =just check= (Zig テスト + ERT 369 件 + module-load) と =nix build= が
 通ることを確認した。segfault は再現しない。
 
-** WAIT B-2: ghostty が SDKROOT を直接使うようになったら xcode-shim を外す
+** DONE B-2: ghostty が SDKROOT を直接使うようになったら xcode-shim を外す
 対象: =nix/emacs-spectreshell.nix= (=xcodeShim=)
 
 macOS の Nix サンドボックスには Xcode がなく、ghostty の
@@ -3070,7 +3070,12 @@ libghostty-vt のビルドに足りるかは未確認 (推測)。
 =.universal= になり、iOS 向けのグラフが組まれる。iOS では
 フォールバックが効かず =XcodeiOSSDKNotFound= になる。そこで
 =build.zig= から依存に =emit-xcframework = false= を渡してシムを外し
-た。darwin の =nix flake check= が通るかは CI で確かめる。
+た。
+
+対応 (2026-10-29): シム無しで CI の darwin (macos-26) の
+=nix flake check= が通った (ERT 442 件 + artifact-smoke)。SDK は
+ghostty 同梱ヘッダへのフォールバック (=gen_libc=) で解決され、
+フレームワークのパス無しでもリンクできる。
 
 * 性能・UX (設計判断を要する改善)
 
