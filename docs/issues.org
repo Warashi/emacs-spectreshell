@@ -3064,6 +3064,14 @@ libghostty-vt のビルドに足りるかは未確認 (推測)。
 まれない見込み。シムを外して darwin の =nix flake check= が通るかは CI
 で確かめる。
 
+2026-10-29: 上の見込みは誤り。このリポジトリは ghostty を lib-vt モー
+ドで使わない ( =emit-lib-vt= を渡さない) ので、mac では
+=emit_xcframework= が既定で true、 =xcframework-target= が
+=.universal= になり、iOS 向けのグラフが組まれる。iOS では
+フォールバックが効かず =XcodeiOSSDKNotFound= になる。そこで
+=build.zig= から依存に =emit-xcframework = false= を渡してシムを外し
+た。darwin の =nix flake check= が通るかは CI で確かめる。
+
 * 性能・UX (設計判断を要する改善)
 
 ** DONE P-7: コマンドが最後に出した空行が確定時に消える

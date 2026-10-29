@@ -17,10 +17,15 @@ pub fn build(b: *std.Build) void {
     // APC で届く kitty graphics と glyph protocol は描画しないので、
     // ghostty-vt 側で無効にして読み捨てさせる。有効のままだと送られた
     // 画像やグリフが Terminal に溜まる。
+    //
+    // xcframework は使わないので作らせない。既定のままだと macOS ホストで
+    // iOS 向けのグラフまで組まれ、Xcode の無い Nix サンドボックスでは
+    // iOS SDK が見つからずビルドグラフの構築で失敗する。
     if (b.lazyDependency("ghostty", .{
         .target = target,
         .optimize = optimize,
         .@"vt-features" = "-kitty-graphics,-glyph-protocol",
+        .@"emit-xcframework" = false,
     })) |dep| {
         mod.addImport("ghostty-vt", dep.module("ghostty-vt"));
         mod.addImport("ghostty-terminfo", terminfoModule(b, dep));
