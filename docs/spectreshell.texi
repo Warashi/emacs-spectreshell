@@ -479,7 +479,7 @@ alternate screen (less・vim 等)、bracketed paste
 マウス (SGR mouse mode)
 @item
 XTVERSION ( @code{\e[>q} ) には Ghostty と同じく、同梱する ghostty の版で
-@code{ghostty 1.4.0} のように答える。マウスはセル座標でしか送れないので、
+@code{ghostty 1.4.1-dev} のように答える。マウスはセル座標でしか送れないので、
 DECRQM @code{?1016} (SGR pixel 座標) には未対応 (0) と答える
 @item
 カーソル位置の問い合わせ ( @code{\e[6n} ) には @code{\e[行;桁R} で、DECXCPR

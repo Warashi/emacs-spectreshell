@@ -362,7 +362,7 @@ less や vim などの alternate screen アプリの画面は確定化されず�
   反映はユーザー側のフック実装に委ねる
 - マウス (SGR mouse mode)
 - XTVERSION ( ~\e[>q~ ) には Ghostty と同じく、同梱する ghostty の版で
-  ~ghostty 1.4.0~ のように答える。マウスはセル座標でしか送れないので、
+  ~ghostty 1.4.1-dev~ のように答える。マウスはセル座標でしか送れないので、
   DECRQM ~?1016~ (SGR pixel 座標) には未対応 (0) と答える
 - カーソル位置の問い合わせ ( ~\e[6n~ ) には ~\e[行;桁R~ で、DECXCPR
   ( ~\e[?6n~ ) には Ghostty と同じくページ番号 1 を添えた

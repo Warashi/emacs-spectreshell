@@ -25,7 +25,7 @@ pub const Color = union(enum) {
     }
 
     fn fromGhostty(c: ghostty_vt.Style.Color) Color {
-        return switch (c) {
+        return switch (c.value()) {
             .none => .default,
             .palette => |p| .{ .palette = p },
             .rgb => |rgb| .{ .rgb = .{ .r = rgb.r, .g = rgb.g, .b = rgb.b } },

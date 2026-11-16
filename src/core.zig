@@ -1112,7 +1112,7 @@ test "XTVERSION は同梱する ghostty の版で Ghostty と同じ形で応答�
     var update = try t.feed(alloc, "\x1b[>q\x1b[>0q");
     defer update.deinit();
     try testing.expectEqualStrings(
-        "\x1bP>|ghostty 1.4.0\x1b\\\x1bP>|ghostty 1.4.0\x1b\\",
+        "\x1bP>|ghostty 1.4.1-dev\x1b\\\x1bP>|ghostty 1.4.1-dev\x1b\\",
         update.responses,
     );
 }

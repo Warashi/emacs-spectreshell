@@ -225,7 +225,7 @@ OSC 5522 には EPERM で答える。"
   (let* ((term (spectreshell--create 5 10))
          (update (spectreshell--feed term "\x1b[>q\x1b[>0q")))
     (should (equal (plist-get update :responses)
-                   "\x1bP>|ghostty 1.4.0\x1b\\\x1bP>|ghostty 1.4.0\x1b\\"))
+                   "\x1bP>|ghostty 1.4.1-dev\x1b\\\x1bP>|ghostty 1.4.1-dev\x1b\\"))
     (spectreshell--release term)))
 
 (ert-deftest spectreshell-module-test-desktop-notification-produces-relay ()
